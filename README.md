@@ -23,18 +23,35 @@ La BDD est créée par le bootstrap avec deux schémas :
 - `ipastore-prod` (branche `main`, port 80)
 - `ipastore-dev` (branche `dev`, port 8080)
 
-## Développement
+## Administration
+
+Le script `website-management.sh` gère les deux environnements. Sans argument, il affiche un menu interactif. Avec un argument, il exécute une commande unique.
 
 ```bash
-./dev.sh start    # démarre le conteneur dev
-./dev.sh stop     # arrête le conteneur dev
-./dev.sh restart  # redémarre
-./dev.sh sync     # sync incrémentale prod -> dev (data + fichiers)
-./dev.sh logs     # suit les logs du conteneur dev
-./dev.sh status   # état des conteneurs
+./website-management.sh                  # menu interactif
+./website-management.sh --help           # aide détaillée
+
+# Conteneurs
+./website-management.sh prod-start       # start/stop/restart/logs
+./website-management.sh dev-start
+./website-management.sh status
+
+# Mise à jour après un git push
+./website-management.sh prod-update      # pull main  + rebuild + restart
+./website-management.sh dev-update       # pull dev   + rebuild + restart
+
+# Données
+./website-management.sh sync                  # copie TOTALE prod -> dev (écrase dev)
+./website-management.sh prod-reset-users      # purge users + prompt login/mdp
+./website-management.sh dev-reset-users
 ```
 
-Le workflow : modifier le code sur la branche `dev`, `git push`, `./dev.sh restart` pour recharger.
+### Workflow code
+
+1. Modifier localement sur la branche `dev`, `git push`.
+2. Sur la VM : `./website-management.sh dev-update`.
+3. Une fois validé, merger `dev` -> `main` et `git push`.
+4. Sur la VM : `./website-management.sh prod-update`.
 
 ## Configuration
 
@@ -49,7 +66,7 @@ static/           # CSS + JS
 deploy/           # install.sh, nginx, systemd (legacy) + bootstrap.sh
 Dockerfile
 docker-compose.yml
-dev.sh
+website-management.sh
 ```
 
 ## Licence

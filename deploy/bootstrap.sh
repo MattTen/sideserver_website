@@ -99,4 +99,7 @@ echo "  2. git clone -b dev https://github.com/MattTen/sideserver_website.git /o
 echo "  3. Créer /opt/sideserver-prod/.env (CONTAINER_NAME, HOST_PORT=80, ENV_FILE=/etc/ipastore/prod.env, STORE_PATH=/srv/store-prod)"
 echo "  4. Créer /opt/sideserver-dev/.env  (CONTAINER_NAME, HOST_PORT=8080, ENV_FILE=/etc/ipastore/dev.env,  STORE_PATH=/srv/store-dev)"
 echo "  5. cd /opt/sideserver-prod && docker compose up -d --build"
-echo "  6. cd /opt/sideserver-dev  && ./dev.sh start"
+echo "  6. cd /opt/sideserver-dev  && ./website-management.sh dev-start"
+echo
+echo "Le script ./website-management.sh (dans chaque clone) gère les 2 environnements."
+echo "Utilise ./website-management.sh sans argument pour le menu interactif."
