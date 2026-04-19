@@ -503,7 +503,7 @@ cmd_scinsta_cancel() {
   local now
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   cat > "$result" <<JSON
-{"status":"failed","finished_at":"$now","error":"Build annule par l'admin"}
+{"status":"failed","finished_at":"$now","error":"Build annulé"}
 JSON
   rm -f "$progress"
   ok "Build $env marque comme annule."

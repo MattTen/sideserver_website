@@ -18,10 +18,10 @@ ENV PYTHONUNBUFFERED=1
 ENV LANG=C.UTF-8
 
 # Dependances Theos (officielles, cf. https://theos.dev/docs/linux-instructions).
-# - clang / make / ldid / perl : compilation des tweaks iOS
+# - clang / make / perl : compilation des tweaks iOS
 # - fakeroot : requis par dpkg-deb invoque par Theos (meme si on ne produit
 #   pas de .deb, make package touche dpkg).
-# - git : clone SCInsta + installation de Theos + cyan
+# - git : clone SCInsta + installation de Theos + cyan + ldid
 # - cmake : build de FLEXing / libflex (CMakeLists dans le repo SCInsta)
 # - libxml2 : lief via pip a besoin de libxml2 sur certaines plateformes
 # - python3-venv + pip : runtime Python 3.13 via pipx/venv pour cyan
@@ -29,13 +29,23 @@ ENV LANG=C.UTF-8
 # - unzip / xz-utils / bzip2 / zip : manipulations des archives (IPA, SDK)
 # - zstd : compression utilisee par les archives Theos modernes
 # - rsync : copie des dylibs (sync atomique)
-# - libplist-utils : plutil/plistutil (lecture Info.plist depuis ipapatch)
+# - libplist-utils / libplist-dev : plutil/plistutil + headers pour ldid
+# - libssl-dev : openssl headers, requis par ldid pour signer
+# Note : le paquet `ldid` n'est pas dispo dans bookworm, on le compile
+# depuis ProcursusTeam/ldid dans le RUN suivant.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential clang make perl fakeroot ldid \
+        build-essential clang make perl fakeroot \
         git curl ca-certificates unzip xz-utils bzip2 zip zstd rsync \
-        cmake pkg-config libplist-utils \
+        cmake pkg-config libplist-utils libplist-dev libssl-dev \
         python3 python3-pip python3-venv python3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# ─── ldid (absent de Debian bookworm) ─────────────────────────────────
+# Fork moderne ProcursusTeam (utilise par Theos). Build <30s, binaire seul.
+RUN git clone --recursive https://github.com/ProcursusTeam/ldid.git /tmp/ldid \
+    && make -C /tmp/ldid -j"$(nproc)" \
+    && install -m 0755 /tmp/ldid/ldid /usr/local/bin/ldid \
+    && rm -rf /tmp/ldid
 
 # ─── Theos ─────────────────────────────────────────────────────────────
 # Installe Theos dans /opt/theos (path stable, monte-agnostique).

@@ -466,7 +466,7 @@ def clear_upload() -> None:
 def dismiss_last_build_error(db: Session) -> None:
     """Efface le message d'erreur du dernier build (fermeture par l'admin).
 
-    Utile apres une annulation : l'alert "Build annule par l'admin" reste
+    Utile apres une annulation : l'alert "Build annulé" reste
     affichee tant que le setting n'est pas vide — ce helper permet a l'UI
     de retirer le message via un bouton de fermeture.
     """
