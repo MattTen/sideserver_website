@@ -54,6 +54,20 @@ RUN git clone --recursive https://github.com/ProcursusTeam/ldid.git /tmp/ldid \
 ENV THEOS=/opt/theos
 RUN git clone --recursive https://github.com/theos/theos.git /opt/theos
 
+# ─── Toolchain iOS (cross-compile Linux → iOS arm64) ───────────────────
+# Theos invoque $THEOS/toolchain/linux/iphone/bin/clang pour compiler
+# les tweaks. Le repo theos/theos ne contient que la scaffolding ; il
+# faut telecharger un toolchain prebuild. On utilise le L1ghtmann/llvm-project
+# iOSToolchain (version non-Swift, suffisante pour SCInsta — pas de code
+# Swift dans les tweaks). C'est ce que le script officiel `install-theos`
+# utilise sur Linux x86_64 sans Swift.
+# Le tarball contient directement linux/iphone/bin/ etc., on extrait dans
+# $THEOS/toolchain/ pour obtenir la structure attendue.
+RUN mkdir -p $THEOS/toolchain \
+    && curl -sL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz \
+       | tar -xJf - -C $THEOS/toolchain/ \
+    && test -x $THEOS/toolchain/linux/iphone/bin/clang
+
 # ─── iOS SDK ───────────────────────────────────────────────────────────
 # SCInsta/build.sh reference iPhoneOS16.2.sdk en dur ("Your chosen SDK..."
 # si absent). Mais theos/sdks master n'heberge que 16.5 pour la serie 16.x
