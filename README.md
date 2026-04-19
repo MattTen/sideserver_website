@@ -61,6 +61,8 @@ Détails complets : [documentation/server.md](documentation/server.md).
 
 Les conteneurs lisent leur config depuis `/etc/ipastore/prod.env` et `/etc/ipastore/dev.env` (voir [.env.example](.env.example)). Rien n'est hardcodé.
 
+La variable la plus importante à configurer est `IPASTORE_BASE_URL` : c'est l'adresse IP (ou domaine) du serveur que SideStore utilisera pour télécharger les IPAs. C'est l'URL que l'utilisateur entre dans SideStore pour ajouter la source — le feed `source.json` l'intègre dans toutes les URLs de téléchargement (`downloadURL`, `iconURL`…). SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
+
 ## Structure
 
 ```
