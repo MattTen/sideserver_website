@@ -177,6 +177,21 @@ Voir `documentation/credentials.md` pour le détail complet.
 
 ---
 
+## Structure des bases de données
+
+4 tables, créées automatiquement au boot par SQLAlchemy (`Base.metadata.create_all()`).
+
+| Table | Rôle |
+|---|---|
+| `users` | Comptes admin (username + hash bcrypt) |
+| `settings` | Paramètres clé/valeur du magasin (nom, base_url, tint…) |
+| `apps` | Métadonnées des apps iOS (bundle_id, nom, icône…) |
+| `versions` | IPAs uploadés — relation N/1 vers `apps` (cascade delete) |
+
+Détail complet des colonnes, index et contraintes : `documentation/databases.md`.
+
+---
+
 ## Règles de développement
 
 ### 1. Branche
@@ -191,10 +206,19 @@ Commenter le **WHY**, pas le WHAT. Ajouter un commentaire quand :
 
 Ne pas commenter ce que le nom de la fonction ou variable exprime déjà.
 
-### 3. Documentation
+### 3. Prod — interdiction absolue
+**Claude ne doit jamais intervenir directement sur la prod.** Cela inclut :
+- Toute commande SSH ciblant le conteneur prod ou la BDD `ipastore-prod`
+- Tout appel à `website-management prod-*` qui modifie des données (reset-users, sync-to-prod…)
+- Toute modification directe de `/srv/store-prod/` ou `/etc/ipastore/prod.env`
+
+Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la demande **explicite** de l'utilisateur après validation en dev.
+
+### 4. Documentation
 **À chaque feature ajoutée, modifiée ou supprimée** : mettre à jour les fichiers concernés dans `documentation/` :
 - `documentation/server.md` → architecture, script, déploiement, systemd
 - `documentation/credentials.md` → tout ce qui touche aux credentials
+- `documentation/databases.md` → toute modification du schéma BDD
 
 ### 4. Static files
 Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.

@@ -143,6 +143,7 @@ website-management --help           # aide
 | Commande             | Action                                                                 |
 |----------------------|------------------------------------------------------------------------|
 | `sync`               | Clone TOTAL prod → dev (drop+recreate BDD dev + rsync --delete du store). **Écrase tout ce qui est dans dev.** |
+| `sync-to-prod`       | Clone TOTAL dev → prod (drop+recreate BDD prod + rsync --delete du store). **IRRÉVERSIBLE — écrase prod.** Double confirmation exigée. |
 | `prod-reset-users`   | Prompt login/mdp, supprime tous les users prod, crée un nouvel admin.  |
 | `dev-reset-users`    | Idem sur dev.                                                          |
 
