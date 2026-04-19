@@ -62,11 +62,12 @@ Interface d'administration self-hosted pour distribuer des fichiers IPA (.ipa) �
 app/
   config.py         # Variables d'environnement + chemins
   db.py             # Engine SQLAlchemy, session factory
-  models.py         # ORM : User, Setting, App, Version
+  models.py         # ORM : User, Setting, App, Version, News
   auth.py           # bcrypt + TimestampSigner + dépendances FastAPI
   ipa.py            # Parser IPA (ZIP + Info.plist + extraction icône)
   source_gen.py     # Génération du feed source.json pour SideStore
   updates.py        # Polling GitHub releases + flag-file pour MAJ
+  patches.py        # Découverte + exécution des scripts patch/ (PatchInfo, run_patch)
   templates.py      # Instance Jinja2 + filtres (size, date)
   main.py           # create_app(), montage routes + static, lifespan
   routes/
@@ -76,18 +77,31 @@ app/
     settings.py     # /settings (métadonnées store + mot de passe)
     public.py       # /source.json /qr.svg (sans auth)
     updates.py      # /settings/updates/check|apply
+    news.py         # /news/** (articles du feed SideStore)
+    patches.py      # /patches/** (listing, détail, rename, run)
+
+patch/              # Scripts de patch IPA (copiés dans l'image via Dockerfile)
+  fix_ipa.py        # Patch générique : FAT→thin arm64, strip signature (ldid assertion)
+  fix_ipa_scinsta.py  # Idem + suppression Extensions/ (SCInsta / IXErrorDomain Code=8)
 
 templates/          # Jinja2 HTML
-static/             # CSS, JS, default-app.png
+  _icons/           # SVG inline (Feather-style) dont wrench.svg pour l'onglet Patch
+static/             # CSS (style.css), JS (app.js), default-app.png
 tools/
   website-management.sh   # Script de gestion prod/dev (voir ci-dessous)
 deploy/
   systemd/          # Units systemd (path watcher + service MAJ)
   bootstrap.sh      # Script d'installation initiale (exécuté en root)
 documentation/      # Documentation serveur et credentials (exclu du serveur)
+  server.md         # Architecture, déploiement, features, onglet Patch
+  databases.md      # Schéma BDD complet (tables + settings keys)
+  credentials.md    # Cycle de vie des secrets
+  patch_fix_ipa.md          # Doc technique fix_ipa.py
+  patch_fix_ipa_scinsta.md  # Doc technique fix_ipa_scinsta.py
 CLAUDE.md           # Ce fichier (exclu du serveur)
-Dockerfile
+Dockerfile          # COPY patch ./patch inclus
 docker-compose.yml
+requirements.txt    # lief>=0.16 requis pour les scripts de patch
 ```
 
 ---
@@ -184,7 +198,7 @@ Voir `documentation/credentials.md` pour le détail complet.
 | Table | Rôle |
 |---|---|
 | `users` | Comptes admin (username + hash bcrypt) |
-| `settings` | Paramètres clé/valeur du magasin (nom, base_url, tint, icône/header store…) |
+| `settings` | Paramètres clé/valeur du magasin (nom, base_url, tint, icône/header store, noms/descriptions des patchs…) |
 | `apps` | Métadonnées des apps iOS (bundle_id, nom, icône…) |
 | `versions` | IPAs uploadés — relation N/1 vers `apps` (cascade delete) |
 | `news` | Articles du feed SideStore (titre, caption, image, notify, lien app) |
@@ -217,19 +231,28 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 
 ### 4. Documentation
 **À chaque feature ajoutée, modifiée ou supprimée** : mettre à jour les fichiers concernés dans `documentation/` :
-- `documentation/server.md` → architecture, script, déploiement, systemd
+- `documentation/server.md` → architecture, script, déploiement, systemd, onglet Patch
 - `documentation/credentials.md` → tout ce qui touche aux credentials
-- `documentation/databases.md` → toute modification du schéma BDD
+- `documentation/databases.md` → toute modification du schéma BDD (tables + clés `settings`)
+- `documentation/patch_fix_ipa.md` + `patch_fix_ipa_scinsta.md` → si les scripts de patch évoluent
 
-### 4. Static files
+### 5. Onglet Patch
+- Les scripts dans `patch/` sont auto-découverts à chaque requête (pas de registration).
+- Contrat CLI strict : `script.py -s /chemin/vers/app.ipa` — le script écrase l'IPA en place.
+- Ajouter un patch = créer le `.py` dans `patch/` sur GitHub + pull + rebuild.
+- Nom d'affichage : clé `patch_display_name:{filename}` dans `settings`.
+- Description : clé `patch_description:{filename}` dans `settings`.
+- Après exécution réussie, `size` et `sha256` de la version sont recalculés en BDD.
+
+### 7. Static files
 Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.
 
-### 5. source.json
+### 8. source.json
 - Servi sans cache (`Cache-Control: no-cache`) et avec CORS ouvert (`*`)
 - `iconURL` ne doit **jamais** être une chaîne vide (SideStore rejette) → fallback sur `/static/default-app.png`
 - `downloadURL` pointe vers `/ipas/{filename}` — les fichiers doivent exister dans `STORE_DIR/ipas/`
 
-### 6. Commits
+### 9. Commits
 Format : `type(scope): description courte` (conventionnel).
 Toujours avec co-auteur :
 ```
