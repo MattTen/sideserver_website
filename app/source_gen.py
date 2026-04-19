@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from .config import Config
-from .models import App, Setting
+from .models import App, News, Setting
 
 
 _DEFAULT_ICON_PATH = "/static/default-app.png"
@@ -30,11 +30,13 @@ def set_setting(db: Session, key: str, value: str) -> None:
 
 
 def build_source(db: Session) -> dict[str, Any]:
-    base_url = get_setting(db, "base_url", "http://192.168.0.202").rstrip("/")
+    base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
     store_name = get_setting(db, "store_name", "Magasin Perso")
     store_subtitle = get_setting(db, "store_subtitle", "")
     store_description = get_setting(db, "store_description", "")
     store_tint = get_setting(db, "store_tint", "c9a678")
+    store_icon_file = get_setting(db, "store_icon_file", "")
+    store_header_file = get_setting(db, "store_header_file", "")
 
     apps: list[dict[str, Any]] = []
     featured: list[str] = []
@@ -78,18 +80,46 @@ def build_source(db: Session) -> dict[str, Any]:
         if app.featured:
             featured.append(app.bundle_id)
 
-    return {
+    # Icône du store : fichier uploadé via UI (store_icon_file) en priorité,
+    # _store.png en fallback pour compat avec une éventuelle pose manuelle,
+    # puis default-app si vraiment rien.
+    if store_icon_file and (Config.ICONS_DIR / store_icon_file).exists():
+        store_icon_url = f"{base_url}/icons/{store_icon_file}"
+    elif (Config.ICONS_DIR / "_store.png").exists():
+        store_icon_url = f"{base_url}/icons/_store.png"
+    else:
+        store_icon_url = f"{base_url}{_DEFAULT_ICON_PATH}"
+
+    news_payload: list[dict[str, Any]] = []
+    for article in db.execute(select(News).order_by(News.date.desc())).scalars():
+        entry: dict[str, Any] = {
+            "title": article.title,
+            "identifier": article.identifier,
+            "caption": article.caption,
+            "date": article.date.replace(tzinfo=dt.UTC).isoformat(),
+            # Tint vide = héritage de celle du store pour garantir une couleur.
+            "tintColor": article.tint_color or store_tint,
+            "notify": bool(article.notify),
+        }
+        if article.image_path and (Config.NEWS_DIR / article.image_path).exists():
+            entry["imageURL"] = f"{base_url}/news-img/{article.image_path}"
+        if article.url:
+            entry["url"] = article.url
+        if article.app_bundle_id:
+            entry["appID"] = article.app_bundle_id
+        news_payload.append(entry)
+
+    payload: dict[str, Any] = {
         "name": store_name,
         "subtitle": store_subtitle,
         "description": store_description,
-        "iconURL": (
-            f"{base_url}/icons/_store.png"
-            if (Config.ICONS_DIR / "_store.png").exists()
-            else f"{base_url}{_DEFAULT_ICON_PATH}"
-        ),
+        "iconURL": store_icon_url,
         "website": base_url + "/",
         "tintColor": store_tint,
         "featuredApps": featured,
         "apps": apps,
-        "news": [],
+        "news": news_payload,
     }
+    if store_header_file and (Config.ICONS_DIR / store_header_file).exists():
+        payload["headerURL"] = f"{base_url}/icons/{store_header_file}"
+    return payload

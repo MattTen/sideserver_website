@@ -27,6 +27,10 @@
         {% include "_icons/box.svg" ignore missing %}
         <span>Applications</span>
       </a>
+      <a href="/news" class="{% if active == 'news' %}active{% endif %}">
+        {% include "_icons/news.svg" ignore missing %}
+        <span>Actualités</span>
+      </a>
       <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">
         {% include "_icons/sliders.svg" ignore missing %}
         <span>Réglages</span>

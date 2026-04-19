@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Actualités - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Actualités</h1>
+    <div class="subtitle">{{ items|length }} article{{ 's' if items|length != 1 else '' }} publié{{ 's' if items|length != 1 else '' }} dans <code>source.json</code>.</div>
+  </div>
+  <div class="row-gap">
+    <a href="/news/new" class="btn btn-primary">
+      {% include "_icons/check.svg" %}
+      <span>Nouvel article</span>
+    </a>
+  </div>
+</div>
+
+{% if items %}
+<div class="news-grid">
+  {% for n in items %}
+  <a href="/news/{{ n.id }}" class="news-card" style="--news-tint: #{{ n.tint_color or 'c9a678' }};">
+    {% if n.image_path %}
+    <div class="news-card-image" style="background-image: url('/news-img/{{ n.image_path }}');"></div>
+    {% else %}
+    <div class="news-card-image news-card-image-empty"></div>
+    {% endif %}
+    <div class="news-card-body">
+      <div class="news-card-meta">
+        <span class="mono">{{ n.date|date }}</span>
+        {% if n.notify %}<span class="badge badge-accent"><span class="badge-dot"></span>Notif</span>{% endif %}
+      </div>
+      <div class="news-card-title">{{ n.title }}</div>
+      {% if n.caption %}<div class="news-card-caption">{{ n.caption }}</div>{% endif %}
+      <div class="news-card-foot mono">{{ n.identifier }}</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <strong>Aucun article</strong>
+  Publie une actualité pour qu'elle apparaisse en haut de SideStore.
+</div>
+{% endif %}
+{% endblock %}

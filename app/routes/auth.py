@@ -1,5 +1,11 @@
-"""Login, logout, first-time setup."""
+"""Routes d'authentification : login, logout, et setup initial.
+
+/setup est accessible uniquement si la table users est vide (premier démarrage).
+Une fois un compte créé, /setup redirige vers /login.
+"""
 from __future__ import annotations
+
+import datetime as dt
 
 from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.responses import RedirectResponse
@@ -40,7 +46,6 @@ def login_submit(
             {"error": "Identifiants incorrects", "username": username},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-    import datetime as dt
     user.last_login = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     db.commit()
     token = create_session_token(user.id)

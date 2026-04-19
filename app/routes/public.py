@@ -1,4 +1,9 @@
-"""Public endpoints: source.json + QR."""
+"""Endpoints publics (sans authentification) : source.json et QR code.
+
+source.json est le feed consommé par SideStore. Il est servi sans cache
+et avec CORS ouvert (*) pour que SideStore puisse y accéder depuis n'importe
+quelle origine (l'app iOS n'a pas de cookie de session).
+"""
 from __future__ import annotations
 
 import io
@@ -8,6 +13,7 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from ..config import Config
 from ..db import get_db
 from ..source_gen import build_source, get_setting
 
@@ -28,7 +34,7 @@ def source_json(db: Session = Depends(get_db)):
 
 @router.get("/qr.svg")
 def source_qr(db: Session = Depends(get_db)):
-    base = get_setting(db, "base_url", "http://192.168.0.202").rstrip("/")
+    base = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
     url = f"{base}/source.json"
     qr = segno.make(url, error="m")
     buf = io.BytesIO()
