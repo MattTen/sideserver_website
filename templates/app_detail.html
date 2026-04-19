@@ -133,6 +133,7 @@
               <input type="radio" name="tint_preset" value="custom"
                      {% if cur not in tint_preset_values %}checked{% endif %}
                      onchange="tintPick('custom')">
+              <span>…</span>
             </label>
           </div>
           <input type="hidden" name="tint_color" id="tint-hidden" value="{{ app.tint_color }}">

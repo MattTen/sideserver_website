@@ -29,7 +29,7 @@
       </div>
       <form method="post" action="/settings/icon" enctype="multipart/form-data" class="row-gap mt-4">
         <label class="btn btn-sm" style="cursor:pointer;">
-          <input type="file" name="icon" accept="image/*" onchange="this.form.submit()" style="display:none;">
+          <input type="file" name="icon" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
           {{ 'Remplacer' if store_icon_file else 'Téléverser' }}
         </label>
         {% if store_icon_file %}
@@ -38,9 +38,6 @@
       </form>
       {% if store_icon_file %}
       <form id="remove-icon-form" method="post" action="/settings/icon/remove"></form>
-      <div class="hint mt-4" style="word-break:break-all;">
-        URL SideStore : <a href="{{ base_url }}/icons/{{ store_icon_file }}" target="_blank" class="mono" style="font-size:11px;">{{ base_url }}/icons/{{ store_icon_file }}</a>
-      </div>
       {% endif %}
     </div>
 
@@ -86,7 +83,7 @@
         <div class="field">
           <label>URL publique du serveur</label>
           <input class="input input-mono" name="base_url" value="{{ base_url }}" required>
-          <span class="hint">Inclure le port si nécessaire (ex : <code>http://192.168.1.100:8080</code>). Utilisée dans <code>source.json</code> pour tous les liens — icône, IPAs, screenshots.</span>
+          <span class="hint">Utilisée pour construire les liens des IPAs (ex : <code>http://192.168.1.100</code>).</span>
         </div>
         <div class="field">
           <label>Couleur d'accent (hex)</label>
