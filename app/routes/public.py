@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from ..config import Config
 from ..db import get_db
 from ..source_gen import build_source, get_setting
 
@@ -33,7 +34,7 @@ def source_json(db: Session = Depends(get_db)):
 
 @router.get("/qr.svg")
 def source_qr(db: Session = Depends(get_db)):
-    base = get_setting(db, "base_url", "http://192.168.0.202").rstrip("/")
+    base = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
     url = f"{base}/source.json"
     qr = segno.make(url, error="m")
     buf = io.BytesIO()

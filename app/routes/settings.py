@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..auth import hash_password, require_user, verify_password
+from ..config import Config
 from ..db import get_db
 from ..models import User
 from ..source_gen import get_setting, set_setting
@@ -30,7 +31,7 @@ def settings_page(
             "store_subtitle": get_setting(db, "store_subtitle", ""),
             "store_description": get_setting(db, "store_description", ""),
             "store_tint": get_setting(db, "store_tint", "c9a678"),
-            "base_url": get_setting(db, "base_url", "http://192.168.0.202"),
+            "base_url": get_setting(db, "base_url", Config.DEFAULT_BASE_URL),
             "msg": None,
             "err": None,
             "active": "settings",
@@ -45,12 +46,12 @@ def settings_save(
     store_subtitle: str = Form(""),
     store_description: str = Form(""),
     store_tint: str = Form("c9a678"),
-    base_url: str = Form("http://192.168.0.202"),
+    base_url: str = Form(Config.DEFAULT_BASE_URL),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
     tint = re.sub(r"[^0-9a-fA-F]", "", store_tint)[:6].lower() or "c9a678"
-    base_url = base_url.strip().rstrip("/") or "http://192.168.0.202"
+    base_url = base_url.strip().rstrip("/") or Config.DEFAULT_BASE_URL
     set_setting(db, "store_name", store_name.strip() or "Magasin Perso")
     set_setting(db, "store_subtitle", store_subtitle.strip())
     set_setting(db, "store_description", store_description.strip())
@@ -85,7 +86,7 @@ def settings_password(
                 "store_subtitle": get_setting(db, "store_subtitle", ""),
                 "store_description": get_setting(db, "store_description", ""),
                 "store_tint": get_setting(db, "store_tint", "c9a678"),
-                "base_url": get_setting(db, "base_url", "http://192.168.0.202"),
+                "base_url": get_setting(db, "base_url", Config.DEFAULT_BASE_URL),
                 "msg": None,
                 "err": err,
                 "active": "settings",

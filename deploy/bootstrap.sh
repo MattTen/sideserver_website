@@ -15,7 +15,7 @@ fi
 
 : "${DB_PASS_PROD:?Exporter DB_PASS_PROD (mot de passe MariaDB pour l'user ipastore-prod)}"
 : "${DB_PASS_DEV:?Exporter DB_PASS_DEV (mot de passe MariaDB pour l'user ipastore-dev)}"
-: "${BASE_URL:=http://192.168.0.202}"
+: "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.1.100)}"
 
 echo "[bootstrap] Installation des paquets..."
 apt-get update

@@ -43,7 +43,8 @@ class Config:
     )
 
     # URL publique du serveur, utilisée pour construire les liens dans source.json.
-    DEFAULT_BASE_URL = os.environ.get("IPASTORE_BASE_URL", "http://192.168.0.202")
+    # Doit être définie dans /etc/ipastore/{prod,dev}.env via IPASTORE_BASE_URL.
+    DEFAULT_BASE_URL = os.environ.get("IPASTORE_BASE_URL", "")
 
     # ── Sessions ─────────────────────────────────────────────────────────────
     SESSION_COOKIE = "ipastore_session"

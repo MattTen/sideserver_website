@@ -30,7 +30,7 @@ def set_setting(db: Session, key: str, value: str) -> None:
 
 
 def build_source(db: Session) -> dict[str, Any]:
-    base_url = get_setting(db, "base_url", "http://192.168.0.202").rstrip("/")
+    base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
     store_name = get_setting(db, "store_name", "Magasin Perso")
     store_subtitle = get_setting(db, "store_subtitle", "")
     store_description = get_setting(db, "store_description", "")
