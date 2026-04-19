@@ -1,0 +1,48 @@
+# Environnements & secrets
+.env
+.env.*
+!.env.example
+*.env
+secret_key
+/etc/ipastore/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Données runtime (jamais dans le repo)
+/srv/store/
+store/
+ipas/
+icons/
+screenshots/
+*.ipa
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+
+# Claude Code session state
+.claude/
+
+# Logs
+*.log
+logs/

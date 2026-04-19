@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Applications - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Applications</h1>
+    <div class="subtitle">{{ rows|length }} bundle{{ 's' if rows|length != 1 else '' }} indexé{{ 's' if rows|length != 1 else '' }}.</div>
+  </div>
+  <div class="row-gap">
+    <a href="/#upload" class="btn btn-primary">
+      {% include "_icons/upload.svg" %}
+      <span>Nouvel IPA</span>
+    </a>
+  </div>
+</div>
+
+{% if rows %}
+<div class="table-wrap">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>App</th>
+        <th>Bundle ID</th>
+        <th>Versions</th>
+        <th>Taille totale</th>
+        <th>Dernier upload</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app, n_versions, total_size, last_upload in rows %}
+      <tr>
+        <td>
+          <div class="app-cell">
+            {% if app.icon_path %}
+            <img src="/icons/{{ app.icon_path }}" class="app-icon" alt="">
+            {% else %}
+            <div class="app-icon"></div>
+            {% endif %}
+            <div>
+              <div style="font-weight: 500;">{{ app.name }}</div>
+              <div class="text-muted" style="font-size: 12px;">{{ app.developer_name }}</div>
+            </div>
+          </div>
+        </td>
+        <td class="mono-sm">{{ app.bundle_id }}</td>
+        <td><span class="badge">{{ n_versions }}</span></td>
+        <td>{{ total_size|size }}</td>
+        <td class="text-muted">{{ last_upload|date }}</td>
+        <td><a href="/apps/{{ app.bundle_id }}" class="btn btn-sm">Gérer</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">
+  <strong>Aucune application</strong>
+  Téléverse ton premier IPA depuis le dashboard.
+</div>
+{% endif %}
+{% endblock %}

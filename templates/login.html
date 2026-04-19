@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Connexion - IPA Store{% endblock %}
+{% block anon %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-mark">ip</div>
+      <div>
+        <div class="brand-name">IPA Store</div>
+        <span class="brand-sub">Magasin perso</span>
+      </div>
+    </div>
+    <h1>Connexion</h1>
+    <p class="sub">Accès à l'interface d'administration.</p>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" autocomplete="off">
+      <div class="field">
+        <label for="username">Identifiant</label>
+        <input class="input" id="username" name="username" value="{{ username|default('') }}" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input class="input" id="password" name="password" type="password" required>
+      </div>
+      <button class="btn btn-primary" type="submit">Se connecter</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

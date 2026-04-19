@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ app.name }} - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1><a href="/apps" class="text-muted" style="font-size: 14px;">Apps</a> <span class="text-dim">/</span> {{ app.name }}</h1>
+    <div class="subtitle mono-sm">{{ app.bundle_id }}</div>
+  </div>
+  <div class="row-gap">
+    <form method="post" action="/apps/{{ app.bundle_id }}/delete" onsubmit="return confirm('Supprimer définitivement {{ app.name }} et toutes ses versions ?');">
+      <button class="btn btn-danger" type="submit">
+        {% include "_icons/trash.svg" %}
+        <span>Supprimer l'app</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="app-detail-head">
+  {% if app.icon_path %}
+  <img src="/icons/{{ app.icon_path }}" class="app-icon app-icon-xl" alt="">
+  {% else %}
+  <div class="app-icon app-icon-xl"></div>
+  {% endif %}
+  <div>
+    <h2 class="title">{{ app.name }}</h2>
+    <div class="dev">{{ app.developer_name }}{% if app.subtitle %} — {{ app.subtitle }}{% endif %}</div>
+    <div class="mt-4 row-gap">
+      <span class="chip">{{ app.category }}</span>
+      <span class="chip"><span class="color-swatch" style="background:#{{ app.tint_color }};"></span>#{{ app.tint_color }}</span>
+      {% if app.featured %}<span class="badge badge-accent"><span class="badge-dot"></span>En avant</span>{% endif %}
+      <span class="chip">{{ versions|length }} version{{ 's' if versions|length != 1 else '' }}</span>
+    </div>
+  </div>
+  <form method="post" action="/apps/{{ app.bundle_id }}/icon" enctype="multipart/form-data">
+    <label class="btn btn-sm" style="cursor:pointer;">
+      <input type="file" name="icon" accept="image/*" onchange="this.form.submit()" style="display:none;">
+      Changer icône
+    </label>
+  </form>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h2>Versions</h2>
+    {% if versions %}
+      {% for v in versions %}
+      <div class="version-row">
+        <div>
+          <div class="v-label">{{ v.version }} <span class="text-dim">({{ v.build_version }})</span></div>
+          <div class="v-meta">{{ v.uploaded_at|date }} — {{ v.size|size }}</div>
+        </div>
+        <details style="cursor:pointer;">
+          <summary class="v-meta">Détails</summary>
+          <div class="mt-4">
+            <div class="v-meta">SHA-256 : <code>{{ v.sha256 }}</code></div>
+            <div class="v-meta">Min iOS : <code>{{ v.min_os_version }}</code></div>
+            <div class="v-meta">Fichier : <code>{{ v.ipa_filename }}</code></div>
+            <form method="post" action="/apps/{{ app.bundle_id }}/versions/{{ v.id }}/changelog" class="mt-4">
+              <label class="v-meta" style="display:block; margin-bottom:4px;">Changelog / description</label>
+              <textarea class="textarea" name="changelog" rows="3">{{ v.changelog }}</textarea>
+              <button type="submit" class="btn btn-sm mt-4">Enregistrer</button>
+            </form>
+          </div>
+        </details>
+        <a href="/ipas/{{ v.ipa_filename }}" class="btn btn-sm">Télécharger</a>
+        <form method="post" action="/apps/{{ app.bundle_id }}/versions/{{ v.id }}/delete" onsubmit="return confirm('Supprimer la version {{ v.version }} ({{ v.build_version }}) ?');">
+          <button class="btn btn-sm btn-danger" type="submit">
+            {% include "_icons/trash.svg" %}
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="empty"><strong>Aucune version</strong>L'app n'a plus de build.</div>
+    {% endif %}
+
+    <div class="mt-8" style="padding-top: 20px; border-top: 1px solid var(--border);">
+      <h2>Ajouter une version</h2>
+      <form method="post" action="/apps/upload" enctype="multipart/form-data">
+        <label class="dropzone">
+          <input type="file" name="ipa" accept=".ipa" required onchange="this.form.submit()">
+          <strong>Glisse un nouvel IPA</strong>
+          <div class="hint">la version et le build seront extraits de l'Info.plist</div>
+        </label>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Métadonnées</h2>
+    <form method="post" action="/apps/{{ app.bundle_id }}/edit">
+      <div class="field">
+        <label>Nom</label>
+        <input class="input" name="name" value="{{ app.name }}" required>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Développeur</label>
+          <input class="input" name="developer_name" value="{{ app.developer_name }}">
+        </div>
+        <div class="field">
+          <label>Catégorie</label>
+          <input class="input" name="category" value="{{ app.category }}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Sous-titre</label>
+        <input class="input" name="subtitle" value="{{ app.subtitle }}">
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <textarea class="textarea" name="description" rows="5">{{ app.description }}</textarea>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Teinte (hex sans #)</label>
+          <input class="input input-mono" name="tint_color" value="{{ app.tint_color }}" maxlength="6" pattern="[0-9a-fA-F]{6}">
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="featured" value="1" {% if app.featured %}checked{% endif %}>
+            Mettre en avant
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Screenshots (une URL par ligne)</label>
+        <textarea class="textarea input-mono" name="screenshots" rows="3">{{ screenshots|join('\n') }}</textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">
+        {% include "_icons/check.svg" %}
+        <span>Enregistrer</span>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

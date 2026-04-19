@@ -1,0 +1,6 @@
+# À placer en /opt/sideserver-dev/.env
+CONTAINER_NAME=sidestore-website-dev
+HOST_PORT=8080
+ENV_FILE=/etc/ipastore/dev.env
+STORE_PATH=/srv/store-dev
+IMAGE_TAG=dev
