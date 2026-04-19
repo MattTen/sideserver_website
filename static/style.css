@@ -382,6 +382,11 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   border-color: var(--success);
   color: #9dcfa7;
 }
+.alert-info {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent);
+}
 
 /* === Upload zone === */
 .dropzone {

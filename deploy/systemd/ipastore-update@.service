@@ -1,0 +1,17 @@
+[Unit]
+Description=Apply update to %i environment (triggered by flag file)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=altuser
+Group=altuser
+# On enlève TOUT DE SUITE le flag pour éviter les re-triggers en boucle.
+# Puis on lance website-management %i-update. Si ça rate, un nouveau flag
+# devra être écrit manuellement (ou via l'UI).
+ExecStartPre=/bin/rm -f /etc/ipastore/update-requested-%i
+ExecStart=/usr/local/bin/website-management %i-update
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600

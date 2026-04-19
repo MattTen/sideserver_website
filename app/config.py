@@ -33,6 +33,14 @@ class Config:
     SESSION_COOKIE = "ipastore_session"
     SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
+    # Update system
+    ENV_NAME = os.environ.get("IPASTORE_ENV", "prod")  # "prod" or "dev"
+    GITHUB_REPO = os.environ.get("IPASTORE_GITHUB_REPO", "MattTen/sideserver_website")
+    IPASTORE_ETC = Path(os.environ.get("IPASTORE_ETC_DIR", "/etc/ipastore"))
+    VERSION_FILE = IPASTORE_ETC / f"{ENV_NAME}.version"
+    UPDATE_FLAG_FILE = IPASTORE_ETC / f"update-requested-{ENV_NAME}"
+    UPDATE_CHECK_INTERVAL_SECONDS = 6 * 3600
+
 
 def load_secret_key() -> bytes:
     path = Config.SECRET_KEY_FILE

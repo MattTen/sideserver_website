@@ -6,10 +6,11 @@
 
 set -euo pipefail
 
-# Résolution des chemins (overridables par variables d'env)
+# ────── Config ──────
 PROD_DIR="${SIDESERVER_PROD_DIR:-/opt/sideserver-prod}"
 DEV_DIR="${SIDESERVER_DEV_DIR:-/opt/sideserver-dev}"
 TOOLS_DIR="${SIDESERVER_TOOLS_DIR:-/opt/sideserver-tools}"
+GITHUB_REPO="${SIDESERVER_REPO:-MattTen/sideserver_website}"
 DB_PROD="ipastore-prod"
 DB_DEV="ipastore-dev"
 STORE_PROD="/srv/store-prod"
@@ -52,6 +53,43 @@ env_branch() {
   esac
 }
 
+version_file() {
+  echo "/etc/ipastore/${1}.version"
+}
+
+# ────── Helpers releases ──────
+
+# Renvoie le tag_name de la dernière release (ex: v1.2.3), ou vide si rien.
+latest_release_tag() {
+  curl -fsSL -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
+    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+    | head -n1 \
+    | sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/'
+}
+
+# Renvoie le contenu du fichier version de l'env donné, ou vide.
+current_version() {
+  local f; f="$(version_file "$1")"
+  [[ -f "$f" ]] && cat "$f" || true
+}
+
+# Retourne 0 si $1 > $2 (versions dotted, avec ou sans 'v' initial).
+version_gt() {
+  local a="${1#v}" b="${2#v}"
+  [[ -z "$a" ]] && return 1
+  [[ -z "$b" ]] && return 0
+  [[ "$a" = "$b" ]] && return 1
+  [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" = "$a" ]]
+}
+
+write_version_file() {
+  local env="$1" version="$2"
+  local f; f="$(version_file "$env")"
+  printf '%s\n' "$version" > "$f"
+  chmod 644 "$f" || true
+}
+
 # ────── Commandes conteneurs ──────
 
 cmd_start() {
@@ -84,21 +122,93 @@ cmd_status() {
   info "État des conteneurs sideserver"
   docker ps -a --filter "name=sidestore-website" \
     --format "  {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  echo
+  info "Versions déployées"
+  printf "  prod : %s\n" "$(current_version prod 2>/dev/null || echo '<aucune>')"
+  printf "  dev  : %s\n" "$(current_version dev 2>/dev/null || echo '<rolling>')"
 }
 
-# ────── Mise à jour depuis GitHub ──────
+# ────── Mise à jour ──────
+#
+# prod : release-based (git checkout du tag de la dernière release).
+# dev  : rolling (git pull branche dev + rebuild).
+
+cmd_update_prod() {
+  local dir; dir="$(env_dir prod)"
+  info "Récupération de la dernière release depuis github.com/${GITHUB_REPO}..."
+  local latest current
+  latest="$(latest_release_tag || true)"
+  if [[ -z "$latest" ]]; then
+    err "Impossible de récupérer la dernière release (pas de release publiée, ou API inaccessible)"
+    return 1
+  fi
+  current="$(current_version prod || true)"
+  info "Déployé actuellement : ${current:-<aucun>}"
+  info "Dernière release     : $latest"
+
+  if [[ -n "$current" ]] && ! version_gt "$latest" "$current"; then
+    ok "Prod déjà à jour ($current)"
+    return 0
+  fi
+
+  info "Checkout $latest + rebuild du conteneur"
+  (cd "$dir" \
+    && git fetch --tags --prune origin \
+    && git checkout --force "$latest" \
+    && docker compose up -d --build)
+  write_version_file prod "$latest"
+  ok "Prod déployée : $latest"
+  docker ps --filter "name=$(container_name prod)" --format "  {{.Names}}  {{.Status}}"
+}
+
+cmd_update_dev() {
+  local dir; dir="$(env_dir dev)"
+  info "Pull branche 'dev' dans $dir"
+  (cd "$dir" \
+    && git fetch origin dev \
+    && git reset --hard origin/dev \
+    && docker compose up -d --build)
+  write_version_file dev "rolling-$(git -C "$dir" rev-parse --short HEAD)"
+  ok "Dev mis à jour"
+  docker ps --filter "name=$(container_name dev)" --format "  {{.Names}}  {{.Status}}"
+}
 
 cmd_update() {
+  case "$1" in
+    prod) cmd_update_prod ;;
+    dev)  cmd_update_dev ;;
+  esac
+}
+
+# Sortie machine-readable pour l'UI / le scheduler.
+# Format : lignes "key=value". Codes de sortie : 0 ok, 1 erreur.
+cmd_check_update() {
   local env="$1"
-  local dir="$(env_dir "$env")"
-  local branch="$(env_branch "$env")"
-  info "Pull branche '$branch' dans $dir"
-  (cd "$dir" \
-    && git fetch origin "$branch" \
-    && git reset --hard "origin/$branch" \
-    && docker compose up -d --build)
-  ok "Mise à jour $env terminée"
-  docker ps --filter "name=$(container_name "$env")" --format "  {{.Names}}  {{.Status}}"
+  local current latest available="0"
+  current="$(current_version "$env" || true)"
+
+  if [[ "$env" == "dev" ]]; then
+    echo "env=dev"
+    echo "current=${current:-unknown}"
+    echo "latest="
+    echo "update_available=0"
+    echo "reason=dev-is-rolling"
+    return 0
+  fi
+
+  latest="$(latest_release_tag || true)"
+  echo "env=prod"
+  echo "current=${current:-unknown}"
+  echo "latest=${latest}"
+  if [[ -z "$latest" ]]; then
+    echo "update_available=0"
+    echo "reason=no-release-or-api-error"
+    return 1
+  fi
+  if [[ -z "$current" ]] || version_gt "$latest" "$current"; then
+    available=1
+  fi
+  echo "update_available=${available}"
 }
 
 cmd_self_update() {
@@ -107,7 +217,7 @@ cmd_self_update() {
   ok "Script à jour : $(git -C "$TOOLS_DIR" log -1 --format='%h %s')"
 }
 
-# ────── Sync TOTALE prod -> dev (écrase dev) ──────
+# ────── Sync TOTALE prod -> dev ──────
 
 cmd_sync() {
   warn "Sync TOTALE $DB_PROD -> $DB_DEV : toutes les modifs dev seront perdues."
@@ -144,13 +254,13 @@ SQL
   ok "Sync terminée. La BDD et les fichiers dev reflètent la prod."
 }
 
-# ────── Reset des utilisateurs ──────
+# ────── Reset users ──────
 
 cmd_reset_users() {
   local env="$1"
   local db
   case "$env" in prod) db="$DB_PROD" ;; dev) db="$DB_DEV" ;; *) err "env ?"; return 1 ;; esac
-  local container="$(container_name "$env")"
+  local container; container="$(container_name "$env")"
 
   warn "Cette opération SUPPRIME tous les utilisateurs de '$db' ($env)."
   read -r -p "Confirmer ? [y/N] " yn
@@ -206,11 +316,13 @@ $(printf "${C_BOLD}CONTENEURS${C_RESET}")
   dev-stop            Arrête dev
   dev-restart         Rebuild + redémarre dev
   dev-logs            Suit les logs dev
-  status              État des deux conteneurs
+  status              État + versions déployées
 
-$(printf "${C_BOLD}MISE À JOUR DU CODE (après push GitHub)${C_RESET}")
-  prod-update         git pull 'main' + rebuild + redémarre prod
-  dev-update          git pull 'dev'  + rebuild + redémarre dev
+$(printf "${C_BOLD}MISE À JOUR DU CODE${C_RESET}")
+  prod-update         Déploie la dernière RELEASE GitHub (si > version actuelle)
+  prod-check          Affiche current / latest / update_available (machine-readable)
+  dev-update          git pull 'dev' + rebuild (rolling)
+  dev-check           Retourne update_available=0 (dev est rolling)
   self-update         Met à jour ce script depuis /opt/sideserver-tools
 
 $(printf "${C_BOLD}DONNÉES${C_RESET}")
@@ -223,8 +335,8 @@ $(printf "${C_BOLD}AIDE${C_RESET}")
 
 $(printf "${C_BOLD}EXEMPLES${C_RESET}")
   $(basename "$0") prod-update
+  $(basename "$0") prod-check
   $(basename "$0") sync
-  $(basename "$0") dev-reset-users
 EOF
 }
 
@@ -241,18 +353,21 @@ menu() {
     printf "${C_BOLD}╔═══════════════════════════════════════════════╗${C_RESET}\n"
     printf "${C_BOLD}║  SideServer Website — Gestion prod / dev      ║${C_RESET}\n"
     printf "${C_BOLD}╚═══════════════════════════════════════════════╝${C_RESET}\n\n"
-    printf "  ${C_DIM}État :${C_RESET}\n"
+    printf "  ${C_DIM}Conteneurs :${C_RESET}\n"
     docker ps -a --filter "name=sidestore-website" \
       --format "    ${C_CYAN}{{.Names}}${C_RESET}  {{.Status}}  ${C_DIM}{{.Ports}}${C_RESET}" \
       2>/dev/null || printf "    ${C_YELLOW}(docker indisponible)${C_RESET}\n"
+    printf "  ${C_DIM}Versions :${C_RESET}\n"
+    printf "    prod : ${C_GREEN}%s${C_RESET}\n" "$(current_version prod 2>/dev/null || echo '<aucune>')"
+    printf "    dev  : ${C_GREEN}%s${C_RESET}\n" "$(current_version dev  2>/dev/null || echo '<rolling>')"
     printf "\n"
-    printf "  ${C_BOLD}PROD${C_RESET} (port 80, branche main)\n"
+    printf "  ${C_BOLD}PROD${C_RESET} (port 80, release-based)\n"
     printf "     1) Start                  2) Stop\n"
     printf "     3) Restart                4) Logs\n"
-    printf "     5) Update (git pull + rebuild)\n"
+    printf "     5) Update (dernière release)\n"
     printf "     6) Reset utilisateurs\n"
     printf "\n"
-    printf "  ${C_BOLD}DEV${C_RESET} (port 8080, branche dev)\n"
+    printf "  ${C_BOLD}DEV${C_RESET} (port 8080, rolling branche dev)\n"
     printf "    11) Start                 12) Stop\n"
     printf "    13) Restart               14) Logs\n"
     printf "    15) Update (git pull + rebuild)\n"
@@ -261,6 +376,7 @@ menu() {
     printf "  ${C_BOLD}DONNÉES${C_RESET}\n"
     printf "    20) Sync TOTALE prod -> dev (écrase dev)\n"
     printf "    21) Self-update (pull ce script)\n"
+    printf "    22) Check update prod     23) Check update dev\n"
     printf "\n"
     printf "     s) Status                 h) Aide CLI\n"
     printf "     q) Quitter\n\n"
@@ -270,16 +386,18 @@ menu() {
        2) cmd_stop prod ;;
        3) cmd_restart prod ;;
        4) cmd_logs prod ;;
-       5) cmd_update prod ;;
+       5) cmd_update_prod ;;
        6) cmd_reset_users prod ;;
       11) cmd_start dev ;;
       12) cmd_stop dev ;;
       13) cmd_restart dev ;;
       14) cmd_logs dev ;;
-      15) cmd_update dev ;;
+      15) cmd_update_dev ;;
       16) cmd_reset_users dev ;;
       20) cmd_sync ;;
       21) cmd_self_update ;;
+      22) cmd_check_update prod ;;
+      23) cmd_check_update dev ;;
       s|S) cmd_status ;;
       h|H) usage ;;
       q|Q|exit|quit) exit 0 ;;
@@ -298,13 +416,15 @@ case "${1:-}" in
   prod-stop)           cmd_stop prod ;;
   prod-restart)        cmd_restart prod ;;
   prod-logs)           cmd_logs prod ;;
-  prod-update)         cmd_update prod ;;
+  prod-update)         cmd_update_prod ;;
+  prod-check)          cmd_check_update prod ;;
   prod-reset-users)    cmd_reset_users prod ;;
   dev-start)           cmd_start dev ;;
   dev-stop)            cmd_stop dev ;;
   dev-restart)         cmd_restart dev ;;
   dev-logs)            cmd_logs dev ;;
-  dev-update)          cmd_update dev ;;
+  dev-update)          cmd_update_dev ;;
+  dev-check)           cmd_check_update dev ;;
   dev-reset-users)     cmd_reset_users dev ;;
   self-update)         cmd_self_update ;;
   status)              cmd_status ;;
