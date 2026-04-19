@@ -82,11 +82,13 @@ EOF
 chmod 640 /etc/ipastore/dev.env
 
 echo "[bootstrap] Génération des clés de session si absentes..."
+# Le conteneur tourne en uid 1000 (user 'ipastore') — les clés doivent lui appartenir.
 for f in /etc/ipastore/secret_key.prod /etc/ipastore/secret_key.dev; do
   if [[ ! -f "$f" ]]; then
     head -c 64 /dev/urandom > "$f"
-    chmod 600 "$f"
   fi
+  chown 1000:1000 "$f"
+  chmod 600 "$f"
 done
 
 echo "[bootstrap] Terminé."
