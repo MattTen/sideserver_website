@@ -41,35 +41,55 @@ Trois users MySQL distincts, chacun avec un rôle précis.
 
 | Champ | Valeur |
 |---|---|
-| Host autorisé | `%` (depuis le conteneur Docker) |
+| User MySQL | `ipastore-prod` |
+| Mot de passe | `HmIQl5adwEjiitKlFQbQ8uk2Xrz3MHIsS9B2E-cujwY` |
+| Host autorisé | `%` (depuis le conteneur Docker via `host.docker.internal`) |
+| Port | `3306` |
+| Base de données | `ipastore-prod` |
 | Droits | `ALL PRIVILEGES ON ipastore-prod.*` |
-| Mot de passe | dans `/etc/ipastore/prod.env` (`IPASTORE_DB_URL`) |
+| Fichier | `/etc/ipastore/prod.env` (`IPASTORE_DB_URL`) |
 | Utilisé par | conteneur `sidestore-website-prod` |
+
+Connection string complète :
+```
+mysql+pymysql://ipastore-prod:HmIQl5adwEjiitKlFQbQ8uk2Xrz3MHIsS9B2E-cujwY@host.docker.internal:3306/ipastore-prod?charset=utf8mb4
+```
 
 ### 2b. `ipastore-dev` — application dev
 
 | Champ | Valeur |
 |---|---|
-| Host autorisé | `%` (depuis le conteneur Docker) |
+| User MySQL | `ipastore-dev` |
+| Mot de passe | `8W2Spq9hHtGduW04lndrVRlw64-CeXhBzFyiwrZ0mfk` |
+| Host autorisé | `%` (depuis le conteneur Docker via `host.docker.internal`) |
+| Port | `3306` |
+| Base de données | `ipastore-dev` |
 | Droits | `ALL PRIVILEGES ON ipastore-dev.*` |
-| Mot de passe | dans `/etc/ipastore/dev.env` (`IPASTORE_DB_URL`) |
+| Fichier | `/etc/ipastore/dev.env` (`IPASTORE_DB_URL`) |
 | Utilisé par | conteneur `sidestore-website-dev` |
+
+Connection string complète :
+```
+mysql+pymysql://ipastore-dev:8W2Spq9hHtGduW04lndrVRlw64-CeXhBzFyiwrZ0mfk@host.docker.internal:3306/ipastore-dev?charset=utf8mb4
+```
 
 ### 2c. `ipastore-mgmt` — script de management
 
 | Champ | Valeur |
 |---|---|
+| User MySQL | `ipastore-mgmt` |
+| Mot de passe | `mgmt_gSZCg2WTZPgFJcEs0JDlQ` |
 | Host autorisé | `localhost` uniquement |
 | Droits | `ALL PRIVILEGES ON *.*` (nécessaire pour créer/supprimer des BDD lors des opérations sync/reset) |
-| Mot de passe | dans `/etc/ipastore/.mysql.cnf` |
+| Fichier | `/etc/ipastore/.mysql.cnf` |
 | Propriétaire/droits | `altuser:altuser 600` |
 | Utilisé par | `website-management` (sync, reset-users, dev-update) |
 
-**Format `/etc/ipastore/.mysql.cnf`** :
+**Contenu de `/etc/ipastore/.mysql.cnf`** :
 ```ini
 [client]
 user=ipastore-mgmt
-password=<MOT_DE_PASSE>
+password=mgmt_gSZCg2WTZPgFJcEs0JDlQ
 host=localhost
 ```
 
