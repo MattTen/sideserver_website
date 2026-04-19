@@ -56,15 +56,17 @@ RUN git clone --recursive https://github.com/theos/theos.git /opt/theos
 
 # ─── iOS SDK ───────────────────────────────────────────────────────────
 # SDK 16.5 (disponible publiquement via le repo theos/sdks). build.sh de
-# SCInsta exige un SDK >= iOS 16.2 (cf. BUILD_GUIDE). Le repo utilise Git
-# LFS : on fait un clone sparse (GIT_LFS_SKIP_SMUDGE=1 empeche le pull de
-# tous les SDKs, ~8 Go) puis `git lfs pull --include` pour n'extraire que
-# le tarball dont on a besoin (~400 Mo).
+# SCInsta exige un SDK >= iOS 16.2 (cf. BUILD_GUIDE). Le repo stocke les
+# SDKs comme des REPERTOIRES tracke par Git LFS (pas des tarballs) — on
+# clone avec GIT_LFS_SKIP_SMUDGE=1 pour eviter de pull les ~8 Go de tous
+# les SDKs, puis `git lfs pull --include="iPhoneOS16.5.sdk/**"` ne telecharge
+# que les binaires du SDK qu'on veut. Le dossier est deplace tel quel vers
+# $THEOS/sdks/ (Theos s'attend a trouver iPhoneOSxx.x.sdk/ comme dossier).
 RUN mkdir -p /opt/theos/sdks \
     && GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch master \
         https://github.com/theos/sdks.git /tmp/sdks \
-    && git -C /tmp/sdks lfs pull --include=iPhoneOS16.5.sdk.tar.xz \
-    && tar -xf /tmp/sdks/iPhoneOS16.5.sdk.tar.xz -C /opt/theos/sdks \
+    && git -C /tmp/sdks lfs pull --include="iPhoneOS16.5.sdk/**" \
+    && mv /tmp/sdks/iPhoneOS16.5.sdk /opt/theos/sdks/ \
     && rm -rf /tmp/sdks
 
 # ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
