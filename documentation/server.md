@@ -76,7 +76,12 @@ Répertoire 750 owned par altuser. Monté en volume dans chaque conteneur (à `/
 
 ### `/srv/store-{prod,dev}/`
 
-Monté dans le conteneur à `/srv/store`. Contient les IPAs binaires, icônes, screenshots. **Séparés** entre prod et dev pour ne jamais se marcher dessus.
+Monté dans le conteneur à `/srv/store`. **Séparés** entre prod et dev pour ne jamais se marcher dessus. Sous-dossiers :
+
+- `ipas/` — binaires `.ipa` servis sur `/ipas/{filename}`
+- `icons/` — icônes d'apps + icône et header du store (`_store-<token>.png`, `_header-<token>.png`), servis sur `/icons/{filename}`
+- `screenshots/` — captures uploadées manuellement, servies sur `/screenshots/{filename}`
+- `news/` — visuels joints aux articles d'actualités, servis sur `/news-img/{filename}`
 
 ---
 
@@ -399,3 +404,21 @@ bind-address = 0.0.0.0
 | `app/updates.py`                              | Logique check + flag-file                     |
 | `app/routes/updates.py`                       | Routes `/settings/updates/{check,apply}`      |
 | `app/main.py`                                 | Lifespan + boucle check 6h                    |
+| `app/source_gen.py`                           | Construction du feed `source.json` (apps, featured, news, header, icône) |
+| `app/routes/news.py`                          | CRUD actualités (section `news[]` du feed)    |
+
+---
+
+## 11. Apparence du store (source.json)
+
+Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin remplit ces champs :
+
+| Champ `source.json` | Où le configurer                         | Stockage physique                                |
+|---------------------|------------------------------------------|--------------------------------------------------|
+| `iconURL`           | Réglages → Apparence → Icône du store   | `STORE_DIR/icons/_store-<token>.ext`             |
+| `headerURL`         | Réglages → Apparence → Bannière         | `STORE_DIR/icons/_header-<token>.ext` (optionnel)|
+| `tintColor`         | Réglages → Métadonnées → Teinte         | table `settings`, clé `store_tint`               |
+| `featuredApps`      | Fiche app → toggle "Mettre en avant"    | colonne `apps.featured`                          |
+| `news[]`            | Actualités (nouveau menu)               | table `news` + fichiers dans `STORE_DIR/news/`   |
+
+Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalide le cache HTTP de SideStore à chaque upload — sans ça, le client garde l'ancienne image même après remplacement côté serveur.

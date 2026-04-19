@@ -94,3 +94,32 @@ class Version(Base):
         # Index sur uploaded_at pour trier efficacement les versions récentes (dashboard).
         Index("ix_versions_uploaded_at", "uploaded_at"),
     )
+
+
+class News(Base):
+    """Article publié dans le feed source.json.
+
+    Affiché par SideStore en haut de la page de la source, au-dessus de la liste
+    des apps. L'identifier doit être stable : SideStore s'en sert pour marquer
+    un article comme déjà vu et pour décider d'envoyer ou non une notification
+    quand `notify=1`.
+    """
+    __tablename__ = "news"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    identifier: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    caption: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    date: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    # Tint optionnelle ("" = utilise celle du store). Hex sans #, ex "c9a678".
+    tint_color: Mapped[str] = mapped_column(String(8), default="", nullable=False)
+    # Nom de fichier relatif dans NEWS_DIR. Null si aucune image.
+    image_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # URL externe ouverte au clic. Si vide et app_bundle_id rempli, SideStore
+    # ouvre la fiche de l'app correspondante.
+    url: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    # Bundle ID d'une app de ce store à lier à l'article (optionnel).
+    app_bundle_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    # 1 = SideStore doit pousser une notification aux utilisateurs.
+    notify: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)

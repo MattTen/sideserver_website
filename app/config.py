@@ -34,6 +34,7 @@ class Config:
     IPAS_DIR = STORE_DIR / "ipas"
     ICONS_DIR = STORE_DIR / "icons"
     SCREENSHOTS_DIR = STORE_DIR / "screenshots"
+    NEWS_DIR = STORE_DIR / "news"
 
     # ── Clé secrète de session ───────────────────────────────────────────────
     # Fichier binaire de 64 octets utilisé par itsdangerous pour signer les
@@ -93,5 +94,5 @@ def load_secret_key() -> bytes:
 
 def ensure_dirs() -> None:
     """Crée les sous-dossiers du store s'ils n'existent pas encore."""
-    for d in (Config.IPAS_DIR, Config.ICONS_DIR, Config.SCREENSHOTS_DIR):
+    for d in (Config.IPAS_DIR, Config.ICONS_DIR, Config.SCREENSHOTS_DIR, Config.NEWS_DIR):
         d.mkdir(parents=True, exist_ok=True)
