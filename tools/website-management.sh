@@ -67,6 +67,13 @@ github_token() {
   sed -nE 's|^https://[^:]+:([^@]+)@github\.com.*|\1|p' "$GIT_CREDENTIALS_FILE" | head -n1
 }
 
+# Wrapper git qui injecte le credential.helper pointant vers notre fichier.
+# Utilisé pour tous les appels git réseau (fetch, checkout de tag…) afin
+# d'éviter le prompt interactif sur les repos privés.
+git_auth() {
+  git -c "credential.helper=store --file $GIT_CREDENTIALS_FILE" "$@"
+}
+
 # Renvoie le tag_name de la dernière release (ex: v1.2.3), ou vide si rien.
 # Nécessaire d'être authentifié pour les repos privés.
 latest_release_tag() {
@@ -170,7 +177,7 @@ cmd_update_prod() {
 
   info "Checkout $latest + rebuild du conteneur"
   (cd "$dir" \
-    && git fetch --tags --prune origin \
+    && git_auth fetch --tags --prune origin \
     && git checkout --force "$latest" \
     && docker compose up -d --build)
   write_version_file prod "$latest"
@@ -182,7 +189,7 @@ cmd_update_dev() {
   local dir; dir="$(env_dir dev)"
   info "Pull branche 'dev' dans $dir"
   (cd "$dir" \
-    && git fetch origin dev \
+    && git_auth fetch origin dev \
     && git reset --hard origin/dev \
     && docker compose up -d --build)
   write_version_file dev "rolling-$(git -C "$dir" rev-parse --short HEAD)"
@@ -230,7 +237,7 @@ cmd_check_update() {
 
 cmd_self_update() {
   info "Pull du script depuis $TOOLS_DIR (branche main, sparse-checkout)"
-  (cd "$TOOLS_DIR" && git fetch origin main && git reset --hard origin/main)
+  (cd "$TOOLS_DIR" && git_auth fetch origin main && git reset --hard origin/main)
   ok "Script à jour : $(git -C "$TOOLS_DIR" log -1 --format='%h %s')"
 }
 
