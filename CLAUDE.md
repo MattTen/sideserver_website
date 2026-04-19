@@ -1,0 +1,222 @@
+# CLAUDE.md — Contexte et instructions pour Claude Code
+
+Ce fichier est lu automatiquement par Claude Code à chaque session.
+Il est tracké dans git mais exclu des déploiements serveur via sparse-checkout.
+
+---
+
+## Projet : IPA Store (sideserver_website)
+
+Interface d'administration self-hosted pour distribuer des fichiers IPA (.ipa) à SideStore (sideloading iOS). L'administrateur upload des IPAs via l'interface web ; SideStore les récupère via un feed `source.json`.
+
+**Repo GitHub (privé)** : `MattTen/sideserver_website`
+**VM de production** : Debian, IP `192.168.0.202`
+
+---
+
+## Stack technique
+
+| Composant | Technologie |
+|---|---|
+| Backend | FastAPI + Uvicorn (Python 3.13) |
+| ORM | SQLAlchemy 2.0 (mapped_column style) |
+| Base de données | MariaDB sur l'hôte (2 schémas séparés) |
+| Templates | Jinja2 |
+| Conteneurisation | Docker + docker-compose |
+| Auth sessions | bcrypt + itsdangerous (TimestampSigner) |
+
+---
+
+## Architecture
+
+```
+┌────────────────────── VM 192.168.0.202 ──────────────────────────┐
+│                                                                   │
+│  MariaDB (hôte, port 3306)                                       │
+│   ├── ipastore-prod  (user: ipastore-prod)                       │
+│   └── ipastore-dev   (user: ipastore-dev)                        │
+│                                                                   │
+│  Docker                                                           │
+│   ├── sidestore-website-prod  :80    ← /etc/ipastore/prod.env    │
+│   └── sidestore-website-dev   :8080  ← /etc/ipastore/dev.env     │
+│                                                                   │
+│  Filesystem hôte                                                  │
+│   ├── /opt/sideserver-prod   (git clone, branche main/tag)       │
+│   ├── /opt/sideserver-dev    (git clone, branche dev)            │
+│   ├── /opt/sideserver-tools  (git clone, script management)      │
+│   ├── /srv/store-prod/       (IPAs, icônes, screenshots prod)    │
+│   ├── /srv/store-dev/        (idem dev)                          │
+│   └── /etc/ipastore/         (credentials, version files, flags) │
+│                                                                   │
+│  Script de gestion                                                │
+│   └── /usr/local/bin/website-management → symlink vers           │
+│       /opt/sideserver-tools/tools/website-management.sh          │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Structure du repo
+
+```
+app/
+  config.py         # Variables d'environnement + chemins
+  db.py             # Engine SQLAlchemy, session factory
+  models.py         # ORM : User, Setting, App, Version
+  auth.py           # bcrypt + TimestampSigner + dépendances FastAPI
+  ipa.py            # Parser IPA (ZIP + Info.plist + extraction icône)
+  source_gen.py     # Génération du feed source.json pour SideStore
+  updates.py        # Polling GitHub releases + flag-file pour MAJ
+  templates.py      # Instance Jinja2 + filtres (size, date)
+  main.py           # create_app(), montage routes + static, lifespan
+  routes/
+    auth.py         # /login /logout /setup
+    dashboard.py    # / (tableau de bord)
+    apps.py         # /apps/** (upload, détail, édition, suppression)
+    settings.py     # /settings (métadonnées store + mot de passe)
+    public.py       # /source.json /qr.svg (sans auth)
+    updates.py      # /settings/updates/check|apply
+
+templates/          # Jinja2 HTML
+static/             # CSS, JS, default-app.png
+tools/
+  website-management.sh   # Script de gestion prod/dev (voir ci-dessous)
+deploy/
+  systemd/          # Units systemd (path watcher + service MAJ)
+  bootstrap.sh      # Script d'installation initiale (exécuté en root)
+documentation/      # Documentation serveur et credentials (exclu du serveur)
+CLAUDE.md           # Ce fichier (exclu du serveur)
+Dockerfile
+docker-compose.yml
+```
+
+---
+
+## Branches et workflow de déploiement
+
+> **RÈGLE ABSOLUE : tout développement sur la branche `dev` uniquement.**
+> Ne jamais committer ou pusher directement sur `main`.
+
+| Branche | Déployée sur | Méthode |
+|---|---|---|
+| `dev` | conteneur dev (port 8080) | rolling — `website-management dev-update` |
+| `main` | conteneur prod (port 80) | release-based — `website-management prod-update` |
+
+**Publier une release prod** :
+1. Merger `dev` → `main` (PR ou fast-forward)
+2. Créer une release GitHub avec tag semver (ex: `v1.2.0`) via l'UI GitHub ou l'API
+3. L'UI admin ou `prod-check` détectera la MAJ → `prod-update` déploiera
+
+---
+
+## Accès SSH au serveur
+
+```bash
+# Connexion (plink avec hostkey pour éviter le prompt interactif)
+plink -batch -ssh -pw altuser \
+  -hostkey "SHA256:TojKt8WJuS1VChTBlb5miM6H/M/K+y1DLD1S1VAgSgc" \
+  altuser@192.168.0.202 "commande"
+```
+
+- **User** : `altuser` / **Password** : `altuser`
+- `altuser` est dans le groupe `docker` → peut gérer les conteneurs sans sudo
+- Il n'y a **pas de sudo** sur cette VM
+- `root` password : `root` (pour les opérations exceptionnelles via `su root`)
+
+---
+
+## Script de management (`website-management`)
+
+Toutes les commandes fonctionnent en tant qu'`altuser` (aucun sudo requis).
+
+| Commande | Action |
+|---|---|
+| `prod-update` | Déploie la dernière release GitHub si > version actuelle |
+| `prod-check` | Affiche current/latest/update_available (machine-readable) |
+| `dev-update` | `git pull` branche dev + rebuild conteneur |
+| `dev-check` | Retourne toujours update_available=0 (dev est rolling) |
+| `self-update` | Met à jour le script depuis /opt/sideserver-tools |
+| `sync` | Sync TOTALE prod → dev (BDD + fichiers, écrase dev) |
+| `prod-reset-users` | Supprime tous les admins prod + crée un nouveau |
+| `dev-reset-users` | Idem sur dev |
+| `status` | État des conteneurs + versions déployées |
+| `prod-start/stop/restart/logs` | Gestion du conteneur prod |
+| `dev-start/stop/restart/logs` | Gestion du conteneur dev |
+
+---
+
+## Système de mise à jour (flag-file + systemd)
+
+```
+[conteneur] request_update()
+      ↓ écrit /etc/ipastore/update-requested-{env}
+[hôte] ipastore-update@{env}.path (path unit systemd, active)
+      ↓ détecte le fichier
+[hôte] ipastore-update@{env}.service
+      ↓ supprime le flag + exécute website-management {env}-update
+[hôte] rebuild + redémarrage du conteneur
+```
+
+Le vérificateur automatique tourne en arrière-plan dans le conteneur toutes les 6h (`_update_check_loop` dans `main.py`).
+
+---
+
+## Credentials et fichiers sensibles
+
+Tous dans `/etc/ipastore/` (altuser:altuser 750, monté en volume dans les conteneurs).
+
+| Fichier | Contenu |
+|---|---|
+| `.git-credentials` | PAT GitHub fine-grained (Contents read-only) pour lire les releases |
+| `.mysql.cnf` | Credentials MySQL du user `ipastore-mgmt` (utilisé par le script) |
+| `prod.env` / `dev.env` | DB_URL + variables d'environnement des conteneurs |
+| `secret_key.prod` / `secret_key.dev` | Clé HMAC de signature des cookies (64 octets) |
+| `prod.version` / `dev.version` | Version actuellement déployée |
+
+Voir `documentation/credentials.md` pour le détail complet.
+
+---
+
+## Règles de développement
+
+### 1. Branche
+Toujours travailler sur `dev`. Ne jamais pusher sur `main` directement.
+
+### 2. Commentaires
+Commenter le **WHY**, pas le WHAT. Ajouter un commentaire quand :
+- La logique est non-évidente (ex: rename atomique, pool_recycle, CORS ouvert)
+- Il y a une contrainte cachée (ex: même filesystem pour tmp → final)
+- Un choix technique a été fait pour une raison spécifique (ex: bcrypt rounds=12)
+- Une sécurité est en place (ex: échappement SQL injection dans le script bash)
+
+Ne pas commenter ce que le nom de la fonction ou variable exprime déjà.
+
+### 3. Documentation
+**À chaque feature ajoutée, modifiée ou supprimée** : mettre à jour les fichiers concernés dans `documentation/` :
+- `documentation/server.md` → architecture, script, déploiement, systemd
+- `documentation/credentials.md` → tout ce qui touche aux credentials
+
+### 4. Static files
+Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.
+
+### 5. source.json
+- Servi sans cache (`Cache-Control: no-cache`) et avec CORS ouvert (`*`)
+- `iconURL` ne doit **jamais** être une chaîne vide (SideStore rejette) → fallback sur `/static/default-app.png`
+- `downloadURL` pointe vers `/ipas/{filename}` — les fichiers doivent exister dans `STORE_DIR/ipas/`
+
+### 6. Commits
+Format : `type(scope): description courte` (conventionnel).
+Toujours avec co-auteur :
+```
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+```
+
+---
+
+## Fichiers exclus des déploiements serveur
+
+Via sparse-checkout (config locale git sur la VM, pas dans .gitignore) :
+- `documentation/` — doc technique, inutile sur le serveur
+- `CLAUDE.md` — ce fichier
+
+Pour vérifier : `git sparse-checkout list` dans `/opt/sideserver-{prod,dev,tools}`.
