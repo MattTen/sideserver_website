@@ -43,5 +43,5 @@ systemctl is-active mariadb && echo "mariadb: active"
 
 echo
 echo "=== DONE ==="
-echo "Ouvre : http://192.168.0.202/"
+echo "Ouvre : http://<IP_SERVEUR>/"
 echo "Premier lancement = setup du compte admin."

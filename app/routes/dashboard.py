@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, has_any_user
+from ..config import Config
 from ..db import get_db
 from ..models import App, Version
 from ..source_gen import get_setting
@@ -36,7 +37,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         ).all()
     )
 
-    base_url = get_setting(db, "base_url", "http://192.168.0.202").rstrip("/")
+    base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
 
     return templates.TemplateResponse(
         request, "dashboard.html",
