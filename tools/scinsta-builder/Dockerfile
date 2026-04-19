@@ -94,6 +94,11 @@ RUN mkdir -p /opt/theos/sdks \
 # a __isOSVersionAtLeast au link. On fournit un stub qui delegue a
 # _availability_version_check (presente dans libSystem iOS 12+), place
 # dans le resource-dir de clang pour etre auto-lie par les targets ios.
+#
+# SCInsta builde en fat arm64+arm64e (cyan CMAKE_OSX_ARCHITECTURES). Le
+# linker Apple ignore les objets dans l'archive qui ne matchent pas la
+# cible — on compile le stub pour les deux arches et on les bundle dans
+# la meme archive (noms distincts pour eviter les collisions).
 RUN set -eu \
     && mkdir -p /tmp/rtstub \
     && printf '%s\n' \
@@ -110,9 +115,14 @@ RUN set -eu \
     && $THEOS/toolchain/linux/iphone/bin/clang \
         -target arm64-apple-ios15.0 \
         -isysroot $THEOS/sdks/iPhoneOS16.5.sdk \
-        -c /tmp/rtstub/stub.c -o /tmp/rtstub/stub.o \
+        -c /tmp/rtstub/stub.c -o /tmp/rtstub/stub_arm64.o \
+    && $THEOS/toolchain/linux/iphone/bin/clang \
+        -target arm64e-apple-ios15.0 \
+        -isysroot $THEOS/sdks/iPhoneOS16.5.sdk \
+        -c /tmp/rtstub/stub.c -o /tmp/rtstub/stub_arm64e.o \
     && $THEOS/toolchain/linux/iphone/bin/llvm-ar rcs \
-        "$RSRC/lib/darwin/libclang_rt.ios.a" /tmp/rtstub/stub.o \
+        "$RSRC/lib/darwin/libclang_rt.ios.a" \
+        /tmp/rtstub/stub_arm64.o /tmp/rtstub/stub_arm64e.o \
     && $THEOS/toolchain/linux/iphone/bin/ranlib \
         "$RSRC/lib/darwin/libclang_rt.ios.a" \
     && rm -rf /tmp/rtstub
