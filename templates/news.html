@@ -17,12 +17,11 @@
 {% if items %}
 <div class="news-grid">
   {% for n in items %}
-  <a href="/news/{{ n.id }}" class="news-card" style="--news-tint: #{{ n.tint_color or 'c9a678' }};">
-    {% if n.image_path %}
-    <div class="news-card-image" style="background-image: url('/news-img/{{ n.image_path }}');"></div>
-    {% else %}
-    <div class="news-card-image news-card-image-empty"></div>
-    {% endif %}
+  {% set p = presets.get(n.bg_preset) %}
+  <a href="/news/{{ n.id }}" class="news-card">
+    <div class="news-card-image"
+         {% if p %}style="background: {{ p.css }};"{% endif %}>
+    </div>
     <div class="news-card-body">
       <div class="news-card-meta">
         <span class="mono">{{ n.date|date }}</span>
@@ -30,7 +29,7 @@
       </div>
       <div class="news-card-title">{{ n.title }}</div>
       {% if n.caption %}<div class="news-card-caption">{{ n.caption }}</div>{% endif %}
-      <div class="news-card-foot mono">{{ n.identifier }}</div>
+      <div class="news-card-foot mono">{{ p.label if p else 'Aucun fond' }}</div>
     </div>
   </a>
   {% endfor %}
