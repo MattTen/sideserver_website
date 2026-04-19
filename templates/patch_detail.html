@@ -24,15 +24,13 @@
       </div>
 
       <div class="field" style="margin-top: 14px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
           <label style="margin-bottom: 0;">Description</label>
           <button type="button" id="desc-edit-btn" class="btn btn-sm" onclick="enableDescEdit()">Modifier</button>
         </div>
 
         <!-- Vue lecture -->
-        <div id="desc-view" class="patch-desc-view">
-          {% if patch.description %}{{ patch.description }}{% else %}<span class="patch-desc-empty">Aucune description — cliquez sur Modifier pour en ajouter une.</span>{% endif %}
-        </div>
+        <div id="desc-view" class="patch-desc-view">{% if patch.description %}{{ patch.description }}{% else %}<span class="patch-desc-empty">Aucune description — cliquez sur Modifier pour en ajouter une.</span>{% endif %}</div>
 
         <!-- Vue édition (cachée par défaut) -->
         <div id="desc-edit" style="display:none;">
