@@ -43,7 +43,6 @@ docker-compose.override.yml
 # Claude Code
 .claude/
 CLAUDE.md
-documentation/
 
 # Logs
 *.log
