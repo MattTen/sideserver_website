@@ -19,9 +19,10 @@
   {% for n in items %}
   {% set p = presets.get(n.bg_preset) %}
   <a href="/news/{{ n.id }}" class="news-card">
+    {% if n.bg_preset or n.image_path %}
     <div class="news-card-image"
-         {% if p %}style="background: {{ p.css }};"{% endif %}>
-    </div>
+         {% if p %}style="background: {{ p.css }};"{% elif n.image_path %}style="background-image:url('/news-img/{{ n.image_path }}');"{% endif %}></div>
+    {% endif %}
     <div class="news-card-body">
       <div class="news-card-meta">
         <span class="mono">{{ n.date|date }}</span>

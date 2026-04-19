@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import shutil
 import tempfile
 from pathlib import Path
@@ -23,6 +24,30 @@ router = APIRouter()
 
 
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]+")
+
+TINT_COLORS: list[tuple[str, str]] = [
+    ("Violet",  "833ab4"),
+    ("Indigo",  "5b50d6"),
+    ("Bleu",    "2563eb"),
+    ("Ciel",    "0ea5e9"),
+    ("Teal",    "0891b2"),
+    ("Vert",    "059669"),
+    ("Lime",    "65a30d"),
+    ("Ambre",   "d97706"),
+    ("Or",      "c9a678"),
+    ("Orange",  "ea580c"),
+    ("Rouge",   "dc2626"),
+    ("Rose",    "db2777"),
+    ("Gris",    "6b7280"),
+]
+_TINT_PRESET_VALUES = {h for _, h in TINT_COLORS}
+
+_ALLOWED_SCREENSHOT_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+}
 
 
 def _safe_filename(bundle_id: str, version: str, build: str) -> str:
@@ -166,6 +191,8 @@ def app_detail(
             "app": app,
             "versions": list(app.versions),
             "screenshots": screenshots,
+            "tint_colors": TINT_COLORS,
+            "tint_preset_values": _TINT_PRESET_VALUES,
             "active": "apps",
         },
     )
@@ -181,7 +208,6 @@ def app_edit(
     tint_color: str = Form("c9a678"),
     category: str = Form("other"),
     featured: str = Form(""),
-    screenshots: str = Form(""),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -195,8 +221,6 @@ def app_edit(
     app.tint_color = re.sub(r"[^0-9a-fA-F]", "", tint_color)[:6].lower() or "c9a678"
     app.category = category.strip() or "other"
     app.featured = 1 if featured else 0
-    shots = [s.strip() for s in screenshots.splitlines() if s.strip()]
-    app.screenshot_urls = json.dumps(shots)
     db.commit()
     return RedirectResponse(f"/apps/{bundle_id}", status_code=303)
 
@@ -275,3 +299,63 @@ def app_delete(
     db.delete(app)
     db.commit()
     return RedirectResponse("/apps", status_code=303)
+
+
+@router.post("/apps/{bundle_id}/screenshots/upload")
+async def app_screenshot_upload(
+    bundle_id: str,
+    screenshot: list[UploadFile] = File(...),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    app = db.query(App).filter_by(bundle_id=bundle_id).one_or_none()
+    if app is None:
+        raise HTTPException(status_code=404)
+    try:
+        existing: list[str] = json.loads(app.screenshot_urls or "[]")
+    except json.JSONDecodeError:
+        existing = []
+    for f in screenshot:
+        data = await f.read()
+        if not data:
+            continue
+        ext = _ALLOWED_SCREENSHOT_EXT.get((f.content_type or "").lower())
+        if ext is None:
+            fname = (f.filename or "").lower()
+            for suf, e in [(".png", "png"), (".jpg", "jpg"), (".jpeg", "jpg"), (".webp", "webp")]:
+                if fname.endswith(suf):
+                    ext = e
+                    break
+        if ext is None:
+            continue
+        safe = _SAFE_NAME.sub("-", bundle_id)
+        filename = f"{safe}-{secrets.token_hex(4)}.{ext}"
+        (Config.SCREENSHOTS_DIR / filename).write_bytes(data)
+        existing.append(filename)
+    app.screenshot_urls = json.dumps(existing)
+    db.commit()
+    return RedirectResponse(f"/apps/{bundle_id}", status_code=303)
+
+
+@router.post("/apps/{bundle_id}/screenshots/{idx}/delete")
+def app_screenshot_delete(
+    bundle_id: str,
+    idx: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    app = db.query(App).filter_by(bundle_id=bundle_id).one_or_none()
+    if app is None:
+        raise HTTPException(status_code=404)
+    try:
+        shots: list[str] = json.loads(app.screenshot_urls or "[]")
+    except json.JSONDecodeError:
+        shots = []
+    if 0 <= idx < len(shots):
+        url = shots[idx]
+        if not url.startswith(("http://", "https://")):
+            (Config.SCREENSHOTS_DIR / url).unlink(missing_ok=True)
+        shots.pop(idx)
+    app.screenshot_urls = json.dumps(shots)
+    db.commit()
+    return RedirectResponse(f"/apps/{bundle_id}", status_code=303)

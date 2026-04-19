@@ -114,8 +114,33 @@
       </div>
       <div class="row-2">
         <div class="field">
-          <label>Teinte (hex sans #)</label>
-          <input class="input input-mono" name="tint_color" value="{{ app.tint_color }}" maxlength="6" pattern="[0-9a-fA-F]{6}">
+          <label>Teinte</label>
+          {% set cur = app.tint_color.lower() %}
+          <div class="tint-picker">
+            {% for label, hex in tint_colors %}
+            <label class="tint-swatch" style="background:#{{ hex }};" title="{{ label }}">
+              <input type="radio" name="tint_preset" value="{{ hex }}"
+                     {% if cur == hex %}checked{% endif %}
+                     onchange="tintPick('{{ hex }}')">
+            </label>
+            {% endfor %}
+            <label class="tint-swatch tint-swatch-custom" title="Personnalisé">
+              <input type="radio" name="tint_preset" value="custom"
+                     {% if cur not in tint_preset_values %}checked{% endif %}
+                     onchange="tintPick('custom')">
+              <span>…</span>
+            </label>
+          </div>
+          <input type="hidden" name="tint_color" id="tint-hidden" value="{{ app.tint_color }}">
+          <div id="tint-custom-row" class="row-gap mt-4"
+               style="display:{% if cur not in tint_preset_values %}flex{% else %}none{% endif %}; align-items:center;">
+            <span class="text-muted" style="font-size:12.5px;">#</span>
+            <input class="input input-mono" id="tint-custom-input" maxlength="6"
+                   pattern="[0-9a-fA-F]{6}" placeholder="rrggbb"
+                   value="{{ app.tint_color }}" style="width:110px;"
+                   oninput="tintCustom(this.value)">
+            <span class="tint-preview" id="tint-preview" style="background:#{{ app.tint_color }};"></span>
+          </div>
         </div>
         <div class="field">
           <label style="display:flex; align-items:center; gap:8px;">
@@ -124,10 +149,6 @@
           </label>
         </div>
       </div>
-      <div class="field">
-        <label>Screenshots (une URL par ligne)</label>
-        <textarea class="textarea input-mono" name="screenshots" rows="3">{{ screenshots|join('\n') }}</textarea>
-      </div>
       <button class="btn btn-primary" type="submit">
         {% include "_icons/check.svg" %}
         <span>Enregistrer</span>
@@ -135,4 +156,48 @@
     </form>
   </div>
 </div>
+
+<div class="card mt-8">
+  <h2>Screenshots</h2>
+  <p class="text-muted mb-4" style="font-size:12.5px;">Affichés dans SideStore sur la fiche de l'app. PNG, JPG ou WebP.</p>
+  <div class="shots-grid">
+    {% for url in screenshots %}
+    <div class="shot-item">
+      <img src="{{ url if url.startswith('http') else '/screenshots/' + url }}" class="shot-thumb" alt="">
+      <form method="post" action="/apps/{{ app.bundle_id }}/screenshots/{{ loop.index0 }}/delete">
+        <button class="shot-delete" type="submit" title="Supprimer">×</button>
+      </form>
+    </div>
+    {% endfor %}
+    <form method="post" action="/apps/{{ app.bundle_id }}/screenshots/upload"
+          enctype="multipart/form-data" id="shot-upload-form">
+      <label class="shot-add" title="Ajouter des screenshots">
+        <input type="file" name="screenshot" accept="image/*" multiple
+               onchange="document.getElementById('shot-upload-form').submit()" style="display:none;">
+        <span style="font-size:22px; line-height:1; color:var(--text-dim);">+</span>
+      </label>
+    </form>
+  </div>
+</div>
+
+<script>
+function tintPick(val) {
+  const hidden = document.getElementById('tint-hidden');
+  const row = document.getElementById('tint-custom-row');
+  const preview = document.getElementById('tint-preview');
+  if (val === 'custom') {
+    row.style.display = 'flex';
+  } else {
+    row.style.display = 'none';
+    hidden.value = val;
+    preview.style.background = '#' + val;
+  }
+}
+function tintCustom(val) {
+  if (/^[0-9a-fA-F]{6}$/.test(val)) {
+    document.getElementById('tint-hidden').value = val;
+    document.getElementById('tint-preview').style.background = '#' + val;
+  }
+}
+</script>
 {% endblock %}

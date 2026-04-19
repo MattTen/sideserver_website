@@ -95,3 +95,7 @@ def ensure_news_bg(static_dir: Path) -> None:
         path = dest / f"{key}.png"
         if not path.exists():
             path.write_bytes(_make_gradient_png(p["c1"], p["c2"]))
+    # Header par défaut du store : dégradé violet sombre (royal), large format
+    header = static_dir / "store-header.png"
+    if not header.exists():
+        header.write_bytes(_make_gradient_png((16, 8, 42), (52, 18, 106), w=1200, h=340))
