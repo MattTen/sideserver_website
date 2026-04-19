@@ -138,6 +138,21 @@ def _build_log_file() -> Path:
     return Config.IPASTORE_ETC / f"scinsta-build-log-{Config.ENV_NAME}.txt"
 
 
+def clear_build_log() -> None:
+    """Truncate le fichier log (bouton Effacer de l'UI).
+
+    Le fichier est re-truncate de toute facon au prochain build par
+    cmd_scinsta_build, mais ce helper permet a l'admin de faire le menage
+    manuellement entre deux builds sans avoir a relancer.
+    """
+    path = _build_log_file()
+    if path.exists():
+        try:
+            path.write_text("", encoding="utf-8")
+        except OSError as e:
+            logger.warning("scinsta: clear log failed: %s", e)
+
+
 def read_build_log(offset: int = 0) -> dict:
     """Lit le log de build a partir d'un offset.
 

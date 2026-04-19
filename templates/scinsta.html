@@ -125,9 +125,12 @@
       <label style="font-size: 12.5px; color: var(--text-muted); margin: 0;">
         Sortie du build (temps réel)
       </label>
-      <label style="font-size: 12px; display:flex; align-items:center; gap:4px; cursor:pointer;">
-        <input type="checkbox" id="sci-log-autoscroll" checked> auto-scroll
-      </label>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button type="button" class="btn btn-sm btn-ghost" id="sci-log-clear">Effacer</button>
+        <label style="font-size: 12px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+          <input type="checkbox" id="sci-log-autoscroll" checked> auto-scroll
+        </label>
+      </div>
     </div>
     <pre id="sci-build-log" style="background:#0b0d12; color:#d7dde8; padding:10px 12px; border-radius:6px; font-size:12px; line-height:1.45; max-height:360px; overflow:auto; margin:0; white-space:pre-wrap; word-break:break-word;"></pre>
   </div>
@@ -443,6 +446,15 @@
   // ── Polling pendant le build ──
   const logEl = document.getElementById('sci-build-log');
   const autoScrollEl = document.getElementById('sci-log-autoscroll');
+  const logClearBtn = document.getElementById('sci-log-clear');
+  logClearBtn.addEventListener('click', async () => {
+    // Vide cote client immediatement puis demande au serveur de truncer le
+    // fichier log pour que les prochains polls reprennent depuis zero.
+    logEl.textContent = '';
+    logOffset = 0;
+    try { await fetch('/scinsta/logs/clear', { method: 'POST' }); }
+    catch (e) { /* best-effort */ }
+  });
   // Offset courant dans scinsta-build-log-<env>.txt : chaque poll n'apporte
   // que le delta, on append localement — evite de renvoyer 2-3 Mo par tick.
   let logOffset = 0;

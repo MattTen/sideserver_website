@@ -12,8 +12,8 @@ from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
 from ..scinsta import (
-    clear_upload, dismiss_last_build_error, get_state, read_build_log,
-    request_build, request_cancel, run_check, set_decrypt_url,
+    clear_build_log, clear_upload, dismiss_last_build_error, get_state,
+    read_build_log, request_build, request_cancel, run_check, set_decrypt_url,
     upload_instagram_ipa,
 )
 from ..templates import templates
@@ -58,6 +58,13 @@ def scinsta_logs(offset: int = 0, user: User = Depends(require_user)):
     if offset < 0:
         offset = 0
     return JSONResponse(read_build_log(offset))
+
+
+@router.post("/logs/clear")
+def scinsta_logs_clear(user: User = Depends(require_user)):
+    """Efface le fichier log live (bouton Effacer de l'UI)."""
+    clear_build_log()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/check")

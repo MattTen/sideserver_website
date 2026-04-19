@@ -35,10 +35,11 @@ ENV LANG=C.UTF-8
 # depuis ProcursusTeam/ldid dans le RUN suivant.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential clang make perl fakeroot \
-        git curl ca-certificates unzip xz-utils bzip2 zip zstd rsync \
+        git git-lfs curl ca-certificates unzip xz-utils bzip2 zip zstd rsync \
         cmake pkg-config libplist-utils libplist-dev libssl-dev \
         python3 python3-pip python3-venv python3-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install --system
 
 # ─── ldid (absent de Debian bookworm) ─────────────────────────────────
 # Fork moderne ProcursusTeam (utilise par Theos). Build <30s, binaire seul.
@@ -55,18 +56,16 @@ RUN git clone --recursive https://github.com/theos/theos.git /opt/theos
 
 # ─── iOS SDK ───────────────────────────────────────────────────────────
 # SDK 16.5 (disponible publiquement via le repo theos/sdks). build.sh de
-# SCInsta exige un SDK >= iOS 16.2 (cf. BUILD_GUIDE). On downloade un seul
-# SDK depuis le tarball officiel pour eviter de cloner tout le repo sdks
-# (~8 Go d'historique).
+# SCInsta exige un SDK >= iOS 16.2 (cf. BUILD_GUIDE). Le repo utilise Git
+# LFS : on fait un clone sparse (GIT_LFS_SKIP_SMUDGE=1 empeche le pull de
+# tous les SDKs, ~8 Go) puis `git lfs pull --include` pour n'extraire que
+# le tarball dont on a besoin (~400 Mo).
 RUN mkdir -p /opt/theos/sdks \
-    && curl -fsSL \
-        https://github.com/theos/sdks/releases/download/master-2023-11-03/iPhoneOS16.5.sdk.tar.xz \
-        -o /tmp/sdk.tar.xz 2>/dev/null \
-    || curl -fsSL \
-        https://github.com/theos/sdks/raw/master/iPhoneOS16.5.sdk.tar.xz \
-        -o /tmp/sdk.tar.xz \
-    && tar -xf /tmp/sdk.tar.xz -C /opt/theos/sdks \
-    && rm /tmp/sdk.tar.xz
+    && GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch master \
+        https://github.com/theos/sdks.git /tmp/sdks \
+    && git -C /tmp/sdks lfs pull --include=iPhoneOS16.5.sdk.tar.xz \
+    && tar -xf /tmp/sdks/iPhoneOS16.5.sdk.tar.xz -C /opt/theos/sdks \
+    && rm -rf /tmp/sdks
 
 # ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
 # cyan s'installe depuis git (absent de PyPI). lief est utilise par les
