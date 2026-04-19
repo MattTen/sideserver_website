@@ -15,6 +15,7 @@ Flux :
   5. Le watcher du conteneur web lit le result, cree App Instagram + Version.
 
 Cles settings utilisees (clefs/valeurs, aucune migration BDD) :
+- `scinsta_decrypt_url`          — URL source editable (defaut decrypt.day IG)
 - `scinsta_ig_version_latest`    — derniere version vue sur decrypt.day
 - `scinsta_last_check_at`        — ISO timestamp du dernier check version
 - `scinsta_last_check_error`     — raison si le check a echoue
@@ -44,8 +45,18 @@ from .source_gen import get_setting, set_setting
 
 logger = logging.getLogger(__name__)
 
-DECRYPT_URL = "https://decrypt.day/app/id389801252"
+DECRYPT_URL_DEFAULT = "https://decrypt.day/app/id389801252"
 INSTAGRAM_BUNDLE_ID = "com.burbn.instagram"
+
+
+def get_decrypt_url(db: Session) -> str:
+    """URL source pour le check de version. Editable via l'UI."""
+    return get_setting(db, "scinsta_decrypt_url", "") or DECRYPT_URL_DEFAULT
+
+
+def set_decrypt_url(db: Session, url: str) -> None:
+    set_setting(db, "scinsta_decrypt_url", url.strip())
+    db.commit()
 
 # Le parser du HTML decrypt.day cible le microdata schema.org softwareVersion.
 # Pattern tolerant aux attributs supplementaires entre itemprop et le contenu.
@@ -121,6 +132,7 @@ class ScinstaState:
     last_build_ipa: Optional[str]
     last_build_patch: Optional[str]
     last_build_scinsta_sha: Optional[str]
+    decrypt_url: str = DECRYPT_URL_DEFAULT
     build_progress_step: Optional[str] = None
     upload_ready: bool = False                # une IPA est deja en attente
     ig_update_available: bool = field(default=False)
@@ -141,6 +153,7 @@ class ScinstaState:
             "last_build_ipa": self.last_build_ipa,
             "last_build_patch": self.last_build_patch,
             "last_build_scinsta_sha": self.last_build_scinsta_sha,
+            "decrypt_url": self.decrypt_url,
             "build_progress_step": self.build_progress_step,
             "is_running": self.is_running,
             "upload_ready": self.upload_ready,
@@ -183,6 +196,7 @@ def get_state(db: Session) -> ScinstaState:
         last_build_ipa=get_setting(db, "scinsta_last_build_ipa", "") or None,
         last_build_patch=get_setting(db, "scinsta_last_build_patch", "") or None,
         last_build_scinsta_sha=get_setting(db, "scinsta_last_build_scinsta_sha", "") or None,
+        decrypt_url=get_decrypt_url(db),
         upload_ready=_upload_file().exists(),
     )
     prog = _build_progress()
@@ -210,7 +224,7 @@ def _extract_version(body: str) -> Optional[str]:
     return m.group(1).strip() if m else None
 
 
-def _fetch_with_curl_cffi() -> tuple[Optional[str], Optional[str]]:
+def _fetch_with_curl_cffi(url: str) -> tuple[Optional[str], Optional[str]]:
     """Tentative principale : curl_cffi avec impersonation Chrome.
 
     Cloudflare filtre sur le fingerprint TLS (JA3/JA4). curl_cffi utilise
@@ -229,7 +243,7 @@ def _fetch_with_curl_cffi() -> tuple[Optional[str], Optional[str]]:
     for imp in _IMPERSONATIONS:
         try:
             resp = cffi_requests.get(
-                DECRYPT_URL,
+                url,
                 impersonate=imp,
                 timeout=30,
                 headers={
@@ -265,12 +279,12 @@ def _fetch_with_curl_cffi() -> tuple[Optional[str], Optional[str]]:
     return None, last_err or "curl_cffi : aucune impersonation n'a abouti"
 
 
-def _fetch_with_urllib() -> tuple[Optional[str], Optional[str]]:
+def _fetch_with_urllib(url: str) -> tuple[Optional[str], Optional[str]]:
     """Fallback urllib. Ne sert que si curl_cffi n'est pas installe (dev
     local sans rebuild). En prod il sera quasi toujours bloque en 403.
     """
     req = urllib.request.Request(
-        DECRYPT_URL,
+        url,
         headers={
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) "
@@ -300,8 +314,8 @@ def _fetch_with_urllib() -> tuple[Optional[str], Optional[str]]:
     return version, None
 
 
-def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
-    """Recupere la version affichee sur decrypt.day en passant Cloudflare.
+def fetch_instagram_version_online(url: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """Recupere la version affichee sur l'URL source (decrypt.day par defaut).
 
     Chaine de fallback :
       1. curl_cffi (TLS impersonation Chrome) — passe dans la quasi-totalite
@@ -315,7 +329,8 @@ def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
 
     Retourne (version, error_message). L'un des deux est None.
     """
-    version, err = _fetch_with_curl_cffi()
+    target = url or DECRYPT_URL_DEFAULT
+    version, err = _fetch_with_curl_cffi(target)
     if version:
         return version, None
 
@@ -324,13 +339,13 @@ def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
     # plus fragile que Chrome-impersonne.
     if err and err.startswith("curl_cffi indisponible"):
         logger.info("scinsta: curl_cffi absent, fallback urllib")
-        return _fetch_with_urllib()
+        return _fetch_with_urllib(target)
 
     return None, err or "erreur inconnue"
 
 
 def run_check(db: Session) -> ScinstaState:
-    version, err = fetch_instagram_version_online()
+    version, err = fetch_instagram_version_online(get_decrypt_url(db))
     set_setting(db, "scinsta_last_check_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     if version:
         set_setting(db, "scinsta_ig_version_latest", version)

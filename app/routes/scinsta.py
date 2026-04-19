@@ -12,7 +12,7 @@ from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
 from ..scinsta import (
-    clear_upload, get_state, request_build, run_check,
+    clear_upload, get_state, request_build, run_check, set_decrypt_url,
     upload_instagram_ipa,
 )
 from ..templates import templates
@@ -52,6 +52,24 @@ def scinsta_check(user: User = Depends(require_user), db: Session = Depends(get_
     """Interroge decrypt.day pour la derniere version Instagram."""
     state = run_check(db)
     return JSONResponse(state.to_dict())
+
+
+@router.post("/source")
+def scinsta_set_source(
+    url: str = Form(...),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Met a jour l'URL source interrogee pour le check de version.
+
+    Validation minimale (schema http/https) ; on laisse l'admin assumer
+    le contenu — la page cible doit contenir le microdata softwareVersion.
+    """
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL http(s) requise")
+    set_decrypt_url(db, url)
+    return JSONResponse(get_state(db).to_dict())
 
 
 @router.post("/upload")

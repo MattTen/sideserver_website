@@ -469,88 +469,16 @@ Les scripts de patch partagent le venv du conteneur (même `sys.executable`). Le
 
 ## 12. SCInsta builder (onglet SCInsta)
 
-Onglet dédié à la production de builds **Instagram + SCInsta** ([SoCuul/SCInsta](https://github.com/SoCuul/SCInsta)) directement depuis l'UI admin.
+Onglet dédié à la production de builds **Instagram + SCInsta** ([SoCuul/SCInsta](https://github.com/SoCuul/SCInsta)) directement depuis l'UI admin, avec bypass Cloudflare (via `curl_cffi`) pour le check de version et upload manuel pour l'IPA (Turnstile infranchissable sur le bouton de téléchargement).
 
-### Principe
-
-decrypt.day est protégé par Cloudflare. Le **téléchargement** de l'IPA nécessite un challenge interactif (Turnstile) impossible à automatiser proprement, mais la **page de l'app** (avec le numéro de version dans un microdata `softwareVersion`) est accessible à quiconque présente un ClientHello TLS cohérent avec Chrome — ce qu'on obtient via [`curl_cffi`](https://github.com/lexiforest/curl_cffi) (libcurl-impersonate). Le flux retenu :
-
-1. **Check version** — `curl_cffi` avec `impersonate="chrome"` récupère `https://decrypt.day/app/id389801252`, parse le microdata. Fallback sur d'autres impersonations (`chrome131`, `safari17_0`, `firefox133`) si le WAF change, puis fallback urllib (utile seulement en dev local sans `curl_cffi` installé). Si tout échoue, l'UI propose la saisie manuelle.
-2. **Upload manuel** — l'admin récupère l'IPA sur decrypt.day via un vrai navigateur (le challenge Turnstile du bouton de téléchargement, lui, reste infranchissable en automation propre), puis la dépose via un dropzone XHR dans l'UI.
-3. **Build** — en un clic, l'admin déclenche le pipeline qui clone `main` de SCInsta, compile les dylibs avec Theos, les injecte avec cyan, et applique un patch optionnel (auto-découvert dans `patch/`).
-4. **Intégration** — le résultat devient automatiquement une nouvelle version de l'app `Instagram` (`com.burbn.instagram`) dans le store, avec une actualité notify=1.
-
-> **Pourquoi pas la release .deb de SCInsta ?** La release distribue uniquement le tweak `.deb` (injection Cydia/jailbreak), pas un IPA sideloadable. On clone donc le repo `main` pour utiliser le pipeline `build.sh sideload` qui produit un IPA injecté prêt pour SideStore.
-
-### Fichiers partagés avec l'hôte
-
-Tous dans `/etc/ipastore/` (monté en volume, mêmes fichiers vus par le conteneur web et par le conteneur builder) :
-
-| Fichier                                      | Direction        | Contenu |
-|----------------------------------------------|------------------|---------|
-| `scinsta-upload-<env>.ipa`                   | web → builder    | IPA Instagram officielle uploadée par l'admin (rename atomique via `.tmp`) |
-| `scinsta-build-requested-<env>`              | web → systemd    | Flag JSON : `{requested_at, patch}` — déclenche la path unit |
-| `scinsta-build-progress-<env>`               | builder → web    | JSON : `{step: "clone|build|inject|patch|deploy"}` pour l'UI |
-| `scinsta-build-result-<env>`                 | builder → web    | JSON final consommé puis supprimé par le watcher du conteneur web |
-
-### Système systemd (path + service)
-
-Mirror exact du mécanisme de MAJ (`ipastore-update@`) :
-
-```
-[conteneur] POST /scinsta/build
-      ↓ écrit /etc/ipastore/scinsta-build-requested-<env>
-[hôte] ipastore-scinsta-build@<env>.path  (PathExists=)
-      ↓
-[hôte] ipastore-scinsta-build@<env>.service
-      ↓ supprime le flag + lance :
-      docker build tools/scinsta-builder/
-      docker run --rm --network host \
-        -v /etc/ipastore:/etc/ipastore \
-        -v /srv/store-<env>:/srv/store \
-        -v /opt/sideserver-<env>:/opt/source:ro \
-        sideserver-scinsta-builder
-      ↓ le builder écrit result + nouvel IPA
-[conteneur web] _scinsta_result_loop (poll 5s) → intègre en BDD
-```
-
-Le timeout du service est volontairement long (1800s) : le build Theos complet peut prendre plusieurs minutes selon la VM.
-
-### Conteneur builder (`tools/scinsta-builder/`)
-
-Image Debian bookworm qui embarque :
-
-- **Theos** + SDK iOS 16.5 (cloné dans `/opt/theos`)
-- **cyan** (pyzule-rw) via pip git, pour l'injection de dylibs dans l'IPA
-- **ipapatch** (fallback pour les Extensions sideload-friendly)
-- **lief** (re-sérialisation Mach-O, partagée avec les scripts de `patch/`)
-
-Pipeline de `build.py` (entrypoint du conteneur) :
-
-1. `git clone --recursive --depth 1 --branch main https://github.com/SoCuul/SCInsta.git` — **fresh à chaque build** pour garantir la dernière version.
-2. Copie l'IPA uploadée vers `packages/com.burbn.instagram.ipa`.
-3. `bash ./build.sh sideload` — Theos compile les dylibs, cyan les injecte.
-4. Si un patch a été sélectionné : `python3 patch/<file>.py -s <ipa>` (mêmes scripts que l'onglet Patch, montés en lecture seule).
-5. Renomme le résultat en `SCInsta-ig<ver>-sc<sha_court>-<timestamp>.ipa` et le dépose dans `/srv/store/ipas/`.
-6. Écrit `scinsta-build-result-<env>` avec `{status, ipa_filename, ig_version, scinsta_sha, size, sha256, patch}`.
-
-### Intégration côté conteneur web
-
-`_scinsta_result_loop` (dans `app/main.py`, lifespan) poll `scinsta-build-result-<env>` toutes les 5s. Dès qu'un result est présent, `integrate_build_result` :
-
-- Crée l'app `Instagram` (`com.burbn.instagram`) si absente (tint `E1306C`, catégorie `social`, icône extraite de l'IPA).
-- Insère la `Version` avec `version = IG version` et `build_version = <sha_court_scinsta>` — l'UNIQUE(app_id, version, build_version) garantit l'absence de doublons.
-- Crée un article `News` avec `notify=1` (identifier `scinsta-<ig_v>-<sha>`) pour déclencher la notif SideStore.
-- Supprime l'upload (`scinsta-upload-<env>.ipa`) après intégration.
-
-### Commandes `website-management`
+Commandes `website-management` associées (pilotées par la path unit `ipastore-scinsta-build@`, pas listées dans le menu interactif) :
 
 | Commande | Action |
 |---|---|
-| `prod-scinsta-build` | Build + run du conteneur builder pour prod (appelé par systemd, jamais à la main pour prod) |
+| `prod-scinsta-build` | Build + run du conteneur builder pour prod |
 | `dev-scinsta-build`  | Idem pour dev |
 
-Ces commandes ne sont **pas** listées dans le menu interactif : elles sont pilotées par les path units.
+**Doc complète** : [scinsta_builder.md](scinsta_builder.md) — flux utilisateur, pipeline systemd/Docker, bypass Cloudflare, URL source modifiable, routes API, clés settings, intégration BDD.
 
 ---
 
