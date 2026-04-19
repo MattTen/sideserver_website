@@ -34,7 +34,6 @@ def build_source(db: Session) -> dict[str, Any]:
     base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
     store_name = get_setting(db, "store_name", "Magasin Perso")
     store_subtitle = get_setting(db, "store_subtitle", "")
-    store_description = get_setting(db, "store_description", "")
     store_tint = get_setting(db, "store_tint", "c9a678")
     store_icon_file = get_setting(db, "store_icon_file", "")
     store_header_file = get_setting(db, "store_header_file", "")
@@ -114,7 +113,6 @@ def build_source(db: Session) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "name": store_name,
         "subtitle": store_subtitle,
-        "description": store_description,
         "iconURL": store_icon_url,
         "website": base_url + "/",
         "tintColor": store_tint,

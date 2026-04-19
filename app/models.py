@@ -57,7 +57,8 @@ class App(Base):
     icon_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     # JSON list d'URLs de screenshots, ex: ["http://…/screens/1.png"].
     screenshot_urls: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    featured: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 1 par défaut : toutes les apps apparaissent dans Featured Apps de SideStore.
+    featured: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
     # onupdate : mis à jour automatiquement à chaque modification de la ligne.
     updated_at: Mapped[dt.datetime] = mapped_column(
