@@ -42,55 +42,54 @@ Trois users MySQL distincts, chacun avec un rôle précis.
 | Champ | Valeur |
 |---|---|
 | User MySQL | `ipastore-prod` |
-| Mot de passe | `HmIQl5adwEjiitKlFQbQ8uk2Xrz3MHIsS9B2E-cujwY` |
-| Host autorisé | `%` (depuis le conteneur Docker via `host.docker.internal`) |
+| Host autorisé | `%` (conteneur Docker via `host.docker.internal`) |
 | Port | `3306` |
 | Base de données | `ipastore-prod` |
 | Droits | `ALL PRIVILEGES ON ipastore-prod.*` |
-| Fichier | `/etc/ipastore/prod.env` (`IPASTORE_DB_URL`) |
+| Où trouver le mot de passe | `/etc/ipastore/prod.env` → variable `IPASTORE_DB_URL` |
 | Utilisé par | conteneur `sidestore-website-prod` |
 
-Connection string complète :
-```
-mysql+pymysql://ipastore-prod:HmIQl5adwEjiitKlFQbQ8uk2Xrz3MHIsS9B2E-cujwY@host.docker.internal:3306/ipastore-prod?charset=utf8mb4
-```
+Le mot de passe est généré aléatoirement à l'installation (`deploy/bootstrap.sh`) et injecté dans la connection string de `IPASTORE_DB_URL`. Il n'est stocké qu'à un seul endroit : ce fichier.
 
 ### 2b. `ipastore-dev` — application dev
 
 | Champ | Valeur |
 |---|---|
 | User MySQL | `ipastore-dev` |
-| Mot de passe | `8W2Spq9hHtGduW04lndrVRlw64-CeXhBzFyiwrZ0mfk` |
-| Host autorisé | `%` (depuis le conteneur Docker via `host.docker.internal`) |
+| Host autorisé | `%` (conteneur Docker via `host.docker.internal`) |
 | Port | `3306` |
 | Base de données | `ipastore-dev` |
 | Droits | `ALL PRIVILEGES ON ipastore-dev.*` |
-| Fichier | `/etc/ipastore/dev.env` (`IPASTORE_DB_URL`) |
+| Où trouver le mot de passe | `/etc/ipastore/dev.env` → variable `IPASTORE_DB_URL` |
 | Utilisé par | conteneur `sidestore-website-dev` |
 
-Connection string complète :
-```
-mysql+pymysql://ipastore-dev:8W2Spq9hHtGduW04lndrVRlw64-CeXhBzFyiwrZ0mfk@host.docker.internal:3306/ipastore-dev?charset=utf8mb4
-```
+Même principe que prod — mot de passe généré à l'install, stocké uniquement dans `dev.env`.
 
 ### 2c. `ipastore-mgmt` — script de management
 
 | Champ | Valeur |
 |---|---|
 | User MySQL | `ipastore-mgmt` |
-| Mot de passe | `mgmt_gSZCg2WTZPgFJcEs0JDlQ` |
 | Host autorisé | `localhost` uniquement |
-| Droits | `ALL PRIVILEGES ON *.*` (nécessaire pour créer/supprimer des BDD lors des opérations sync/reset) |
-| Fichier | `/etc/ipastore/.mysql.cnf` |
+| Droits | `ALL PRIVILEGES ON *.*` (nécessaire pour les opérations cross-BDD : sync, reset-users) |
+| Où trouver le mot de passe | `/etc/ipastore/.mysql.cnf` → clé `password` |
 | Propriétaire/droits | `altuser:altuser 600` |
 | Utilisé par | `website-management` (sync, reset-users, dev-update) |
 
-**Contenu de `/etc/ipastore/.mysql.cnf`** :
+**Format de `/etc/ipastore/.mysql.cnf`** :
 ```ini
 [client]
 user=ipastore-mgmt
-password=mgmt_gSZCg2WTZPgFJcEs0JDlQ
+password=<généré à l'install>
 host=localhost
+```
+
+**Changer le mot de passe de `ipastore-mgmt`** :
+```bash
+# En tant que root sur le serveur :
+NEW_PASS=$(openssl rand -base64 32 | tr -d '/+=')
+mysql -u root -e "ALTER USER 'ipastore-mgmt'@'localhost' IDENTIFIED BY '${NEW_PASS}';"
+sed -i "s/^password=.*/password=${NEW_PASS}/" /etc/ipastore/.mysql.cnf
 ```
 
 **Changer le mot de passe de `ipastore-mgmt`** :
