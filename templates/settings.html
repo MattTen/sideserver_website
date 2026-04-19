@@ -11,6 +11,61 @@
 {% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
 
+<div class="card mb-4">
+  <h2>Apparence dans SideStore</h2>
+  <p class="text-muted mb-4" style="font-size: 12.5px;">
+    L'icône est affichée en haut de la source et floutée en arrière-plan. Le header (optionnel) s'affiche au-dessus, façon bannière. PNG, JPG ou WebP.
+  </p>
+
+  <div class="appearance-grid">
+    <div class="appearance-block">
+      <div class="appearance-label">Icône du store</div>
+      <div class="appearance-icon-wrap">
+        {% if store_icon_file %}
+        <img src="/icons/{{ store_icon_file }}" class="appearance-icon" alt="Icône du store">
+        {% else %}
+        <div class="appearance-icon appearance-icon-empty">—</div>
+        {% endif %}
+      </div>
+      <form method="post" action="/settings/icon" enctype="multipart/form-data" class="row-gap mt-4">
+        <label class="btn btn-sm" style="cursor:pointer;">
+          <input type="file" name="icon" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
+          {{ 'Remplacer' if store_icon_file else 'Téléverser' }}
+        </label>
+        {% if store_icon_file %}
+        <button form="remove-icon-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+        {% endif %}
+      </form>
+      {% if store_icon_file %}
+      <form id="remove-icon-form" method="post" action="/settings/icon/remove"></form>
+      {% endif %}
+    </div>
+
+    <div class="appearance-block">
+      <div class="appearance-label">Bannière (header)</div>
+      <div class="appearance-header-wrap">
+        {% if store_header_file %}
+        <img src="/icons/{{ store_header_file }}" class="appearance-header" alt="Header">
+        {% else %}
+        <div class="appearance-header appearance-header-empty">Optionnel — image large en haut de la source</div>
+        {% endif %}
+      </div>
+      <form method="post" action="/settings/header" enctype="multipart/form-data" class="row-gap mt-4">
+        <label class="btn btn-sm" style="cursor:pointer;">
+          <input type="file" name="header" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
+          {{ 'Remplacer' if store_header_file else 'Téléverser' }}
+        </label>
+        {% if store_header_file %}
+        <button form="remove-header-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+        {% endif %}
+      </form>
+      {% if store_header_file %}
+      <form id="remove-header-form" method="post" action="/settings/header/remove"></form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 <div class="two-col">
   <div class="card">
     <h2>Métadonnées du magasin</h2>
@@ -32,7 +87,7 @@
         <div class="field">
           <label>URL publique du serveur</label>
           <input class="input input-mono" name="base_url" value="{{ base_url }}" required>
-          <span class="hint">Utilisée pour construire les liens des IPAs (ex : <code>http://192.168.0.202</code>).</span>
+          <span class="hint">Utilisée pour construire les liens des IPAs (ex : <code>http://192.168.1.100</code>).</span>
         </div>
         <div class="field">
           <label>Couleur d'accent (hex)</label>

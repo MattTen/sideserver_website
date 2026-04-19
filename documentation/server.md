@@ -49,11 +49,13 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 
 Tout vit sous `/opt/` :
 
-| Chemin                   | Branche/Tag   | Sparse filter | Contenu                   |
-|--------------------------|---------------|---------------|---------------------------|
-| `/opt/sideserver-prod`   | tag de release | `/*  !tools/` | Code de l'app prod        |
-| `/opt/sideserver-dev`    | `dev`         | `/*  !tools/` | Code de l'app dev         |
-| `/opt/sideserver-tools`  | `main`        | `tools/`       | Script `website-management.sh` |
+| Chemin                   | Branche/Tag   | Sparse filter              | Contenu                   |
+|--------------------------|---------------|----------------------------|---------------------------|
+| `/opt/sideserver-prod`   | tag de release | `/*  !tools/  !documentation/` | Code de l'app prod        |
+| `/opt/sideserver-dev`    | `dev`         | `/*  !tools/  !documentation/` | Code de l'app dev         |
+| `/opt/sideserver-tools`  | `main`        | `tools/`                   | Script `website-management.sh` |
+
+> `documentation/` est exclu des trois clones serveur via sparse-checkout (config locale git, le repo GitHub reste complet). Cela évite de déployer de la doc inutile sur la VM.
 
 Les trois clones sont **owned par `altuser`**. Pour éviter l'erreur "dubious ownership" quand root invoque git, `safe.directory` est configuré globalement.
 
@@ -74,7 +76,12 @@ Répertoire 750 owned par altuser. Monté en volume dans chaque conteneur (à `/
 
 ### `/srv/store-{prod,dev}/`
 
-Monté dans le conteneur à `/srv/store`. Contient les IPAs binaires, icônes, screenshots. **Séparés** entre prod et dev pour ne jamais se marcher dessus.
+Monté dans le conteneur à `/srv/store`. **Séparés** entre prod et dev pour ne jamais se marcher dessus. Sous-dossiers :
+
+- `ipas/` — binaires `.ipa` servis sur `/ipas/{filename}`
+- `icons/` — icônes d'apps + icône et header du store (`_store-<token>.png`, `_header-<token>.png`), servis sur `/icons/{filename}`
+- `screenshots/` — captures uploadées manuellement, servies sur `/screenshots/{filename}`
+- `news/` — visuels joints aux articles d'actualités, servis sur `/news-img/{filename}`
 
 ---
 
@@ -87,7 +94,7 @@ Toutes les vars sont injectées via `env_file: /etc/ipastore/{prod,dev}.env` dan
 | `IPASTORE_DB_URL`        | `mysql+pymysql://ipastore-prod:…@host.docker.internal:3306/ipastore-prod?charset=utf8mb4` | Connexion MariaDB |
 | `IPASTORE_STORE_DIR`     | `/srv/store`                          | Racine binaires (monté depuis `/srv/store-prod`) |
 | `IPASTORE_SECRET_FILE`   | `/etc/ipastore/secret_key.prod`       | Clé cookies (lue au boot)             |
-| `IPASTORE_BASE_URL`      | `http://192.168.0.202`                | URL publique pour `source.json`       |
+| `IPASTORE_BASE_URL`      | `http://<IP_SERVEUR>`                 | URL que SideStore utilise pour télécharger IPAs/icônes. C'est l'adresse que l'utilisateur entre dans SideStore pour ajouter la source — le feed `source.json` y intègre toutes les URLs absolues (ex: `http://<IP>/ipas/app.ipa`). Sans chemins absolus, SideStore ne saurait pas où se connecter. |
 | `IPASTORE_ENV`           | `prod` ou `dev`                       | Identifie l'environnement du conteneur (utilisé par le module updates) |
 | `IPASTORE_GITHUB_REPO`   | `MattTen/sideserver_website`          | Repo consulté pour les releases       |
 
@@ -141,6 +148,7 @@ website-management --help           # aide
 | Commande             | Action                                                                 |
 |----------------------|------------------------------------------------------------------------|
 | `sync`               | Clone TOTAL prod → dev (drop+recreate BDD dev + rsync --delete du store). **Écrase tout ce qui est dans dev.** |
+| `sync-to-prod`       | Clone TOTAL dev → prod (drop+recreate BDD prod + rsync --delete du store). **IRRÉVERSIBLE — écrase prod.** Double confirmation exigée. |
 | `prod-reset-users`   | Prompt login/mdp, supprime tous les users prod, crée un nouvel admin.  |
 | `dev-reset-users`    | Idem sur dev.                                                          |
 
@@ -396,3 +404,21 @@ bind-address = 0.0.0.0
 | `app/updates.py`                              | Logique check + flag-file                     |
 | `app/routes/updates.py`                       | Routes `/settings/updates/{check,apply}`      |
 | `app/main.py`                                 | Lifespan + boucle check 6h                    |
+| `app/source_gen.py`                           | Construction du feed `source.json` (apps, featured, news, header, icône) |
+| `app/routes/news.py`                          | CRUD actualités (section `news[]` du feed)    |
+
+---
+
+## 11. Apparence du store (source.json)
+
+Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin remplit ces champs :
+
+| Champ `source.json` | Où le configurer                         | Stockage physique                                |
+|---------------------|------------------------------------------|--------------------------------------------------|
+| `iconURL`           | Réglages → Apparence → Icône du store   | `STORE_DIR/icons/_store-<token>.ext`             |
+| `headerURL`         | Réglages → Apparence → Bannière         | `STORE_DIR/icons/_header-<token>.ext` (optionnel)|
+| `tintColor`         | Réglages → Métadonnées → Teinte         | table `settings`, clé `store_tint`               |
+| `featuredApps`      | Fiche app → toggle "Mettre en avant"    | colonne `apps.featured`                          |
+| `news[]`            | Actualités (nouveau menu)               | table `news` + fichiers dans `STORE_DIR/news/`   |
+
+Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalide le cache HTTP de SideStore à chaque upload — sans ça, le client garde l'ancienne image même après remplacement côté serveur.

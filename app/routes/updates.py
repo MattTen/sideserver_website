@@ -1,4 +1,10 @@
-"""Routes pour la vérification et déclenchement de mise à jour."""
+"""Routes de gestion des mises à jour (préfixe : /settings/updates).
+
+GET  /check  → interroge l'API GitHub et retourne le statut en JSON.
+POST /apply  → écrit le fichier-drapeau dans /etc/ipastore/ ; le path unit
+               systemd ipastore-update@{env}.path sur l'hôte le détecte et
+               déclenche website-management {env}-update puis supprime le fichier.
+"""
 from __future__ import annotations
 
 import logging
