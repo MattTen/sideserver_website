@@ -35,6 +35,10 @@
         {% include "_icons/tag.svg" ignore missing %}
         <span>Catégories</span>
       </a>
+      <a href="/patches" class="{% if active == 'patches' %}active{% endif %}">
+        {% include "_icons/wrench.svg" ignore missing %}
+        <span>Patch</span>
+      </a>
       <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">
         {% include "_icons/sliders.svg" ignore missing %}
         <span>Réglages</span>

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ patch.display_name }} - Patch{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ patch.display_name }}</h1>
+    <div class="subtitle mono-sm">{{ patch.filename }}</div>
+  </div>
+  <div class="row-gap">
+    <a href="/patches" class="btn btn-sm">Retour</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<div class="two-col">
+  <div class="card">
+    <h2>Nom d'affichage</h2>
+    <p class="text-muted mb-4" style="font-size: 12.5px;">Change le nom montré dans la liste des patchs pour plus de confort.</p>
+    <form method="post" action="/patches/{{ patch.filename }}/rename">
+      <div class="field">
+        <label>Nom</label>
+        <input class="input" name="display_name" value="{{ patch.display_name }}" maxlength="80" required>
+      </div>
+      <div class="row-gap">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Exécuter le patch</h2>
+    {% if apps %}
+    <p class="text-muted mb-4" style="font-size: 12.5px;">
+      Sélectionne l'app + version à patcher. L'IPA sera écrasé en place et le hash mis à jour en BDD.
+    </p>
+    <form method="post" action="/patches/{{ patch.filename }}/run">
+      <div class="field">
+        <label>Version à patcher</label>
+        <select class="input" name="version_id" required>
+          <option value="" disabled {% if not selected_version_id %}selected{% endif %}>— choisir une app —</option>
+          {% for a in apps %}
+          <optgroup label="{{ a.name }}">
+            {% for v in a.versions %}
+            <option value="{{ v.id }}" {% if selected_version_id == v.id %}selected{% endif %}>
+              {{ a.name }} — {{ v.version }} (build {{ v.build_version }}) — {{ v.size|size }}
+            </option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="row-gap">
+        <button type="submit" class="btn btn-primary">Patcher</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="empty">
+      <strong>Aucune version disponible</strong>
+      Upload un IPA depuis l'onglet Applications pour pouvoir le patcher.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if log %}
+<div class="card mt-4">
+  <h2>Log d'exécution</h2>
+  <pre class="mono" style="background: var(--bg-elev-2); padding: 12px; border-radius: var(--radius); overflow-x: auto; max-height: 520px; white-space: pre-wrap; font-size: 12px; line-height: 1.45;">{{ log }}</pre>
+</div>
+{% endif %}
+{% endblock %}
