@@ -77,8 +77,15 @@
 
 <div id="patch-overlay" class="patch-overlay" role="status" aria-live="polite" aria-hidden="true">
   <div class="patch-overlay-card">
-    <div class="patch-spinner" aria-hidden="true"></div>
-    <div class="patch-overlay-title">Patch en cours…</div>
+    <div class="patch-spinner" aria-hidden="true">
+      <div class="patch-spinner-halo"></div>
+      <div class="patch-spinner-ring"></div>
+      <div class="patch-spinner-ring-inner"></div>
+      <div class="patch-spinner-icon">
+        {% include "_icons/wrench.svg" ignore missing %}
+      </div>
+    </div>
+    <div class="patch-overlay-title">Patch en cours<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
     <div class="patch-overlay-sub">Ne ferme pas cette page. Les gros IPAs (Instagram ~270 Mo) peuvent prendre plusieurs minutes.</div>
   </div>
 </div>
