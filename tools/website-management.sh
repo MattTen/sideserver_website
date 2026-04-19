@@ -9,6 +9,7 @@ set -euo pipefail
 # Résolution des chemins (overridables par variables d'env)
 PROD_DIR="${SIDESERVER_PROD_DIR:-/opt/sideserver-prod}"
 DEV_DIR="${SIDESERVER_DEV_DIR:-/opt/sideserver-dev}"
+TOOLS_DIR="${SIDESERVER_TOOLS_DIR:-/opt/sideserver-tools}"
 DB_PROD="ipastore-prod"
 DB_DEV="ipastore-dev"
 STORE_PROD="/srv/store-prod"
@@ -98,6 +99,12 @@ cmd_update() {
     && docker compose up -d --build)
   ok "Mise à jour $env terminée"
   docker ps --filter "name=$(container_name "$env")" --format "  {{.Names}}  {{.Status}}"
+}
+
+cmd_self_update() {
+  info "Pull du script depuis $TOOLS_DIR (branche main, sparse-checkout)"
+  (cd "$TOOLS_DIR" && git fetch origin main && git reset --hard origin/main)
+  ok "Script à jour : $(git -C "$TOOLS_DIR" log -1 --format='%h %s')"
 }
 
 # ────── Sync TOTALE prod -> dev (écrase dev) ──────
@@ -204,6 +211,7 @@ $(printf "${C_BOLD}CONTENEURS${C_RESET}")
 $(printf "${C_BOLD}MISE À JOUR DU CODE (après push GitHub)${C_RESET}")
   prod-update         git pull 'main' + rebuild + redémarre prod
   dev-update          git pull 'dev'  + rebuild + redémarre dev
+  self-update         Met à jour ce script depuis /opt/sideserver-tools
 
 $(printf "${C_BOLD}DONNÉES${C_RESET}")
   sync                Sync TOTALE prod -> dev (écrase BDD + fichiers dev)
@@ -252,6 +260,7 @@ menu() {
     printf "\n"
     printf "  ${C_BOLD}DONNÉES${C_RESET}\n"
     printf "    20) Sync TOTALE prod -> dev (écrase dev)\n"
+    printf "    21) Self-update (pull ce script)\n"
     printf "\n"
     printf "     s) Status                 h) Aide CLI\n"
     printf "     q) Quitter\n\n"
@@ -270,6 +279,7 @@ menu() {
       15) cmd_update dev ;;
       16) cmd_reset_users dev ;;
       20) cmd_sync ;;
+      21) cmd_self_update ;;
       s|S) cmd_status ;;
       h|H) usage ;;
       q|Q|exit|quit) exit 0 ;;
@@ -296,6 +306,7 @@ case "${1:-}" in
   dev-logs)            cmd_logs dev ;;
   dev-update)          cmd_update dev ;;
   dev-reset-users)     cmd_reset_users dev ;;
+  self-update)         cmd_self_update ;;
   status)              cmd_status ;;
   sync)                cmd_sync ;;
   *) err "Commande inconnue : $1"; echo; usage; exit 1 ;;
