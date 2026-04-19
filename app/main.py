@@ -63,6 +63,15 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parent.parent / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    # Store assets (IPAs + icons + screenshots) are served as static files from
+    # the shared volume. SideStore clients fetch these URLs directly from source.json.
+    Config.IPAS_DIR.mkdir(parents=True, exist_ok=True)
+    Config.ICONS_DIR.mkdir(parents=True, exist_ok=True)
+    Config.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/ipas", StaticFiles(directory=str(Config.IPAS_DIR)), name="ipas")
+    app.mount("/icons", StaticFiles(directory=str(Config.ICONS_DIR)), name="icons")
+    app.mount("/screenshots", StaticFiles(directory=str(Config.SCREENSHOTS_DIR)), name="screenshots")
+
     app.include_router(public_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(dashboard_routes.router)
