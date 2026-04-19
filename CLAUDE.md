@@ -102,9 +102,10 @@ deploy/
                     #   ipastore-scinsta-build@.{path,service} — build SCInsta
   bootstrap.sh      # Script d'installation initiale (exécuté en root)
 documentation/      # Documentation serveur et credentials (exclu du serveur)
-  server.md         # Architecture, déploiement, features, onglet Patch, onglet SCInsta
+  server.md         # Architecture, déploiement, features, onglet Patch (pointer vers scinsta_builder.md pour SCInsta)
   databases.md      # Schéma BDD complet (tables + settings keys)
   credentials.md    # Cycle de vie des secrets
+  scinsta_builder.md        # Doc complète onglet SCInsta (flux, pipeline, bypass CF, URL editable)
   patch_fix_ipa.md          # Doc technique fix_ipa.py
   patch_fix_ipa_scinsta.md  # Doc technique fix_ipa_scinsta.py
 CLAUDE.md           # Ce fichier (exclu du serveur)
@@ -241,6 +242,7 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 ### 4. Documentation
 **À chaque feature ajoutée, modifiée ou supprimée** : mettre à jour les fichiers concernés dans `documentation/` :
 - `documentation/server.md` → architecture, script, déploiement, systemd, onglet Patch
+- `documentation/scinsta_builder.md` → tout changement sur l'onglet SCInsta (UI, pipeline, bypass CF, URL source…)
 - `documentation/credentials.md` → tout ce qui touche aux credentials
 - `documentation/databases.md` → toute modification du schéma BDD (tables + clés `settings`)
 - `documentation/patch_fix_ipa.md` + `patch_fix_ipa_scinsta.md` → si les scripts de patch évoluent
@@ -259,8 +261,11 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - Le build clone **toujours** `main` de `SoCuul/SCInsta` (fresh), jamais la release `.deb`.
 - Pipeline systemd `ipastore-scinsta-build@{env}.path` → conteneur one-shot `tools/scinsta-builder/` → IPA déposé dans `/srv/store-{env}/ipas/` → watcher lifespan crée Version + News.
 - `bundle_id = com.burbn.instagram` ; `build_version = <short_sha_scinsta>` pour éviter le conflit `UNIQUE(app_id, version, build_version)`.
+- `ig_deployed` (version intégrée) est lu **depuis la table `versions`** (dernière `uploaded_at` de `com.burbn.instagram`), pas depuis les settings. Ça reste correct quand l'admin upload l'IPA manuellement via l'onglet Apps.
+- URL source modifiable via l'UI (clé `scinsta_decrypt_url`, route `POST /scinsta/source`). Défaut : `https://decrypt.day/app/id389801252`.
 - Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch).
-- État persistant dans `settings` via clés `scinsta_*` (voir `documentation/databases.md`).
+- État persistant dans `settings` via clés `scinsta_*` (voir [databases.md](documentation/databases.md)).
+- **Doc complète** : [documentation/scinsta_builder.md](documentation/scinsta_builder.md).
 
 ### 7. Static files
 Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.

@@ -5,8 +5,7 @@
   <div>
     <h1>SCInsta Builder</h1>
     <div class="subtitle">
-      Build d'une IPA Instagram patchée avec <a href="https://github.com/SoCuul/SCInsta" target="_blank" rel="noopener">SCInsta</a>
-      — clone frais de <code>main</code> à chaque build.
+      Build d'une IPA Instagram avec <a href="https://github.com/SoCuul/SCInsta" target="_blank" rel="noopener">SCInsta</a>
     </div>
   </div>
   <div class="row-gap">
@@ -31,21 +30,30 @@
       <div class="mono" id="sci-ig-latest">{{ state.ig_latest or '—' }}</div>
     </div>
   </div>
+  <div class="alert" id="sci-banner" style="display:none; margin-top: 12px;"></div>
   <p class="text-muted" style="font-size: 12.5px; margin: 12px 0 0;">
     Dernier check : <span id="sci-checked">{{ state.last_check_at or 'jamais' }}</span>
     <span id="sci-check-err-wrap" style="{% if not state.last_check_error %}display:none{% endif %}">
       — <span class="text-danger" id="sci-check-err">{{ state.last_check_error }}</span>
     </span>
-    · Source :
-    <a href="https://decrypt.day/app/id389801252" target="_blank" rel="noopener">decrypt.day/app/id389801252</a>
   </p>
+  <div class="source-row" style="display:flex; align-items:center; gap:8px; margin-top:6px; font-size:12.5px;" id="sci-source-view">
+    <span class="text-muted">Source :</span>
+    <a id="sci-source-link" href="{{ state.decrypt_url }}" target="_blank" rel="noopener">{{ state.decrypt_url }}</a>
+    <button type="button" class="btn btn-sm btn-ghost" id="sci-source-edit">Modifier</button>
+  </div>
+  <div class="source-row" style="display:none; align-items:center; gap:8px; margin-top:6px; font-size:12.5px;" id="sci-source-edit-wrap">
+    <span class="text-muted">Source :</span>
+    <input type="url" class="input" id="sci-source-input" style="flex:1; min-width:0;" value="{{ state.decrypt_url }}" placeholder="https://...">
+    <button type="button" class="btn btn-sm btn-primary" id="sci-source-save">Enregistrer</button>
+    <button type="button" class="btn btn-sm btn-ghost" id="sci-source-cancel">Annuler</button>
+  </div>
 </div>
 
 <div class="card mb-4">
   <h2>1. Upload de l'IPA Instagram</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
     Télécharge manuellement l'IPA décryptée depuis decrypt.day et dépose-la ici.
-    Le fichier pèse ~280 Mo.
   </p>
 
   <label class="dropzone" id="sci-dropzone">
@@ -81,8 +89,7 @@
 
 <div class="card mb-4">
   <h2>3. Lancer le build</h2>
-  <div class="alert" id="sci-banner" style="display:none"></div>
-  <div class="row-gap" style="margin-top: 10px;">
+  <div class="row-gap">
     <button class="btn btn-primary" type="button" id="sci-build-btn"
             {% if state.is_running or not state.upload_ready %}disabled{% endif %}>
       Builder maintenant
@@ -105,24 +112,6 @@
   </div>
 </div>
 
-<div class="card">
-  <h2>Comment ça marche</h2>
-  <ol class="text-muted" style="font-size: 13px; line-height: 1.7; padding-left: 22px;">
-    <li>Tu récupères manuellement la dernière IPA Instagram décryptée sur
-      <a href="https://decrypt.day/app/id389801252" target="_blank" rel="noopener">decrypt.day</a>
-      (bouton <em>Download for Free</em>).</li>
-    <li>Tu la dépose dans la zone d'upload ci-dessus. L'upload streame directement
-      sur le serveur (~280 Mo).</li>
-    <li>Optionnel : sélectionne un patch à appliquer après l'injection SCInsta.</li>
-    <li>Clique <strong>Builder maintenant</strong>. Un conteneur Docker :
-      clone <code>SoCuul/SCInsta</code> main (frais), lance <code>./build.sh sideload</code>
-      (Theos + cyan + ipapatch), applique le patch choisi, dépose l'IPA final
-      dans le store.</li>
-    <li>Le serveur crée automatiquement une nouvelle <strong>Version</strong>
-      pour <code>com.burbn.instagram</code> et publie un article de news.</li>
-  </ol>
-</div>
-
 <script>
 (function() {
   const checkBtn = document.getElementById('sci-check-btn');
@@ -138,8 +127,19 @@
   const clearUploadBtn = document.getElementById('sci-clear-upload');
   const patchSelect = document.getElementById('sci-patch-select');
 
+  // Source editable : vue read-only <-> input + boutons Save/Cancel
+  const sourceView = document.getElementById('sci-source-view');
+  const sourceEditWrap = document.getElementById('sci-source-edit-wrap');
+  const sourceLink = document.getElementById('sci-source-link');
+  const sourceInput = document.getElementById('sci-source-input');
+  const sourceEditBtn = document.getElementById('sci-source-edit');
+  const sourceSaveBtn = document.getElementById('sci-source-save');
+  const sourceCancelBtn = document.getElementById('sci-source-cancel');
+
   function setBanner(kind, msg) {
-    banner.className = 'alert mt-4 ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : 'alert-info');
+    // Le banner vit desormais dans la carte "Instagram (decrypt.day)" : on
+    // garde une marge top reduite parce qu'il est inline dans le bloc.
+    banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : 'alert-info');
     banner.textContent = msg;
     banner.style.display = msg ? 'block' : 'none';
   }
@@ -170,6 +170,13 @@
     document.getElementById('sci-build-status').textContent = state.is_running
       ? (state.build_progress_step || 'en cours…')
       : (state.last_build_status || 'jamais lancé');
+    if (state.decrypt_url) {
+      sourceLink.href = state.decrypt_url;
+      sourceLink.textContent = state.decrypt_url;
+      if (sourceEditWrap.style.display === 'none' || !sourceEditWrap.style.display) {
+        sourceInput.value = state.decrypt_url;
+      }
+    }
 
     const errWrap = document.getElementById('sci-check-err-wrap');
     const errEl = document.getElementById('sci-check-err');
@@ -189,6 +196,42 @@
       ? (state.build_progress_step ? 'Build : ' + state.build_progress_step : 'Build en cours…')
       : 'Builder maintenant';
   }
+
+  // ── Source URL editable ──
+  function setSourceEditing(editing) {
+    sourceView.style.display = editing ? 'none' : 'flex';
+    sourceEditWrap.style.display = editing ? 'flex' : 'none';
+    if (editing) sourceInput.focus();
+  }
+  sourceEditBtn.addEventListener('click', () => setSourceEditing(true));
+  sourceCancelBtn.addEventListener('click', () => {
+    sourceInput.value = sourceLink.href;
+    setSourceEditing(false);
+  });
+  sourceSaveBtn.addEventListener('click', async () => {
+    const url = sourceInput.value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setBanner('err', 'URL http(s) requise.');
+      return;
+    }
+    sourceSaveBtn.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append('url', url);
+      const res = await fetch('/scinsta/source', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setBanner('err', 'Erreur : ' + (data.detail || res.status));
+      } else {
+        render(await res.json());
+        setSourceEditing(false);
+        setBanner('ok', 'Source mise à jour.');
+      }
+    } catch (e) {
+      setBanner('err', 'Erreur réseau : ' + e.message);
+    }
+    sourceSaveBtn.disabled = false;
+  });
 
   // ── Check version ──
   checkBtn.addEventListener('click', async () => {
