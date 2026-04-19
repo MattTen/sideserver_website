@@ -85,14 +85,21 @@ RUN pip install --no-cache-dir --break-system-packages \
         "lief>=0.16" \
         requests
 
-# ipapatch : CLI python qui patch l'IPA + ses extensions pour le sideload
-# (appele en fin de build.sh). Repo canonique = asdfzxcvbn/ipapatch (meme
-# auteur que cyan/pyzule-rw). Les anciens forks JJTech/SideStore n'existent
-# plus publiquement. SCInsta/build.sh l'invoque obligatoirement donc pas
-# de fallback ici — si l'installation echoue, le build plantera de toute
-# facon a l'etape finale.
-RUN pip install --no-cache-dir --break-system-packages \
-        "ipapatch @ git+https://github.com/asdfzxcvbn/ipapatch"
+# ipapatch : CLI Go qui patch l'IPA + ses extensions pour le sideload
+# (appele en fin de SCInsta/build.sh). Repo canonique =
+# asdfzxcvbn/ipapatch (meme auteur que cyan/pyzule-rw). v2+ est un
+# binaire Go natif portable, on telecharge le release linux-amd64 plutot
+# que d'installer une toolchain Go. SCInsta/build.sh l'invoque
+# obligatoirement — pas de fallback.
+#
+# Version pinnee : tag le plus recent au moment du build initial. Pour
+# mettre a jour, bump le tag ici et rebuild l'image.
+ARG IPAPATCH_VERSION=v2.1.3
+RUN curl -fsSL \
+        "https://github.com/asdfzxcvbn/ipapatch/releases/download/${IPAPATCH_VERSION}/ipapatch.linux-amd64" \
+        -o /usr/local/bin/ipapatch \
+    && chmod +x /usr/local/bin/ipapatch \
+    && ipapatch --version
 
 WORKDIR /opt/builder
 
