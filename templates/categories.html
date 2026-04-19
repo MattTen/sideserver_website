@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Catégories - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Catégories</h1>
+    <div class="subtitle">Utilisées dans la fiche de chaque app et publiées dans <code>source.json</code>.</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h2>Catégories existantes</h2>
+    {% if categories %}
+    <div class="cat-list">
+      {% for cat in categories %}
+      <div class="cat-row">
+        <span class="cat-name">{{ cat }}</span>
+        <form method="post" action="/categories/{{ cat | urlencode }}/delete"
+              onsubmit="return confirm('Supprimer la catégorie « {{ cat }} » ?');">
+          <button class="btn btn-sm btn-danger" type="submit">
+            {% include "_icons/trash.svg" %}
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty"><strong>Aucune catégorie</strong>Ajoute-en une ci-contre.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Ajouter une catégorie</h2>
+    <form method="post" action="/categories/add">
+      <div class="field">
+        <label>Nom</label>
+        <input class="input" name="name" placeholder="ex : Productivité" required autofocus>
+      </div>
+      <button class="btn btn-primary" type="submit">
+        {% include "_icons/check.svg" %}
+        <span>Ajouter</span>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
