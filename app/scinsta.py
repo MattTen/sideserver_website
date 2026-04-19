@@ -15,7 +15,6 @@ Flux :
   5. Le watcher du conteneur web lit le result, cree App Instagram + Version.
 
 Cles settings utilisees (clefs/valeurs, aucune migration BDD) :
-- `scinsta_ig_version_deployed`  — version IG actuellement dans le store
 - `scinsta_ig_version_latest`    — derniere version vue sur decrypt.day
 - `scinsta_last_check_at`        — ISO timestamp du dernier check version
 - `scinsta_last_check_error`     — raison si le check a echoue
@@ -149,9 +148,32 @@ class ScinstaState:
         }
 
 
+def _latest_instagram_version_in_store(db: Session) -> Optional[str]:
+    """Retourne la derniere version de com.burbn.instagram presente dans le
+    store (ordonnee par uploaded_at desc).
+
+    Source de verite pour "version deployee" : la BDD, pas la clef settings.
+    La clef scinsta_ig_version_deployed n'est ecrite qu'au bout d'un build
+    SCInsta — si l'admin a uploade l'IPA manuellement via l'onglet Apps,
+    elle reste vide. On requete donc directement la table versions.
+    """
+    from .models import App, Version
+
+    app = db.query(App).filter(App.bundle_id == INSTAGRAM_BUNDLE_ID).first()
+    if app is None:
+        return None
+    ver = (
+        db.query(Version)
+        .filter(Version.app_id == app.id)
+        .order_by(Version.uploaded_at.desc())
+        .first()
+    )
+    return ver.version if ver else None
+
+
 def get_state(db: Session) -> ScinstaState:
     state = ScinstaState(
-        ig_deployed=get_setting(db, "scinsta_ig_version_deployed", "") or None,
+        ig_deployed=_latest_instagram_version_in_store(db),
         ig_latest=get_setting(db, "scinsta_ig_version_latest", "") or None,
         last_check_at=get_setting(db, "scinsta_last_check_at", "") or None,
         last_check_error=get_setting(db, "scinsta_last_check_error", "") or None,
@@ -517,7 +539,6 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
         )
         db.add(news)
 
-    set_setting(db, "scinsta_ig_version_deployed", ig_v)
     set_setting(db, "scinsta_last_build_status", "success")
     set_setting(db, "scinsta_last_build_error", "")
     set_setting(db, "scinsta_last_build_ipa", filename)

@@ -53,7 +53,6 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `store_header_file` | Nom de fichier du header/bannière du store dans `ICONS_DIR` | `""` (optionnel) |
 | `patch_display_name:{filename}` | Nom d'affichage personnalisé du patch `{filename}` (onglet Patch) | stem du fichier |
 | `patch_description:{filename}` | Description libre du patch `{filename}` affichée dans la liste et éditable dans le détail | `""` |
-| `scinsta_ig_version_deployed` | Version Instagram actuellement déployée dans le store (onglet SCInsta) | `""` |
 | `scinsta_ig_version_latest` | Dernière version Instagram vue sur decrypt.day lors du dernier check | `""` |
 | `scinsta_last_check_at` | ISO timestamp du dernier check decrypt.day | `""` |
 | `scinsta_last_check_error` | Message d'erreur si le dernier check a échoué (ex: Cloudflare challenge) | `""` |
