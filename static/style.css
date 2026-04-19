@@ -871,6 +871,24 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
 }
 .bg-swatch:hover .bg-swatch-preview { border-color: var(--border-strong); }
 
+/* Description patch — vue lecture */
+.patch-desc-view {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text, #eee);
+  background: var(--bg-elev-2, #181410);
+  border: 1px solid var(--border, #2a2418);
+  border-radius: var(--radius, 8px);
+  padding: 10px 12px;
+  min-height: 56px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.patch-desc-empty {
+  color: var(--text-muted, #a99);
+  font-style: italic;
+}
+
 /* Overlay "patch en cours" : masqué par défaut, activé via .is-visible
    quand le formulaire de run est soumis. L'exécution est synchrone côté
    serveur (subprocess.run), donc la page reste bloquée — l'overlay donne
