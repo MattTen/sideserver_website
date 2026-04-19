@@ -56,16 +56,22 @@ RUN git clone --recursive https://github.com/theos/theos.git /opt/theos
 
 # ─── iOS SDK ───────────────────────────────────────────────────────────
 # SCInsta/build.sh reference iPhoneOS16.2.sdk en dur ("Your chosen SDK..."
-# si absent). Le repo theos/sdks stocke les SDKs comme des REPERTOIRES
-# tracke par Git LFS (pas des tarballs) — on clone avec GIT_LFS_SKIP_SMUDGE=1
-# pour eviter de pull les ~8 Go de tous les SDKs, puis `git lfs pull --include`
-# ne telecharge que les binaires du SDK qu'on veut. Le dossier est deplace tel
-# quel vers $THEOS/sdks/ (Theos s'attend a trouver iPhoneOSxx.x.sdk/ comme dossier).
+# si absent). Mais theos/sdks master n'heberge que 16.5 pour la serie 16.x
+# (pas 16.2) — on pull 16.5 et on symlink 16.2 dessus. Les deux SDKs sont
+# ABI-compatibles sur la plage d'iOS 15+ ciblee par SCInsta (sideload iOS
+# 15.0+), le header diff entre minor versions est negligeable pour les
+# tweaks Instagram.
+#
+# Le repo theos/sdks stocke les SDKs comme des REPERTOIRES tracke par Git
+# LFS — on clone avec GIT_LFS_SKIP_SMUDGE=1 pour eviter de pull les ~8 Go
+# de tous les SDKs, puis `git lfs pull --include` ne telecharge que les
+# binaires du SDK cible.
 RUN mkdir -p /opt/theos/sdks \
     && GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch master \
         https://github.com/theos/sdks.git /tmp/sdks \
-    && git -C /tmp/sdks lfs pull --include="iPhoneOS16.2.sdk/**" \
-    && mv /tmp/sdks/iPhoneOS16.2.sdk /opt/theos/sdks/ \
+    && git -C /tmp/sdks lfs pull --include="iPhoneOS16.5.sdk/**" \
+    && mv /tmp/sdks/iPhoneOS16.5.sdk /opt/theos/sdks/ \
+    && ln -s iPhoneOS16.5.sdk /opt/theos/sdks/iPhoneOS16.2.sdk \
     && rm -rf /tmp/sdks
 
 # ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
