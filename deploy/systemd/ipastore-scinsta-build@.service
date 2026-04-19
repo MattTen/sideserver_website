@@ -7,10 +7,12 @@ Requires=docker.service
 Type=oneshot
 User=altuser
 Group=altuser
-# Le flag est supprime par le builder lui-meme (read_flag_payload). On garde
-# un ExecStartPre defensif au cas ou le builder crasherait tres tot : sans ca,
-# un flag corrompu relancerait le path unit en boucle.
-ExecStartPre=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i
+# Le flag est lu PUIS supprime par build.py (read_flag_payload) une fois que
+# le container demarre — pas d'ExecStartPre=rm ici, sinon le contenu JSON
+# (dont le nom du patch optionnel) est perdu avant que build.py puisse le
+# lire. PathExists ne re-trigger que sur transition absent -> present, pas
+# de risque de boucle infinie : si build.py crash avant l'unlink, le flag
+# reste en place mais n'est pas retraite tant que le fichier existe.
 ExecStart=/usr/local/bin/website-management %i-scinsta-build
 StandardOutput=journal
 StandardError=journal
