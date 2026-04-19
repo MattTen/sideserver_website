@@ -61,9 +61,13 @@ def build_source(db: Session) -> dict[str, Any]:
         else:
             icon_url = f"{base_url}{_DEFAULT_ICON_PATH}"
         try:
-            screenshots = json.loads(app.screenshot_urls or "[]")
+            raw_shots = json.loads(app.screenshot_urls or "[]")
         except json.JSONDecodeError:
-            screenshots = []
+            raw_shots = []
+        screenshots = [
+            s if s.startswith(("http://", "https://")) else f"{base_url}/screenshots/{s}"
+            for s in raw_shots
+        ]
         apps.append({
             "name": app.name,
             "bundleIdentifier": app.bundle_id,
@@ -110,16 +114,19 @@ def build_source(db: Session) -> dict[str, Any]:
             entry["appID"] = article.app_bundle_id
         news_payload.append(entry)
 
+    if store_header_file and (Config.ICONS_DIR / store_header_file).exists():
+        header_url = f"{base_url}/icons/{store_header_file}"
+    else:
+        header_url = f"{base_url}/static/store-header.png"
+
     payload: dict[str, Any] = {
         "name": store_name,
         "subtitle": store_subtitle,
         "iconURL": store_icon_url,
-        "website": base_url + "/",
+        "headerURL": header_url,
         "tintColor": store_tint,
         "featuredApps": featured,
         "apps": apps,
         "news": news_payload,
     }
-    if store_header_file and (Config.ICONS_DIR / store_header_file).exists():
-        payload["headerURL"] = f"{base_url}/icons/{store_header_file}"
     return payload

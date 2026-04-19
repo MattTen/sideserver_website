@@ -73,7 +73,7 @@ def settings_save(
     return RedirectResponse("/settings", status_code=303)
 
 
-def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
+async def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
     """Persiste une image d'apparence dans ICONS_DIR et retourne son basename.
 
     Le nom final embarque un token aléatoire pour invalider le cache HTTP de
@@ -82,8 +82,15 @@ def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
     """
     ext = _ALLOWED_IMG_EXT.get((upload.content_type or "").lower())
     if ext is None:
+        # Fallback : détecter depuis l'extension du nom de fichier
+        fname = (upload.filename or "").lower()
+        for suffix, e in [(".png", "png"), (".jpg", "jpg"), (".jpeg", "jpg"), (".webp", "webp")]:
+            if fname.endswith(suffix):
+                ext = e
+                break
+    if ext is None:
         raise HTTPException(status_code=400, detail="Format non supporté (PNG/JPG/WebP uniquement)")
-    data = upload.file.read()
+    data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="Image vide")
     name = f"_{prefix}-{secrets.token_hex(4)}.{ext}"
@@ -103,7 +110,7 @@ async def settings_upload_icon(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    new_name = _save_appearance_image(icon, "store")
+    new_name = await _save_appearance_image(icon, "store")
     _drop_previous(db, "store_icon_file")
     set_setting(db, "store_icon_file", new_name)
     return RedirectResponse("/settings", status_code=303)
@@ -125,7 +132,7 @@ async def settings_upload_header(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    new_name = _save_appearance_image(header, "header")
+    new_name = await _save_appearance_image(header, "header")
     _drop_previous(db, "store_header_file")
     set_setting(db, "store_header_file", new_name)
     return RedirectResponse("/settings", status_code=303)
