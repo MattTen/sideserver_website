@@ -14,6 +14,7 @@ from .news_bg import ensure_news_bg
 from .db import init_db
 from .routes import apps as apps_routes
 from .routes import auth as auth_routes
+from .routes import categories as categories_routes
 from .routes import dashboard as dashboard_routes
 from .routes import news as news_routes
 from .routes import public as public_routes
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_routes.router)
     app.include_router(apps_routes.router)
     app.include_router(news_routes.router)
+    app.include_router(categories_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(updates_routes.router)
 

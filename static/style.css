@@ -777,6 +777,17 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   background: var(--accent-soft);
 }
 
+/* Catégories */
+.cat-list { display: flex; flex-direction: column; gap: 6px; }
+.cat-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.cat-name { font-size: 13.5px; }
+
 /* Sélecteur de fond d'article */
 .bg-picker {
   display: grid;
