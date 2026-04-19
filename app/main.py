@@ -10,9 +10,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import Config, ensure_dirs, load_secret_key
+from .news_bg import ensure_news_bg
 from .db import init_db
 from .routes import apps as apps_routes
 from .routes import auth as auth_routes
+from .routes import categories as categories_routes
 from .routes import dashboard as dashboard_routes
 from .routes import news as news_routes
 from .routes import public as public_routes
@@ -58,10 +60,11 @@ def create_app() -> FastAPI:
     ensure_dirs()
     load_secret_key()
     init_db()
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+    ensure_news_bg(static_dir)
 
     app = FastAPI(title="IPA Store", docs_url=None, redoc_url=None, lifespan=lifespan)
 
-    static_dir = Path(__file__).resolve().parent.parent / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # Store assets (IPAs + icons + screenshots) are served as static files from
@@ -81,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard_routes.router)
     app.include_router(apps_routes.router)
     app.include_router(news_routes.router)
+    app.include_router(categories_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(updates_routes.router)
 

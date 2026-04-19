@@ -9,20 +9,26 @@ from __future__ import annotations
 import io
 
 import segno
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from ..config import Config
 from ..db import get_db
-from ..source_gen import build_source, get_setting
+from ..source_gen import build_source
 
 router = APIRouter()
 
 
+def _base_from_request(request: Request) -> str:
+    """URL publique dérivée de la requête : host + port effectivement
+    utilisés par le client. Garantit que toutes les URLs dans source.json
+    sont joignables depuis ce même client."""
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/source.json")
-def source_json(db: Session = Depends(get_db)):
-    payload = build_source(db)
+def source_json(request: Request, db: Session = Depends(get_db)):
+    payload = build_source(db, _base_from_request(request))
     return JSONResponse(
         payload,
         headers={
@@ -33,9 +39,8 @@ def source_json(db: Session = Depends(get_db)):
 
 
 @router.get("/qr.svg")
-def source_qr(db: Session = Depends(get_db)):
-    base = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
-    url = f"{base}/source.json"
+def source_qr(request: Request, db: Session = Depends(get_db)):
+    url = f"{_base_from_request(request)}/source.json"
     qr = segno.make(url, error="m")
     buf = io.BytesIO()
     qr.save(buf, kind="svg", scale=6, dark="#e8e8ee", light="#13131a", border=2)

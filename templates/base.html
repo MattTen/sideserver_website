@@ -31,6 +31,10 @@
         {% include "_icons/news.svg" ignore missing %}
         <span>Actualités</span>
       </a>
+      <a href="/categories" class="{% if active == 'categories' %}active{% endif %}">
+        {% include "_icons/tag.svg" ignore missing %}
+        <span>Catégories</span>
+      </a>
       <a href="/settings" class="{% if active == 'settings' %}active{% endif %}">
         {% include "_icons/sliders.svg" ignore missing %}
         <span>Réglages</span>
