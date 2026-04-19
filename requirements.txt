@@ -8,3 +8,4 @@ cryptography==44.0.0
 bcrypt==4.2.1
 itsdangerous==2.2.0
 segno==1.6.1
+lief>=0.16

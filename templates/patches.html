@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Patch - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Patch</h1>
+    <div class="subtitle">
+      {{ patches|length }} script{{ 's' if patches|length != 1 else '' }} découvert{{ 's' if patches|length != 1 else '' }} dans <code>patch/</code>.
+      Ajoute un <code>.py</code> au repo pour qu'il apparaisse automatiquement après un pull.
+    </div>
+  </div>
+</div>
+
+{% if patches %}
+<div class="table-wrap">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>Nom d'affichage</th>
+        <th>Fichier</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in patches %}
+      <tr>
+        <td style="font-weight: 500;">{{ p.display_name }}</td>
+        <td class="mono-sm">{{ p.filename }}</td>
+        <td><a href="/patches/{{ p.filename }}" class="btn btn-sm">Ouvrir</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">
+  <strong>Aucun patch disponible</strong>
+  Ajoute un fichier <code>.py</code> dans le dossier <code>patch/</code> du repo GitHub, puis pull.
+  Le script doit respecter la signature <code>patch.py -s /chemin/vers/app.ipa</code>.
+</div>
+{% endif %}
+{% endblock %}

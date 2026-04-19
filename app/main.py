@@ -17,6 +17,7 @@ from .routes import auth as auth_routes
 from .routes import categories as categories_routes
 from .routes import dashboard as dashboard_routes
 from .routes import news as news_routes
+from .routes import patches as patches_routes
 from .routes import public as public_routes
 from .routes import settings as settings_routes
 from .routes import updates as updates_routes
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(apps_routes.router)
     app.include_router(news_routes.router)
     app.include_router(categories_routes.router)
+    app.include_router(patches_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(updates_routes.router)
 
