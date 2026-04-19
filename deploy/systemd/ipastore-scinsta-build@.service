@@ -1,0 +1,19 @@
+[Unit]
+Description=Build SCInsta IPA (Instagram + SCInsta main clone) pour %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=altuser
+Group=altuser
+# Le flag est supprime par le builder lui-meme (read_flag_payload). On garde
+# un ExecStartPre defensif au cas ou le builder crasherait tres tot : sans ca,
+# un flag corrompu relancerait le path unit en boucle.
+ExecStartPre=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i
+ExecStart=/usr/local/bin/website-management %i-scinsta-build
+StandardOutput=journal
+StandardError=journal
+# Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min selon la connexion
+# et la charge de la VM. 30 min laisse de la marge pour un retry interne.
+TimeoutStartSec=1800

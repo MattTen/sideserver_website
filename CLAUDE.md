@@ -68,8 +68,9 @@ app/
   source_gen.py     # Génération du feed source.json pour SideStore
   updates.py        # Polling GitHub releases + flag-file pour MAJ
   patches.py        # Découverte + exécution des scripts patch/ (PatchInfo, run_patch)
+  scinsta.py        # Onglet SCInsta : check decrypt.day + upload IPA + flag build + intégration result
   templates.py      # Instance Jinja2 + filtres (size, date)
-  main.py           # create_app(), montage routes + static, lifespan
+  main.py           # create_app(), montage routes + static, lifespan (update check + scinsta result loop)
   routes/
     auth.py         # /login /logout /setup
     dashboard.py    # / (tableau de bord)
@@ -79,21 +80,29 @@ app/
     updates.py      # /settings/updates/check|apply
     news.py         # /news/** (articles du feed SideStore)
     patches.py      # /patches/** (listing, détail, rename, run)
+    scinsta.py      # /scinsta/** (UI + status + check + upload + build)
 
 patch/              # Scripts de patch IPA (copiés dans l'image via Dockerfile)
   fix_ipa.py        # Patch générique : FAT→thin arm64, strip signature (ldid assertion)
   fix_ipa_scinsta.py  # Idem + suppression Extensions/ (SCInsta / IXErrorDomain Code=8)
 
 templates/          # Jinja2 HTML
-  _icons/           # SVG inline (Feather-style) dont wrench.svg pour l'onglet Patch
+  _icons/           # SVG inline (Feather-style) : wrench.svg (Patch), instagram.svg (SCInsta)…
+  scinsta.html      # UI onglet SCInsta (check version + upload dropzone + build + polling)
 static/             # CSS (style.css), JS (app.js), default-app.png
 tools/
   website-management.sh   # Script de gestion prod/dev (voir ci-dessous)
+  scinsta-builder/        # Conteneur one-shot pour builder SCInsta (lancé par systemd)
+    Dockerfile            # Theos + SDK iOS 16.5 + cyan + ipapatch + lief
+    build.py              # Clone SCInsta main → build.sh sideload → patch optionnel → store
+    README.md             # Pipeline + I/O
 deploy/
-  systemd/          # Units systemd (path watcher + service MAJ)
+  systemd/          # Units systemd :
+                    #   ipastore-update@.{path,service}        — MAJ code
+                    #   ipastore-scinsta-build@.{path,service} — build SCInsta
   bootstrap.sh      # Script d'installation initiale (exécuté en root)
 documentation/      # Documentation serveur et credentials (exclu du serveur)
-  server.md         # Architecture, déploiement, features, onglet Patch
+  server.md         # Architecture, déploiement, features, onglet Patch, onglet SCInsta
   databases.md      # Schéma BDD complet (tables + settings keys)
   credentials.md    # Cycle de vie des secrets
   patch_fix_ipa.md          # Doc technique fix_ipa.py
@@ -243,6 +252,14 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - Nom d'affichage : clé `patch_display_name:{filename}` dans `settings`.
 - Description : clé `patch_description:{filename}` dans `settings`.
 - Après exécution réussie, `size` et `sha256` de la version sont recalculés en BDD.
+
+### 6. Onglet SCInsta
+- Upload manuel de l'IPA Instagram (decrypt.day bloqué par Cloudflare Turnstile) — **pas** de scraping automatique.
+- Le build clone **toujours** `main` de `SoCuul/SCInsta` (fresh), jamais la release `.deb`.
+- Pipeline systemd `ipastore-scinsta-build@{env}.path` → conteneur one-shot `tools/scinsta-builder/` → IPA déposé dans `/srv/store-{env}/ipas/` → watcher lifespan crée Version + News.
+- `bundle_id = com.burbn.instagram` ; `build_version = <short_sha_scinsta>` pour éviter le conflit `UNIQUE(app_id, version, build_version)`.
+- Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch).
+- État persistant dans `settings` via clés `scinsta_*` (voir `documentation/databases.md`).
 
 ### 7. Static files
 Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.
