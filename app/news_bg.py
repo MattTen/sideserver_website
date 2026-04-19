@@ -1,6 +1,7 @@
 """Fonds d'actualités prédéfinis : dégradés PNG générés en pur Python stdlib."""
 from __future__ import annotations
 
+import math
 import struct
 import zlib
 from pathlib import Path
@@ -87,6 +88,62 @@ def _make_gradient_png(c1: tuple[int, int, int], c2: tuple[int, int, int],
     return sig + ihdr + idat + iend
 
 
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    payload = tag + data
+    return (struct.pack('>I', len(data))
+            + payload
+            + struct.pack('>I', zlib.crc32(payload) & 0xFFFFFFFF))
+
+
+def _make_color_wheel_png(size: int = 128) -> bytes:
+    """PNG RGBA : roue chromatique HSV (teinte autour, saturation du centre
+    vers le bord, valeur=1). Hors du cercle inscrit = transparent → border-radius
+    CSS n'entoure pas les coins."""
+    cx = cy = (size - 1) / 2
+    r_max = size / 2
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)  # filter byte (None) pour chaque scanline
+        for x in range(size):
+            dx = x - cx
+            dy = y - cy
+            dist = math.hypot(dx, dy)
+            if dist > r_max:
+                raw += b'\x00\x00\x00\x00'
+                continue
+            angle = math.degrees(math.atan2(dy, dx))
+            if angle < 0:
+                angle += 360
+            h = angle / 60.0
+            s = min(dist / r_max, 1.0)
+            c = s                      # v = 1 → c = v*s = s
+            x_ = c * (1 - abs(h % 2 - 1))
+            m = 1.0 - c                # v - c
+            if h < 1:
+                r, g, b = c, x_, 0
+            elif h < 2:
+                r, g, b = x_, c, 0
+            elif h < 3:
+                r, g, b = 0, c, x_
+            elif h < 4:
+                r, g, b = 0, x_, c
+            elif h < 5:
+                r, g, b = x_, 0, c
+            else:
+                r, g, b = c, 0, x_
+            raw += bytes([
+                round((r + m) * 255),
+                round((g + m) * 255),
+                round((b + m) * 255),
+                255,
+            ])
+    sig = b'\x89PNG\r\n\x1a\n'
+    ihdr = _png_chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0))
+    idat = _png_chunk(b'IDAT', zlib.compress(bytes(raw), level=6))
+    iend = _png_chunk(b'IEND', b'')
+    return sig + ihdr + idat + iend
+
+
 def ensure_news_bg(static_dir: Path) -> None:
     """Génère les PNGs manquants dans static/news-bg/ au démarrage du serveur."""
     dest = static_dir / "news-bg"
@@ -99,3 +156,7 @@ def ensure_news_bg(static_dir: Path) -> None:
     header = static_dir / "store-header.png"
     if not header.exists():
         header.write_bytes(_make_gradient_png((16, 8, 42), (52, 18, 106), w=1200, h=340))
+    # Roue chromatique pour le swatch « teinte personnalisée »
+    wheel = static_dir / "color-wheel.png"
+    if not wheel.exists():
+        wheel.write_bytes(_make_color_wheel_png(128))

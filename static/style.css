@@ -714,13 +714,7 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   transform: scale(1.12);
 }
 .tint-swatch-custom {
-  background: conic-gradient(
-    from 0deg,
-    #ff0000, #ff8800, #ffee00, #88ff00,
-    #00ff22, #00ffaa, #00ddff, #0066ff,
-    #2200ff, #8800ff, #ff00ee, #ff0066,
-    #ff0000
-  ) !important;
+  background: url('/static/color-wheel.png') center/cover no-repeat !important;
 }
 .tint-preview {
   display: inline-block;
