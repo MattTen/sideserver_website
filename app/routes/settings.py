@@ -35,7 +35,6 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "user": user,
         "store_name": get_setting(db, "store_name", "Magasin Perso"),
         "store_subtitle": get_setting(db, "store_subtitle", ""),
-        "store_description": get_setting(db, "store_description", ""),
         "store_tint": get_setting(db, "store_tint", "c9a678"),
         "base_url": get_setting(db, "base_url", Config.DEFAULT_BASE_URL),
         "store_icon_file": icon_file if icon_file and (Config.ICONS_DIR / icon_file).exists() else "",
@@ -60,7 +59,6 @@ def settings_save(
     request: Request,
     store_name: str = Form("Magasin Perso"),
     store_subtitle: str = Form(""),
-    store_description: str = Form(""),
     store_tint: str = Form("c9a678"),
     base_url: str = Form(Config.DEFAULT_BASE_URL),
     user: User = Depends(require_user),
@@ -70,7 +68,6 @@ def settings_save(
     base_url = base_url.strip().rstrip("/") or Config.DEFAULT_BASE_URL
     set_setting(db, "store_name", store_name.strip() or "Magasin Perso")
     set_setting(db, "store_subtitle", store_subtitle.strip())
-    set_setting(db, "store_description", store_description.strip())
     set_setting(db, "store_tint", tint)
     set_setting(db, "base_url", base_url)
     return RedirectResponse("/settings", status_code=303)
