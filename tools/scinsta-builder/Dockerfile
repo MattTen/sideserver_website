@@ -88,6 +88,32 @@ RUN mkdir -p /opt/theos/sdks \
     && ln -s iPhoneOS16.5.sdk /opt/theos/sdks/iPhoneOS16.2.sdk \
     && rm -rf /tmp/sdks
 
+# ─── Stub libclang_rt.ios.a (fix __isOSVersionAtLeast) ─────────────────
+# Le toolchain L1ghtmann ne packe pas compiler-rt pour iOS, donc les
+# @available(...) dans FLEX/FLEXing produisent des references undefined
+# a __isOSVersionAtLeast au link. On fournit un stub qui delegue a
+# _availability_version_check (presente dans libSystem iOS 12+), place
+# dans le resource-dir de clang pour etre auto-lie par les targets ios.
+RUN set -eu \
+    && mkdir -p /tmp/rtstub \
+    && printf '%s\n' \
+        '#include <stdint.h>' \
+        'typedef struct { uint32_t major, minor, patch; } _DarwinAvailVersion;' \
+        'extern uint32_t _availability_version_check(uint32_t count, _DarwinAvailVersion versions[]);' \
+        'int32_t __isOSVersionAtLeast(int32_t major, int32_t minor, int32_t subminor) {' \
+        '    _DarwinAvailVersion v = { (uint32_t)major, (uint32_t)minor, (uint32_t)subminor };' \
+        '    return _availability_version_check(1, &v);' \
+        '}' \
+        > /tmp/rtstub/stub.c \
+    && RSRC="$($THEOS/toolchain/linux/iphone/bin/clang -print-resource-dir)" \
+    && mkdir -p "$RSRC/lib/darwin" \
+    && $THEOS/toolchain/linux/iphone/bin/clang \
+        -target arm64-apple-ios15.0 \
+        -isysroot $THEOS/sdks/iPhoneOS16.5.sdk \
+        -c /tmp/rtstub/stub.c -o /tmp/rtstub/stub.o \
+    && ar rcs "$RSRC/lib/darwin/libclang_rt.ios.a" /tmp/rtstub/stub.o \
+    && rm -rf /tmp/rtstub
+
 # ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
 # cyan s'installe depuis git (absent de PyPI). lief est utilise par les
 # scripts patch/*.py, ipapatch depuis son dernier tarball disponible.
