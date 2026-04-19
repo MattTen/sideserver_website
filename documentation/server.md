@@ -89,7 +89,7 @@ Toutes les vars sont injectées via `env_file: /etc/ipastore/{prod,dev}.env` dan
 | `IPASTORE_DB_URL`        | `mysql+pymysql://ipastore-prod:…@host.docker.internal:3306/ipastore-prod?charset=utf8mb4` | Connexion MariaDB |
 | `IPASTORE_STORE_DIR`     | `/srv/store`                          | Racine binaires (monté depuis `/srv/store-prod`) |
 | `IPASTORE_SECRET_FILE`   | `/etc/ipastore/secret_key.prod`       | Clé cookies (lue au boot)             |
-| `IPASTORE_BASE_URL`      | `http://192.168.0.202`                | URL publique pour `source.json`       |
+| `IPASTORE_BASE_URL`      | `http://<IP_SERVEUR>`                 | URL que SideStore utilise pour télécharger IPAs/icônes. C'est l'adresse que l'utilisateur entre dans SideStore pour ajouter la source — le feed `source.json` y intègre toutes les URLs absolues (ex: `http://<IP>/ipas/app.ipa`). Sans chemins absolus, SideStore ne saurait pas où se connecter. |
 | `IPASTORE_ENV`           | `prod` ou `dev`                       | Identifie l'environnement du conteneur (utilisé par le module updates) |
 | `IPASTORE_GITHUB_REPO`   | `MattTen/sideserver_website`          | Repo consulté pour les releases       |
 
