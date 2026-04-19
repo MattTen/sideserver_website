@@ -12,8 +12,9 @@ from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
 from ..scinsta import (
-    clear_upload, get_state, read_build_log, request_build, request_cancel,
-    run_check, set_decrypt_url, upload_instagram_ipa,
+    clear_upload, dismiss_last_build_error, get_state, read_build_log,
+    request_build, request_cancel, run_check, set_decrypt_url,
+    upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -101,6 +102,17 @@ async def scinsta_upload(
 def scinsta_clear_upload(user: User = Depends(require_user)):
     clear_upload()
     return JSONResponse({"ok": True})
+
+
+@router.post("/dismiss-error")
+def scinsta_dismiss_error(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Efface le dernier message d'erreur du build (fermeture UI).
+
+    Ne touche pas au statut, juste au champ d'erreur — le badge reste
+    correct (cancelled/failed) mais l'alerte disparait de la carte 3.
+    """
+    dismiss_last_build_error(db)
+    return JSONResponse(get_state(db).to_dict())
 
 
 @router.post("/cancel")

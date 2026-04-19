@@ -107,15 +107,17 @@
     </span>
   </div>
   <div id="sci-build-detail" style="margin-top: 10px; font-size: 12.5px;" class="text-muted">
-    {% if state.last_build_scinsta_sha %}
-    Dernier commit SCInsta : <code>{{ state.last_build_scinsta_sha }}</code>
-    {% endif %}
-    {% if state.last_build_patch %}
-    · Patch appliqué : <code>{{ state.last_build_patch }}</code>
-    {% endif %}
-    {% if state.last_build_error %}
-    <div class="alert alert-error" style="margin-top: 10px;">{{ state.last_build_error }}</div>
-    {% endif %}
+    <span id="sci-build-sha-wrap"{% if not state.last_build_scinsta_sha %} style="display:none"{% endif %}>
+      Dernier commit SCInsta : <code id="sci-build-sha">{{ state.last_build_scinsta_sha or '' }}</code>
+    </span>
+    <span id="sci-build-patch-wrap"{% if not state.last_build_patch %} style="display:none"{% endif %}>
+      · Patch appliqué : <code id="sci-build-patch">{{ state.last_build_patch or '' }}</code>
+    </span>
+    <div id="sci-build-error-wrap" class="alert alert-error" style="{% if not state.last_build_error %}display:none; {% endif %}margin-top: 10px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+      <span id="sci-build-error-msg">{{ state.last_build_error or '' }}</span>
+      <button type="button" id="sci-build-error-close" title="Fermer" aria-label="Fermer"
+              style="background:none; border:0; color:inherit; cursor:pointer; font-size:16px; line-height:1; padding:0 2px;">×</button>
+    </div>
   </div>
 
   <div id="sci-log-wrap" style="margin-top: 14px;">
@@ -224,6 +226,33 @@
       ? (state.build_progress_step ? 'Build : ' + state.build_progress_step : 'Build en cours…')
       : 'Builder maintenant';
     cancelBtn.style.display = state.is_running ? '' : 'none';
+
+    // Panneau detail (sha / patch / erreur) : synchronise avec l'etat courant
+    // pour que l'erreur puisse disparaitre apres un dismiss ou un nouveau build.
+    const shaWrap = document.getElementById('sci-build-sha-wrap');
+    const shaEl = document.getElementById('sci-build-sha');
+    if (state.last_build_scinsta_sha) {
+      shaEl.textContent = state.last_build_scinsta_sha;
+      shaWrap.style.display = '';
+    } else {
+      shaWrap.style.display = 'none';
+    }
+    const patchWrap = document.getElementById('sci-build-patch-wrap');
+    const patchEl = document.getElementById('sci-build-patch');
+    if (state.last_build_patch) {
+      patchEl.textContent = state.last_build_patch;
+      patchWrap.style.display = '';
+    } else {
+      patchWrap.style.display = 'none';
+    }
+    const errWrap = document.getElementById('sci-build-error-wrap');
+    const errMsg = document.getElementById('sci-build-error-msg');
+    if (state.last_build_error) {
+      errMsg.textContent = state.last_build_error;
+      errWrap.style.display = 'flex';
+    } else {
+      errWrap.style.display = 'none';
+    }
   }
 
   // ── Source URL editable ──
@@ -380,6 +409,14 @@
       setBanner('err', 'Erreur réseau : ' + e.message);
       buildBtn.disabled = false;
     }
+  });
+
+  // ── Fermer l'erreur du dernier build ──
+  document.getElementById('sci-build-error-close').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/scinsta/dismiss-error', { method: 'POST' });
+      if (res.ok) render(await res.json());
+    } catch (e) { /* best-effort */ }
   });
 
   // ── Annuler le build ──
