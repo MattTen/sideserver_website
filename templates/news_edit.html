@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Édition' if item else 'Nouvel article' }} - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1><a href="/news" class="text-muted" style="font-size: 14px;">Actualités</a> <span class="text-dim">/</span> {{ item.title if item else 'Nouvel article' }}</h1>
+    {% if item %}<div class="subtitle mono-sm">{{ item.identifier }}</div>{% endif %}
+  </div>
+  {% if item %}
+  <form method="post" action="/news/{{ item.id }}/delete" onsubmit="return confirm('Supprimer définitivement cet article ?');">
+    <button class="btn btn-danger" type="submit">
+      {% include "_icons/trash.svg" %}
+      <span>Supprimer</span>
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<form method="post" action="{{ '/news/' ~ item.id if item else '/news/new' }}" enctype="multipart/form-data">
+  <div class="two-col">
+    <div class="card">
+      <h2>Contenu</h2>
+
+      <div class="field">
+        <label>Titre</label>
+        <input class="input" name="title" value="{{ item.title if item else '' }}" required>
+      </div>
+
+      {% if not item %}
+      <div class="field">
+        <label>Identifiant <span class="text-dim">(optionnel)</span></label>
+        <input class="input input-mono" name="identifier" placeholder="countdown-comes-to-sidestore">
+        <span class="hint">Clé stable utilisée par SideStore pour distinguer les articles. Générée à partir du titre si vide. Non modifiable après création.</span>
+      </div>
+      {% endif %}
+
+      <div class="field">
+        <label>Accroche</label>
+        <textarea class="textarea" name="caption" rows="4" placeholder="Une à deux phrases, affichées sur la carte dans SideStore.">{{ item.caption if item else '' }}</textarea>
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label>Date</label>
+          <input class="input input-mono" type="datetime-local" name="date"
+                 value="{{ item.date.strftime('%Y-%m-%dT%H:%M') if item else '' }}">
+        </div>
+        <div class="field">
+          <label>Teinte hex <span class="text-dim">(vide = store)</span></label>
+          <input class="input input-mono" name="tint_color" maxlength="6" pattern="[0-9a-fA-F]{0,6}"
+                 value="{{ item.tint_color if item else '' }}">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>URL externe (optionnel)</label>
+        <input class="input input-mono" name="url" type="url"
+               value="{{ item.url if item else '' }}" placeholder="https://...">
+        <span class="hint">Si renseignée, SideStore ouvre cette URL au tap. Sinon la fiche de l'app liée ci-dessous.</span>
+      </div>
+
+      <div class="field">
+        <label>App liée</label>
+        <select class="select" name="app_bundle_id">
+          <option value="">— Aucune —</option>
+          {% for a in apps %}
+          <option value="{{ a.bundle_id }}" {% if item and item.app_bundle_id == a.bundle_id %}selected{% endif %}>{{ a.name }} ({{ a.bundle_id }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" name="notify" value="1" {% if item and item.notify %}checked{% endif %}>
+          Notifier les utilisateurs SideStore
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Visuel</h2>
+      <p class="text-muted mb-4" style="font-size: 12.5px;">16/9 recommandé. PNG, JPG ou WebP.</p>
+
+      {% if item and item.image_path %}
+      <div class="news-preview" style="background-image: url('/news-img/{{ item.image_path }}');"></div>
+      <label class="row-gap mt-4" style="cursor:pointer; font-size:13px;">
+        <input type="checkbox" name="remove_image" value="1">
+        <span>Retirer le visuel actuel</span>
+      </label>
+      {% else %}
+      <div class="news-preview news-preview-empty">Pas d'image</div>
+      {% endif %}
+
+      <div class="field mt-4">
+        <label>{{ 'Remplacer par' if item and item.image_path else 'Ajouter un visuel' }}</label>
+        <input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp">
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6">
+    <button class="btn btn-primary" type="submit">
+      {% include "_icons/check.svg" %}
+      <span>{{ 'Mettre à jour' if item else 'Publier' }}</span>
+    </button>
+    <a href="/news" class="btn">Annuler</a>
+  </div>
+</form>
+{% endblock %}

@@ -14,6 +14,7 @@ from .db import init_db
 from .routes import apps as apps_routes
 from .routes import auth as auth_routes
 from .routes import dashboard as dashboard_routes
+from .routes import news as news_routes
 from .routes import public as public_routes
 from .routes import settings as settings_routes
 from .routes import updates as updates_routes
@@ -68,14 +69,18 @@ def create_app() -> FastAPI:
     Config.IPAS_DIR.mkdir(parents=True, exist_ok=True)
     Config.ICONS_DIR.mkdir(parents=True, exist_ok=True)
     Config.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    Config.NEWS_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/ipas", StaticFiles(directory=str(Config.IPAS_DIR)), name="ipas")
     app.mount("/icons", StaticFiles(directory=str(Config.ICONS_DIR)), name="icons")
     app.mount("/screenshots", StaticFiles(directory=str(Config.SCREENSHOTS_DIR)), name="screenshots")
+    # /news-img sert les visuels d'articles publiés dans source.json.news[].imageURL
+    app.mount("/news-img", StaticFiles(directory=str(Config.NEWS_DIR)), name="news-img")
 
     app.include_router(public_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(apps_routes.router)
+    app.include_router(news_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(updates_routes.router)
 
