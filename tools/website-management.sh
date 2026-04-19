@@ -92,6 +92,11 @@ version_gt() {
   [[ -z "$a" ]] && return 1
   [[ -z "$b" ]] && return 0
   [[ "$a" = "$b" ]] && return 1
+  # Si a n'est pas du semver (1.2.3…), on le considère plus petit que tout.
+  # Si b n'est pas du semver (ex: déploiement rolling "main-abc1234"), a gagne.
+  local re='^[0-9]+(\.[0-9]+)*$'
+  [[ "$a" =~ $re ]] || return 1
+  [[ "$b" =~ $re ]] || return 0
   [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" = "$a" ]]
 }
 
