@@ -80,8 +80,31 @@
         <input class="input" name="store_subtitle" value="{{ store_subtitle }}">
       </div>
       <div class="field">
-        <label>Couleur d'accent (hex)</label>
-        <input class="input input-mono" name="store_tint" value="{{ store_tint }}" maxlength="6" pattern="[0-9a-fA-F]{6}">
+        <label>Couleur d'accent</label>
+        {% set cur = store_tint.lower() %}
+        <div class="tint-picker">
+          {% for label, hex in tint_colors %}
+          <label class="tint-swatch" style="background:#{{ hex }};" title="{{ label }}">
+            <input type="radio" name="tint_preset" value="{{ hex }}"
+                   {% if cur == hex %}checked{% endif %}
+                   onchange="storeTintPick('{{ hex }}')">
+          </label>
+          {% endfor %}
+          <label class="tint-swatch tint-swatch-custom" title="Personnalisé">
+            <input type="radio" name="tint_preset" value="custom"
+                   {% if cur not in tint_preset_values %}checked{% endif %}
+                   onchange="storeTintPick('custom')">
+          </label>
+        </div>
+        <input type="hidden" name="store_tint" id="store-tint-hidden" value="{{ store_tint }}">
+        <div id="store-tint-custom-row" class="row-gap mt-4"
+             style="display:{% if cur not in tint_preset_values %}flex{% else %}none{% endif %}; align-items:center;">
+          <input type="color" id="store-tint-picker"
+                 value="#{{ store_tint.lower() }}"
+                 oninput="storeTintCustom(this.value)"
+                 style="width:40px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
+          <span class="text-muted input-mono" id="store-tint-label" style="font-size:12.5px;">#{{ store_tint.lower() }}</span>
+        </div>
       </div>
       <button class="btn btn-primary" type="submit">
         {% include "_icons/check.svg" %}
@@ -150,4 +173,24 @@
     Vérification automatique toutes les 6 heures. Quand tu appliques, le conteneur est rebuild et redémarre — l'interface sera indisponible quelques secondes.
   </p>
 </div>
+
+<script>
+function storeTintPick(val) {
+  const hidden = document.getElementById('store-tint-hidden');
+  const row = document.getElementById('store-tint-custom-row');
+  if (val === 'custom') {
+    row.style.display = 'flex';
+  } else {
+    row.style.display = 'none';
+    hidden.value = val;
+    document.getElementById('store-tint-picker').value = '#' + val;
+    document.getElementById('store-tint-label').textContent = '#' + val;
+  }
+}
+function storeTintCustom(hexWithHash) {
+  const val = hexWithHash.replace('#', '').toLowerCase();
+  document.getElementById('store-tint-hidden').value = val;
+  document.getElementById('store-tint-label').textContent = '#' + val;
+}
+</script>
 {% endblock %}
