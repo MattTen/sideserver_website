@@ -575,11 +575,14 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   border-color: var(--border-strong);
 }
 .appearance-header-wrap { display: block; cursor: pointer; }
+.appearance-header-wrap:hover .appearance-header,
+.appearance-header-wrap:hover .appearance-header-empty,
 .appearance-header-wrap.drag-over .appearance-header,
 .appearance-header-wrap.drag-over .appearance-header-empty {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 /* Dropzone image (news, etc.) */
