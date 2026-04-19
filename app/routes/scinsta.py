@@ -12,8 +12,8 @@ from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
 from ..scinsta import (
-    clear_upload, get_state, read_build_log, request_build, run_check,
-    set_decrypt_url, upload_instagram_ipa,
+    clear_upload, get_state, read_build_log, request_build, request_cancel,
+    run_check, set_decrypt_url, upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -101,6 +101,25 @@ async def scinsta_upload(
 def scinsta_clear_upload(user: User = Depends(require_user)):
     clear_upload()
     return JSONResponse({"ok": True})
+
+
+@router.post("/cancel")
+def scinsta_cancel(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Demande l'annulation du build en cours.
+
+    Ecrit un flag-file que systemd surveille ; le service host-side fait
+    `docker kill` sur le conteneur builder puis ecrit un result failed.
+    Retourne 409 si aucun build n'est en cours.
+    """
+    state = get_state(db)
+    if not state.is_running:
+        return JSONResponse(
+            {"ok": False, "message": "Aucun build en cours."},
+            status_code=409,
+        )
+    flag = request_cancel(db)
+    logger.info("SCInsta build cancel requested: flag=%s", flag)
+    return JSONResponse({"ok": True, "message": "Annulation demandée."})
 
 
 @router.post("/build")

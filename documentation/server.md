@@ -149,6 +149,7 @@ website-management --help           # aide
 |----------------------|------------------------------------------------------------------------|
 | `sync`               | Clone TOTAL prod → dev (drop+recreate BDD dev + rsync --delete du store). **Écrase tout ce qui est dans dev.** |
 | `sync-to-prod`       | Clone TOTAL dev → prod (drop+recreate BDD prod + rsync --delete du store). **IRRÉVERSIBLE — écrase prod.** Double confirmation exigée. |
+| `sync-schema-to-prod`| Aligne la **structure** de la BDD prod sur celle de dev (tables + colonnes + index + FKs manquants). **Aucune donnée touchée** — opérations ADDITIVES uniquement (`CREATE TABLE`, `ADD COLUMN`, `ADD INDEX`, `ADD FOREIGN KEY`). Pas de `DROP`, pas de `MODIFY`. Les divergences de type sur colonnes existantes sont affichées en commentaire dans le plan pour revue manuelle. Génère un plan SQL via `tools/schema-sync.py`, l'affiche, demande confirmation avant application. |
 | `prod-reset-users`   | Prompt login/mdp, supprime tous les users prod, crée un nouvel admin.  |
 | `dev-reset-users`    | Idem sur dev.                                                          |
 
@@ -418,6 +419,8 @@ bind-address = 0.0.0.0
 | `tools/scinsta-builder/build.py`              | Pipeline : clone SCInsta main → `build.sh sideload` → patch optionnel → store |
 | `deploy/systemd/ipastore-scinsta-build@.path` | Watcher du flag-file de build SCInsta           |
 | `deploy/systemd/ipastore-scinsta-build@.service` | Exécuteur : lance `website-management {env}-scinsta-build` |
+| `deploy/systemd/ipastore-scinsta-cancel@.path` | Watcher du flag-file de cancel SCInsta         |
+| `deploy/systemd/ipastore-scinsta-cancel@.service` | Exécuteur : `docker kill scinsta-builder-{env}` + result failed |
 
 ---
 
@@ -475,8 +478,10 @@ Commandes `website-management` associées (pilotées par la path unit `ipastore-
 
 | Commande | Action |
 |---|---|
-| `prod-scinsta-build` | Build + run du conteneur builder pour prod |
-| `dev-scinsta-build`  | Idem pour dev |
+| `prod-scinsta-build`  | Build + run du conteneur builder pour prod |
+| `dev-scinsta-build`   | Idem pour dev |
+| `prod-scinsta-cancel` | `docker kill scinsta-builder-prod` + écrit un result failed (pilotée par `ipastore-scinsta-cancel@prod.path`) |
+| `dev-scinsta-cancel`  | Idem pour dev |
 
 **Doc complète** : [scinsta_builder.md](scinsta_builder.md) — flux utilisateur, pipeline systemd/Docker, bypass Cloudflare, URL source modifiable, routes API, clés settings, intégration BDD.
 

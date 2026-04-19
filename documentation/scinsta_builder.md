@@ -26,6 +26,8 @@ Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upl
 ### Carte "3. Lancer le build"
 Bouton `Builder maintenant`. Désactivé tant qu'aucun upload n'est prêt ou qu'un build est déjà en cours. Le statut affiche la progression (`clone`, `build`, `inject`, `patch`, `deploy`) via polling `/scinsta/status` toutes les 3s.
 
+Bouton `Annuler le build` (visible uniquement pendant un build, style `btn-danger`). Écrit `/etc/ipastore/scinsta-build-cancel-<env>`, déclenche le path unit `ipastore-scinsta-cancel@<env>.path` → service host-side qui `docker kill --signal=SIGTERM scinsta-builder-<env>` puis écrit un `scinsta-build-result-<env>` avec status `failed` et message "Build annule par l'admin". Le watcher lifespan bascule alors le state en `failed` côté UI. Utilisé en cas de build qui boucle indéfiniment (Theos bloqué, réseau mort…).
+
 Un `<pre>` sous le bouton affiche la **sortie temps réel** du conteneur builder (git clone, Theos, cyan, ipapatch, patch). Implémentation :
 - Côté builder (`tools/scinsta-builder/build.py`) : `_install_log_tee()` ouvre `/etc/ipastore/scinsta-build-log-<env>.txt` en line-buffered et redirige `sys.stdout`/`sys.stderr` vers un `_Tee(sys.__stdout__, fh)`. Chaque ligne arrive dans le fichier dès qu'elle est imprimée, même pendant `bash ./build.sh sideload` (qui tourne plusieurs minutes).
 - Côté web : poll `GET /scinsta/logs?offset=N` toutes les 1.5s pendant un build, envoie `next_offset` pour ne recevoir que le delta, append au `<pre>` côté client. Option `auto-scroll` cochée par défaut.
@@ -74,6 +76,7 @@ Dans `/etc/ipastore/` :
 | `scinsta-build-progress-<env>`       | builder → web | JSON `{step: "clone|build|inject|patch|deploy"}`         |
 | `scinsta-build-result-<env>`         | builder → web | JSON final (consommé puis supprimé par le watcher)       |
 | `scinsta-build-log-<env>.txt`        | builder → web | Tee stdout/stderr du builder (lu incrémentalement via `/scinsta/logs?offset=N`) |
+| `scinsta-build-cancel-<env>`         | web → systemd | Flag JSON déclenchant `ipastore-scinsta-cancel@<env>.service` qui `docker kill` le conteneur |
 
 ---
 
@@ -126,6 +129,7 @@ Validation côté route : schéma `http://` ou `https://` obligatoire, rien d'au
 | POST    | `/scinsta/upload`     | Stream l'IPA vers `scinsta-upload-<env>.ipa`                 |
 | POST    | `/scinsta/clear-upload` | Supprime l'upload en attente                               |
 | POST    | `/scinsta/build`      | Écrit le flag-file de build (form field `patch` optionnel)   |
+| POST    | `/scinsta/cancel`     | Écrit le flag-file de cancel (kill le conteneur builder)     |
 
 Toutes les routes (sauf l'éventuelle visite) exigent auth admin via `Depends(require_user)`.
 
@@ -177,8 +181,10 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 | `tools/scinsta-builder/Dockerfile`                | Image Theos + cyan + ipapatch + lief                 |
 | `tools/scinsta-builder/build.py`                  | Pipeline du conteneur one-shot                       |
 | `tools/scinsta-builder/README.md`                 | Doc I/O du conteneur                                 |
-| `deploy/systemd/ipastore-scinsta-build@.path`     | Watcher du flag                                      |
+| `deploy/systemd/ipastore-scinsta-build@.path`     | Watcher du flag de build                             |
 | `deploy/systemd/ipastore-scinsta-build@.service`  | Runner du build                                      |
+| `deploy/systemd/ipastore-scinsta-cancel@.path`    | Watcher du flag de cancel                            |
+| `deploy/systemd/ipastore-scinsta-cancel@.service` | Runner du cancel (docker kill + result failed)       |
 
 ---
 
