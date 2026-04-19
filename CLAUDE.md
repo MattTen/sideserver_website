@@ -263,7 +263,9 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - `bundle_id = com.burbn.instagram` ; `build_version = <short_sha_scinsta>` pour éviter le conflit `UNIQUE(app_id, version, build_version)`.
 - `ig_deployed` (version intégrée) est lu **depuis la table `versions`** (dernière `uploaded_at` de `com.burbn.instagram`), pas depuis les settings. Ça reste correct quand l'admin upload l'IPA manuellement via l'onglet Apps.
 - URL source modifiable via l'UI (clé `scinsta_decrypt_url`, route `POST /scinsta/source`). Défaut : `https://decrypt.day/app/id389801252`.
-- Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch).
+- **Sortie build temps réel** : `tools/scinsta-builder/build.py` tee `stdout`/`stderr` vers `/etc/ipastore/scinsta-build-log-<env>.txt` (line-buffered) ; l'UI poll `GET /scinsta/logs?offset=N` toutes les 1.5s pour afficher le delta dans un `<pre>`.
+- Alerte "IPA prête : V{version}" : `upload_version` lu dans l'Info.plist de `scinsta-upload-<env>.ipa` (exposé dans le state).
+- Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch — **écrase l'IPA en place**, pas d'original préservé).
 - État persistant dans `settings` via clés `scinsta_*` (voir [databases.md](documentation/databases.md)).
 - **Doc complète** : [documentation/scinsta_builder.md](documentation/scinsta_builder.md).
 

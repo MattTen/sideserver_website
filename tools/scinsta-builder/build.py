@@ -38,7 +38,43 @@ FLAG_FILE = ETC / f"scinsta-build-requested-{ENV}"
 UPLOAD_FILE = ETC / f"scinsta-upload-{ENV}.ipa"
 PROGRESS_FILE = ETC / f"scinsta-build-progress-{ENV}"
 RESULT_FILE = ETC / f"scinsta-build-result-{ENV}"
+LOG_FILE = ETC / f"scinsta-build-log-{ENV}.txt"
 PATCHES_DIR = ETC / f"patches-{ENV}"
+
+
+class _Tee:
+    """Duplique les ecritures vers plusieurs streams. Utilise pour rediriger
+    sys.stdout vers la console ET le fichier log consulte par l'UI.
+    Line-buffered (buffering=1) cote fichier : chaque ligne apparait tout
+    de suite dans l'UI pendant que Theos compile."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data: str) -> int:
+        for s in self.streams:
+            try:
+                s.write(data)
+                s.flush()
+            except Exception:  # pragma: no cover - best effort
+                pass
+        return len(data)
+
+    def flush(self) -> None:
+        for s in self.streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
+def _install_log_tee() -> None:
+    """Truncate le log, puis tee stdout+stderr vers la console et le fichier."""
+    ETC.mkdir(parents=True, exist_ok=True)
+    LOG_FILE.write_text("", encoding="utf-8")  # reset pour ce build
+    fh = LOG_FILE.open("a", encoding="utf-8", buffering=1)
+    sys.stdout = _Tee(sys.__stdout__, fh)
+    sys.stderr = _Tee(sys.__stderr__, fh)
 
 SCINSTA_REPO = "https://github.com/SoCuul/SCInsta.git"
 INSTAGRAM_BUNDLE_ID = "com.burbn.instagram"
@@ -228,6 +264,9 @@ def main() -> None:
     ETC.mkdir(parents=True, exist_ok=True)
     IPAS.mkdir(parents=True, exist_ok=True)
     RESULT_FILE.unlink(missing_ok=True)
+    # Tee stdout/stderr vers LOG_FILE des le debut : l'UI peut poller ce
+    # fichier pour afficher la sortie temps reel (Theos, cyan, git clone...).
+    _install_log_tee()
 
     payload = read_flag_payload()
     patch_filename = (payload.get("patch") or "").strip()

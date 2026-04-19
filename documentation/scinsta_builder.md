@@ -18,13 +18,18 @@ Toute l'info et les interactions liées à la **version** :
 - **Source : `<url>` [Modifier]** — l'URL interrogée est éditable. Utile si decrypt.day change de slug, tombe, ou si l'admin veut pointer vers un miroir. Clic sur `Modifier` → input + boutons Enregistrer/Annuler.
 
 ### Carte "1. Upload de l'IPA Instagram"
-Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Une alerte "IPA prête" s'affiche quand un upload est en attente, avec un bouton `Supprimer`.
+Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Une alerte "IPA prête : V{version}" s'affiche quand un upload est en attente (la version est lue depuis `CFBundleShortVersionString` de l'Info.plist), avec un bouton `Supprimer`.
 
 ### Carte "2. Patch optionnel"
 `<select>` peuplé dynamiquement depuis les scripts auto-découverts dans `patch/` (mêmes que l'onglet Patch). Si sélectionné, le script sera appliqué par le builder **après** l'injection SCInsta.
 
 ### Carte "3. Lancer le build"
 Bouton `Builder maintenant`. Désactivé tant qu'aucun upload n'est prêt ou qu'un build est déjà en cours. Le statut affiche la progression (`clone`, `build`, `inject`, `patch`, `deploy`) via polling `/scinsta/status` toutes les 3s.
+
+Un `<pre>` sous le bouton affiche la **sortie temps réel** du conteneur builder (git clone, Theos, cyan, ipapatch, patch). Implémentation :
+- Côté builder (`tools/scinsta-builder/build.py`) : `_install_log_tee()` ouvre `/etc/ipastore/scinsta-build-log-<env>.txt` en line-buffered et redirige `sys.stdout`/`sys.stderr` vers un `_Tee(sys.__stdout__, fh)`. Chaque ligne arrive dans le fichier dès qu'elle est imprimée, même pendant `bash ./build.sh sideload` (qui tourne plusieurs minutes).
+- Côté web : poll `GET /scinsta/logs?offset=N` toutes les 1.5s pendant un build, envoie `next_offset` pour ne recevoir que le delta, append au `<pre>` côté client. Option `auto-scroll` cochée par défaut.
+- Au chargement, un poll unique récupère le log du **dernier build** (success/failed) : reste consultable après coup.
 
 ---
 
@@ -68,6 +73,7 @@ Dans `/etc/ipastore/` :
 | `scinsta-build-requested-<env>`      | web → systemd | Flag JSON `{requested_at, patch}`                        |
 | `scinsta-build-progress-<env>`       | builder → web | JSON `{step: "clone|build|inject|patch|deploy"}`         |
 | `scinsta-build-result-<env>`         | builder → web | JSON final (consommé puis supprimé par le watcher)       |
+| `scinsta-build-log-<env>.txt`        | builder → web | Tee stdout/stderr du builder (lu incrémentalement via `/scinsta/logs?offset=N`) |
 
 ---
 
@@ -114,6 +120,7 @@ Validation côté route : schéma `http://` ou `https://` obligatoire, rien d'au
 |---------|-----------------------|--------------------------------------------------------------|
 | GET     | `/scinsta`            | Page principale (rendu Jinja avec state initial)             |
 | GET     | `/scinsta/status`     | État JSON (appel lors du polling pendant un build)           |
+| GET     | `/scinsta/logs?offset=N` | Delta du log builder à partir de l'offset (poll temps réel) |
 | POST    | `/scinsta/check`      | Lance le check version (curl_cffi vers URL source)           |
 | POST    | `/scinsta/source`     | Met à jour `scinsta_decrypt_url` (form field `url`)          |
 | POST    | `/scinsta/upload`     | Stream l'IPA vers `scinsta-upload-<env>.ipa`                 |
