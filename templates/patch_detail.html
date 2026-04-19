@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ patch.display_name }} - Patch{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ patch.display_name }}</h1>
+    <div class="subtitle mono-sm">{{ patch.filename }}</div>
+  </div>
+  <div class="row-gap">
+    <a href="/patches" class="btn btn-sm">Retour</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
+
+<div class="two-col">
+  <div class="card">
+    <h2>Infos du patch</h2>
+    <form method="post" action="/patches/{{ patch.filename }}/rename" id="patch-info-form">
+      <div class="field">
+        <label>Nom d'affichage</label>
+        <input class="input" name="display_name" value="{{ patch.display_name }}" maxlength="80" required>
+      </div>
+
+      <div class="field" style="margin-top: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <label style="margin-bottom: 0;">Description</label>
+          <button type="button" id="desc-edit-btn" class="btn btn-sm" onclick="enableDescEdit()">Modifier</button>
+        </div>
+
+        <!-- Vue lecture -->
+        <div id="desc-view" class="patch-desc-view">{% if patch.description %}{{ patch.description }}{% else %}<span class="patch-desc-empty">Aucune description — cliquez sur Modifier pour en ajouter une.</span>{% endif %}</div>
+
+        <!-- Vue édition (cachée par défaut) -->
+        <div id="desc-edit" style="display:none;">
+          <textarea class="input" name="description" id="desc-textarea" rows="5" maxlength="1000" placeholder="À quoi sert ce patch, quelles apps il cible, effets secondaires…">{{ patch.description }}</textarea>
+          <div style="display:flex; gap: 8px; margin-top: 8px;">
+            <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+            <button type="button" class="btn btn-sm" onclick="cancelDescEdit()">Annuler</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Le nom d'affichage peut être sauvegardé indépendamment via son propre submit -->
+      <div class="row-gap" id="name-save-row" style="margin-top: 14px;">
+        <button type="submit" class="btn btn-primary btn-sm" id="name-save-btn">Enregistrer le nom</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Exécuter le patch</h2>
+    {% if apps %}
+    <p class="text-muted mb-4" style="font-size: 12.5px;">
+      Sélectionne l'app + version à patcher. L'IPA sera écrasé en place et le hash mis à jour en BDD.
+    </p>
+    <form method="post" action="/patches/{{ patch.filename }}/run" id="patch-run-form">
+      <div class="field">
+        <label>Version à patcher</label>
+        <select class="input" name="version_id" required>
+          <option value="" disabled {% if not selected_version_id %}selected{% endif %}>— choisir une app —</option>
+          {% for a in apps %}
+          <optgroup label="{{ a.name }}">
+            {% for v in a.versions %}
+            <option value="{{ v.id }}" {% if selected_version_id == v.id %}selected{% endif %}>
+              {{ a.name }} — {{ v.version }} (build {{ v.build_version }}) — {{ v.size|size }}
+            </option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="row-gap">
+        <button type="submit" class="btn btn-primary">Patcher</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="empty">
+      <strong>Aucune version disponible</strong>
+      Upload un IPA depuis l'onglet Applications pour pouvoir le patcher.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if log %}
+<div class="card mt-4">
+  <h2>Log d'exécution</h2>
+  <pre class="mono" style="background: var(--bg-elev-2); padding: 12px; border-radius: var(--radius); overflow-x: auto; max-height: 520px; white-space: pre-wrap; font-size: 12px; line-height: 1.45;">{{ log }}</pre>
+</div>
+{% endif %}
+
+<div id="patch-overlay" class="patch-overlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="patch-overlay-card">
+    <div class="patch-spinner" aria-hidden="true">
+      <div class="patch-spinner-halo"></div>
+      <div class="patch-spinner-ring"></div>
+      <div class="patch-spinner-ring-inner"></div>
+      <div class="patch-spinner-icon">
+        {% include "_icons/wrench.svg" ignore missing %}
+      </div>
+    </div>
+    <div class="patch-overlay-title">Patch en cours<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+    <div class="patch-overlay-sub">Ne ferme pas cette page. Les gros IPAs (Instagram ~270 Mo) peuvent prendre plusieurs minutes.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Overlay patch
+  var form = document.getElementById('patch-run-form');
+  var overlay = document.getElementById('patch-overlay');
+  if (form && overlay) {
+    form.addEventListener('submit', function () {
+      overlay.classList.add('is-visible');
+      overlay.setAttribute('aria-hidden', 'false');
+    });
+  }
+
+  // Quand la description est en mode édition, masquer le bouton "Enregistrer le nom"
+  // pour éviter la confusion (un seul submit actif à la fois).
+})();
+
+function enableDescEdit() {
+  document.getElementById('desc-view').style.display = 'none';
+  document.getElementById('desc-edit').style.display = 'block';
+  document.getElementById('desc-edit-btn').style.display = 'none';
+  document.getElementById('name-save-row').style.display = 'none';
+  document.getElementById('desc-textarea').focus();
+}
+
+function cancelDescEdit() {
+  document.getElementById('desc-view').style.display = '';
+  document.getElementById('desc-edit').style.display = 'none';
+  document.getElementById('desc-edit-btn').style.display = '';
+  document.getElementById('name-save-row').style.display = '';
+}
+</script>
+{% endblock %}

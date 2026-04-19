@@ -17,6 +17,10 @@ RUN pip install -r requirements.txt
 COPY app ./app
 COPY templates ./templates
 COPY static ./static
+# patch/ contient les scripts Python de patch IPA (fix_ipa.py, etc.).
+# Chaque .py a la racine est automatiquement decouvert par app.patches et
+# devient selectionnable depuis l'onglet Patch de l'UI.
+COPY patch ./patch
 
 RUN groupadd -r ipastore && useradd -r -g ipastore -u 1000 ipastore \
  && mkdir -p /srv/store /etc/ipastore \
