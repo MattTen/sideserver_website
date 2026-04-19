@@ -878,15 +878,15 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
 .patch-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(10, 8, 4, 0.72);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(10, 8, 4, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease-out;
+  transition: opacity 200ms ease-out;
   z-index: 9999;
 }
 .patch-overlay.is-visible {
@@ -897,32 +897,97 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   background: var(--bg-elev-1, #1f1a12);
   border: 1px solid var(--border, #2a2418);
   border-radius: var(--radius, 10px);
-  padding: 28px 32px;
+  padding: 36px 40px 32px;
   max-width: 440px;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 .patch-overlay-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  margin-top: 18px;
+  margin-top: 24px;
   color: var(--text, #eee);
+  letter-spacing: 0.2px;
 }
+/* Dots animés après le titre pour un effet "… en cours" vivant. */
+.patch-overlay-title .dot {
+  display: inline-block;
+  opacity: 0;
+  animation: patch-dot 1.4s infinite;
+}
+.patch-overlay-title .dot:nth-child(2) { animation-delay: 0.2s; }
+.patch-overlay-title .dot:nth-child(3) { animation-delay: 0.4s; }
 .patch-overlay-sub {
   font-size: 12.5px;
   color: var(--text-muted, #a99);
-  margin-top: 6px;
-  line-height: 1.45;
+  margin-top: 8px;
+  line-height: 1.5;
 }
+
+/* Spinner composé : wrench au centre qui tourne, anneau orbital autour,
+   halo pulsant en arrière-plan. 3 animations superposées pour donner
+   du mouvement sans saturer. */
 .patch-spinner {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 3px solid rgba(201, 166, 120, 0.18);
-  border-top-color: var(--accent, #c9a678);
+  position: relative;
+  width: 80px;
+  height: 80px;
   margin: 0 auto;
-  animation: patch-spin 720ms linear infinite;
 }
+.patch-spinner-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent, #c9a678) 0%, transparent 65%);
+  opacity: 0.25;
+  animation: patch-halo 1.8s ease-in-out infinite;
+}
+.patch-spinner-ring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 2px solid rgba(201, 166, 120, 0.15);
+  border-top-color: var(--accent, #c9a678);
+  border-right-color: var(--accent, #c9a678);
+  animation: patch-spin 1.1s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+}
+.patch-spinner-ring-inner {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(201, 166, 120, 0.1);
+  border-bottom-color: var(--accent, #c9a678);
+  animation: patch-spin-reverse 1.6s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+}
+.patch-spinner-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent, #c9a678);
+  animation: patch-wiggle 2.2s ease-in-out infinite;
+}
+.patch-spinner-icon svg {
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 0 6px rgba(201, 166, 120, 0.4));
+}
+
 @keyframes patch-spin {
   to { transform: rotate(360deg); }
+}
+@keyframes patch-spin-reverse {
+  to { transform: rotate(-360deg); }
+}
+@keyframes patch-halo {
+  0%, 100% { opacity: 0.18; transform: scale(0.92); }
+  50%      { opacity: 0.38; transform: scale(1.08); }
+}
+@keyframes patch-wiggle {
+  0%, 100% { transform: rotate(-8deg); }
+  50%      { transform: rotate(8deg); }
+}
+@keyframes patch-dot {
+  0%, 60%, 100% { opacity: 0; }
+  30%           { opacity: 1; }
 }
