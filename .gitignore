@@ -40,8 +40,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Claude Code session state
+# Claude Code
 .claude/
+CLAUDE.md
 
 # Logs
 *.log
