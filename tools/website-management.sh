@@ -255,6 +255,8 @@ FLUSH PRIVILEGES;
 SQL
 
   info "Dump + restore de $DB_PROD"
+  # --single-transaction : snapshot cohérent InnoDB sans poser de verrou table.
+  # --quick : streame les lignes au lieu de les bufferiser en mémoire (gros volumes).
   mysqldump --defaults-extra-file="$MYSQL_DEFAULTS" \
     --routines --triggers --events \
     --single-transaction --quick \
@@ -305,6 +307,8 @@ cmd_reset_users() {
   [[ -n "$hash" ]] || { err "Échec du hash"; return 1; }
 
   info "Purge users + insertion du nouvel admin dans '$db'"
+  # sed "s/'/''/g" : échappe les apostrophes dans le username pour éviter
+  # toute injection SQL (le hash bcrypt ne contient que des chars alphanumériques).
   mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$db" <<SQL
 DELETE FROM users;
 INSERT INTO users (username, password_hash, created_at)

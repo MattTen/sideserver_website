@@ -1,4 +1,9 @@
-"""Public endpoints: source.json + QR."""
+"""Endpoints publics (sans authentification) : source.json et QR code.
+
+source.json est le feed consommé par SideStore. Il est servi sans cache
+et avec CORS ouvert (*) pour que SideStore puisse y accéder depuis n'importe
+quelle origine (l'app iOS n'a pas de cookie de session).
+"""
 from __future__ import annotations
 
 import io

@@ -31,7 +31,13 @@ def _safe_filename(bundle_id: str, version: str, build: str) -> str:
 
 
 def _stream_upload_to_tmp(upload: UploadFile) -> Path:
-    """Stream upload to a temp file on the same fs as STORE_DIR (for atomic rename)."""
+    """Stream l'upload vers un fichier temporaire dans STORE_DIR.
+
+    Le fichier temporaire est créé dans STORE_DIR (même filesystem que la
+    destination finale) pour permettre un rename atomique via Path.replace().
+    Un rename cross-filesystem serait une copie non-atomique, risquant des IPA
+    partiellement écrits en cas d'erreur.
+    """
     tmp = tempfile.NamedTemporaryFile(
         dir=Config.STORE_DIR, prefix=".upload-", suffix=".ipa", delete=False
     )
@@ -114,9 +120,9 @@ async def apps_upload(
         sha = sha256_of_file(final_path)
         size = final_path.stat().st_size
 
-        if is_new_app and info.icon_bytes:
-            app.icon_path = _save_icon(info.icon_bytes, info.bundle_id)
-        elif info.icon_bytes and not app.icon_path:
+        # L'icône extraite de l'IPA est sauvegardée uniquement si l'app n'en a
+        # pas déjà une — pour ne pas écraser une icône uploadée manuellement.
+        if info.icon_bytes and not app.icon_path:
             app.icon_path = _save_icon(info.icon_bytes, info.bundle_id)
 
         version = Version(
