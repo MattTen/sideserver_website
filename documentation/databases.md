@@ -52,6 +52,7 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `store_icon_file` | Nom de fichier de l'icône du store dans `ICONS_DIR` | `""` (fallback `_store.png` puis `default-app.png`) |
 | `store_header_file` | Nom de fichier du header/bannière du store dans `ICONS_DIR` | `""` (optionnel) |
 | `patch_display_name:{filename}` | Nom d'affichage personnalisé du patch `{filename}` (onglet Patch) | stem du fichier |
+| `patch_description:{filename}` | Description libre du patch `{filename}` affichée dans la liste et éditable dans le détail | `""` |
 
 ---
 
