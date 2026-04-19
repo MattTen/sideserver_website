@@ -38,9 +38,10 @@ website-management prod-start       # start/stop/restart/logs
 website-management dev-start
 website-management status
 
-# Mise à jour du code après un git push
-website-management prod-update      # pull main + rebuild + restart
-website-management dev-update       # pull dev  + rebuild + restart
+# Mise à jour du code
+website-management prod-update      # déploie la dernière release GitHub (si plus récente)
+website-management prod-check       # affiche current/latest/update_available
+website-management dev-update       # pull dev + rebuild (rolling)
 website-management self-update      # pull le script lui-même
 
 # Données
@@ -49,13 +50,12 @@ website-management prod-reset-users      # purge users + prompt login/mdp
 website-management dev-reset-users
 ```
 
-### Workflow de mise à jour (manuel)
+### Workflow release-based
 
-1. Push sur `dev` depuis ta machine.
-2. Sur la VM : `website-management dev-update`.
-3. Validation OK, merge `dev` -> `main` + push.
-4. Sur la VM : `website-management prod-update`.
-5. Si le script a changé : `website-management self-update`.
+- **Prod** avance uniquement via releases GitHub (`gh release create v1.2.0`). L'UI sur `/settings` vérifie toutes les 6 h via l'API GitHub et affiche un bouton "Appliquer la MAJ" quand un tag plus récent est disponible. Le bouton écrit un flag-file qu'un systemd path unit transforme en appel à `website-management prod-update`.
+- **Dev** est rolling : push `dev` → `website-management dev-update` sur la VM. Pas de releases publiées, bouton UI grisé côté dev.
+
+Détails complets : [documentation/server.md](documentation/server.md).
 
 ## Configuration
 
@@ -67,8 +67,9 @@ Les conteneurs lisent leur config depuis `/etc/ipastore/prod.env` et `/etc/ipast
 app/              # code Python (FastAPI)
 templates/        # Jinja2
 static/           # CSS + JS
-deploy/           # install.sh, nginx, systemd (legacy) + bootstrap.sh
-tools/            # website-management.sh (distribué en clone sparse dédié)
+deploy/           # bootstrap.sh + systemd units (ipastore-update@.{path,service})
+tools/            # website-management.sh (clone sparse dédié)
+documentation/    # doc serveur
 Dockerfile
 docker-compose.yml
 ```

@@ -66,4 +66,44 @@
     </form>
   </div>
 </div>
+
+<div class="card mt-8" id="updates-card">
+  <h2>Mise à jour du serveur</h2>
+  <p class="text-muted mb-4" style="font-size: 12.5px;">
+    La prod déploie uniquement les <strong>releases GitHub</strong>. Le dev est <em>rolling</em> : suit la branche <code>dev</code>, pas de releases (mets à jour en CLI avec <code>website-management dev-update</code>).
+  </p>
+
+  <div class="row-2">
+    <div class="field">
+      <label>Environnement</label>
+      <div class="mono" id="upd-env">—</div>
+    </div>
+    <div class="field">
+      <label>Version déployée</label>
+      <div class="mono" id="upd-current">—</div>
+    </div>
+    <div class="field">
+      <label>Dernière release</label>
+      <div class="mono" id="upd-latest">—</div>
+    </div>
+    <div class="field">
+      <label>Dernière vérification</label>
+      <div class="text-muted" id="upd-checked">—</div>
+    </div>
+  </div>
+
+  <div class="alert" id="upd-banner" style="display:none"></div>
+
+  <div class="row-gap mt-4">
+    <button class="btn" type="button" id="upd-check-btn">
+      Vérifier la mise à jour
+    </button>
+    <button class="btn btn-primary" type="button" id="upd-apply-btn" disabled>
+      Appliquer la mise à jour
+    </button>
+  </div>
+  <p class="text-muted mt-4" style="font-size: 12.5px;">
+    Vérification automatique toutes les 6 heures. Quand tu appliques, le conteneur est rebuild et redémarre — l'interface sera indisponible quelques secondes.
+  </p>
+</div>
 {% endblock %}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch /etc/ipastore/update-requested-%i flag (triggers update of %i container)
+
+[Path]
+PathExists=/etc/ipastore/update-requested-%i
+Unit=ipastore-update@%i.service
+
+[Install]
+WantedBy=multi-user.target

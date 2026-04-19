@@ -70,6 +70,8 @@ IPASTORE_DB_URL=mysql+pymysql://ipastore-prod:${DB_PASS_PROD}@host.docker.intern
 IPASTORE_STORE_DIR=/srv/store
 IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.prod
 IPASTORE_BASE_URL=${BASE_URL}
+IPASTORE_ENV=prod
+IPASTORE_GITHUB_REPO=MattTen/sideserver_website
 EOF
 chmod 640 /etc/ipastore/prod.env
 
@@ -78,6 +80,8 @@ IPASTORE_DB_URL=mysql+pymysql://ipastore-dev:${DB_PASS_DEV}@host.docker.internal
 IPASTORE_STORE_DIR=/srv/store
 IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev
 IPASTORE_BASE_URL=${BASE_URL}
+IPASTORE_ENV=dev
+IPASTORE_GITHUB_REPO=MattTen/sideserver_website
 EOF
 chmod 640 /etc/ipastore/dev.env
 
@@ -90,6 +94,26 @@ for f in /etc/ipastore/secret_key.prod /etc/ipastore/secret_key.dev; do
   chown 1000:1000 "$f"
   chmod 600 "$f"
 done
+
+echo "[bootstrap] Fichiers version (placeholders)..."
+for env in prod dev; do
+  f="/etc/ipastore/${env}.version"
+  [[ -f "$f" ]] || : > "$f"
+  chmod 644 "$f"
+done
+
+echo "[bootstrap] Installation des unités systemd update (path + service templatisés)..."
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)/systemd"
+if [[ -d "$SRC_DIR" ]]; then
+  install -m 644 "$SRC_DIR/ipastore-update@.path"    /etc/systemd/system/ipastore-update@.path
+  install -m 644 "$SRC_DIR/ipastore-update@.service" /etc/systemd/system/ipastore-update@.service
+  systemctl daemon-reload
+  systemctl enable --now ipastore-update@prod.path ipastore-update@dev.path
+  echo "  units activées : ipastore-update@prod.path / ipastore-update@dev.path"
+else
+  echo "  /!\\ $SRC_DIR absent — unités systemd non installées."
+  echo "      (normal si tu lances bootstrap.sh depuis un clone sparse qui exclut deploy/)"
+fi
 
 echo "[bootstrap] Terminé."
 echo
