@@ -16,6 +16,7 @@ DB_DEV="ipastore-dev"
 STORE_PROD="/srv/store-prod"
 STORE_DEV="/srv/store-dev"
 MYSQL_DEFAULTS="/etc/ipastore/.mysql.cnf"
+GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
 # Couleurs
 C_CYAN='\033[1;36m'
@@ -59,9 +60,20 @@ version_file() {
 
 # ────── Helpers releases ──────
 
+# Extrait le token GitHub de /etc/ipastore/.git-credentials (format:
+# https://user:TOKEN@github.com). Renvoie vide si absent/illisible.
+github_token() {
+  [[ -r "$GIT_CREDENTIALS_FILE" ]] || return 0
+  sed -nE 's|^https://[^:]+:([^@]+)@github\.com.*|\1|p' "$GIT_CREDENTIALS_FILE" | head -n1
+}
+
 # Renvoie le tag_name de la dernière release (ex: v1.2.3), ou vide si rien.
+# Nécessaire d'être authentifié pour les repos privés.
 latest_release_tag() {
-  curl -fsSL -H 'Accept: application/vnd.github+json' \
+  local -a curl_args=(-fsSL -H 'Accept: application/vnd.github+json')
+  local token; token="$(github_token)"
+  [[ -n "$token" ]] && curl_args+=(-H "Authorization: Bearer $token")
+  curl "${curl_args[@]}" \
     "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
     | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
     | head -n1 \
