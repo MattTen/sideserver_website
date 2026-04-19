@@ -9,3 +9,7 @@ bcrypt==4.2.1
 itsdangerous==2.2.0
 segno==1.6.1
 lief>=0.16
+# curl_cffi : client HTTP qui impersonne le TLS ClientHello de Chrome.
+# Indispensable pour lire decrypt.day, dont Cloudflare filtre sur le
+# fingerprint JA3 (urllib/requests stdlib = 403 systematique).
+curl_cffi>=0.7.4

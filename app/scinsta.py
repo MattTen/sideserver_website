@@ -56,6 +56,22 @@ _SOFTWARE_VERSION_RE = re.compile(
 )
 _VERSION_RE = re.compile(r"^\d+(?:\.\d+)*")
 
+# Marqueurs qui identifient SEULEMENT les pages de challenge/block Cloudflare.
+# Attention : "challenge-platform" et "cf-beacon" apparaissent aussi dans des
+# reponses 200 legitimes (scripts embarques pour la telemetrie CF) — les
+# exclure d'ici evite les faux positifs.
+_CF_CHALLENGE_MARKERS = (
+    "just a moment",          # titre de la page "Un instant..."
+    "attention required",     # titre de la page de block
+    "checking your browser",  # ancien wording des challenges
+    "cf-chl-bypass",           # meta refresh des challenges
+)
+
+# Liste d'impersonations tentees dans l'ordre. curl_cffi accepte "chrome"
+# (alias vers la plus recente), puis on retombe sur des versions figees au cas
+# ou celle par defaut serait refusee par le WAF du jour.
+_IMPERSONATIONS = ("chrome", "chrome131", "safari17_0", "firefox133")
+
 
 def _parse_version(v: str) -> tuple[int, ...]:
     if not v:
@@ -162,22 +178,78 @@ def get_state(db: Session) -> ScinstaState:
 # Check version Instagram sur decrypt.day (HTTP direct, pas de headless browser)
 # -----------------------------------------------------------------------------
 
-def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
-    """Recupere la version affichee sur decrypt.day.
+def _is_challenge_page(body: str) -> bool:
+    lower = body.lower()
+    return any(m in lower for m in _CF_CHALLENGE_MARKERS)
 
-    Simple GET avec User-Agent realiste. Cloudflare peut renvoyer un
-    challenge interactif (status 403/503 + page Turnstile) — dans ce cas
-    on renvoie (None, message) pour que l'UI propose a l'admin de saisir
-    la version manuellement.
 
-    Retourne (version, error_message). L'un des deux est None.
+def _extract_version(body: str) -> Optional[str]:
+    m = _SOFTWARE_VERSION_RE.search(body)
+    return m.group(1).strip() if m else None
+
+
+def _fetch_with_curl_cffi() -> tuple[Optional[str], Optional[str]]:
+    """Tentative principale : curl_cffi avec impersonation Chrome.
+
+    Cloudflare filtre sur le fingerprint TLS (JA3/JA4). curl_cffi utilise
+    libcurl-impersonate qui renvoie exactement le ClientHello de Chrome —
+    la requete est indistinguable d'un vrai navigateur au niveau reseau.
+
+    On essaie plusieurs impersonations pour etre robuste aux mises a jour
+    du WAF : si chrome131 est un jour flag, chrome ou safari17_0 passent.
+    """
+    try:
+        from curl_cffi import requests as cffi_requests  # type: ignore
+    except ImportError as e:
+        return None, f"curl_cffi indisponible : {e}"
+
+    last_err: Optional[str] = None
+    for imp in _IMPERSONATIONS:
+        try:
+            resp = cffi_requests.get(
+                DECRYPT_URL,
+                impersonate=imp,
+                timeout=30,
+                headers={
+                    "Accept": (
+                        "text/html,application/xhtml+xml,application/xml;"
+                        "q=0.9,image/webp,*/*;q=0.8"
+                    ),
+                    "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+                },
+            )
+        except Exception as e:  # noqa: BLE001 (curl_cffi leve plusieurs types)
+            last_err = f"{imp}: {type(e).__name__}: {e}"
+            logger.info("scinsta: curl_cffi %s a echoue (%s)", imp, e)
+            continue
+
+        if resp.status_code != 200:
+            last_err = f"{imp}: HTTP {resp.status_code}"
+            logger.info("scinsta: curl_cffi %s -> HTTP %s", imp, resp.status_code)
+            continue
+
+        body = resp.text
+        if _is_challenge_page(body):
+            last_err = f"{imp}: Cloudflare challenge"
+            logger.info("scinsta: curl_cffi %s -> challenge page", imp)
+            continue
+
+        version = _extract_version(body)
+        if version:
+            logger.info("scinsta: version %s recuperee via curl_cffi[%s]", version, imp)
+            return version, None
+        last_err = f"{imp}: pattern softwareVersion absent"
+
+    return None, last_err or "curl_cffi : aucune impersonation n'a abouti"
+
+
+def _fetch_with_urllib() -> tuple[Optional[str], Optional[str]]:
+    """Fallback urllib. Ne sert que si curl_cffi n'est pas installe (dev
+    local sans rebuild). En prod il sera quasi toujours bloque en 403.
     """
     req = urllib.request.Request(
         DECRYPT_URL,
         headers={
-            # UA de Chrome recent : decrypt.day a tendance a livrer
-            # directement la page aux browsers classiques et a challenger
-            # les clients obvious bots (python/curl/etc).
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -198,16 +270,41 @@ def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         return None, f"reseau : {e}"
 
-    # Verifie qu'on n'est pas tombe sur un challenge Cloudflare (titre/marker).
-    lower = body.lower()
-    if "just a moment" in lower or "challenge-platform" in lower or "cf-chl" in lower:
-        return None, "Cloudflare bloque la requete — saisir la version manuellement."
-
-    m = _SOFTWARE_VERSION_RE.search(body)
-    if not m:
+    if _is_challenge_page(body):
+        return None, "Cloudflare challenge — urllib incapable de passer."
+    version = _extract_version(body)
+    if not version:
         return None, "version introuvable dans le HTML"
-    version = m.group(1).strip()
     return version, None
+
+
+def fetch_instagram_version_online() -> tuple[Optional[str], Optional[str]]:
+    """Recupere la version affichee sur decrypt.day en passant Cloudflare.
+
+    Chaine de fallback :
+      1. curl_cffi (TLS impersonation Chrome) — passe dans la quasi-totalite
+         des cas en production.
+      2. urllib (stdlib, sans TLS impersonation) — uniquement si curl_cffi
+         n'est pas disponible. Sera bloque par Cloudflare la plupart du
+         temps, mais permet de tourner en local sans dep native.
+
+    Si les deux echouent, on retourne (None, message) — l'UI propose alors
+    a l'admin de saisir la version manuellement.
+
+    Retourne (version, error_message). L'un des deux est None.
+    """
+    version, err = _fetch_with_curl_cffi()
+    if version:
+        return version, None
+
+    # Pas de curl_cffi ? Retombe sur urllib. Avec curl_cffi qui echoue
+    # (rarissime), inutile de retenter urllib : le fingerprint est encore
+    # plus fragile que Chrome-impersonne.
+    if err and err.startswith("curl_cffi indisponible"):
+        logger.info("scinsta: curl_cffi absent, fallback urllib")
+        return _fetch_with_urllib()
+
+    return None, err or "erreur inconnue"
 
 
 def run_check(db: Session) -> ScinstaState:

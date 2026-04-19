@@ -473,10 +473,10 @@ Onglet dédié à la production de builds **Instagram + SCInsta** ([SoCuul/SCIns
 
 ### Principe
 
-decrypt.day est protégé par Cloudflare Turnstile : le téléchargement automatique de l'IPA Instagram officielle est bloqué. Le flux retenu est donc :
+decrypt.day est protégé par Cloudflare. Le **téléchargement** de l'IPA nécessite un challenge interactif (Turnstile) impossible à automatiser proprement, mais la **page de l'app** (avec le numéro de version dans un microdata `softwareVersion`) est accessible à quiconque présente un ClientHello TLS cohérent avec Chrome — ce qu'on obtient via [`curl_cffi`](https://github.com/lexiforest/curl_cffi) (libcurl-impersonate). Le flux retenu :
 
-1. **Check version** — requête HTTP simple vers `https://decrypt.day/app/id389801252` avec User-Agent Chrome. Parse le microdata `itemprop="softwareVersion"`. Si Cloudflare challenge → l'UI propose à l'admin de vérifier/saisir la version à la main.
-2. **Upload manuel** — l'admin récupère l'IPA sur decrypt.day via un vrai navigateur, puis la dépose via un dropzone XHR dans l'UI.
+1. **Check version** — `curl_cffi` avec `impersonate="chrome"` récupère `https://decrypt.day/app/id389801252`, parse le microdata. Fallback sur d'autres impersonations (`chrome131`, `safari17_0`, `firefox133`) si le WAF change, puis fallback urllib (utile seulement en dev local sans `curl_cffi` installé). Si tout échoue, l'UI propose la saisie manuelle.
+2. **Upload manuel** — l'admin récupère l'IPA sur decrypt.day via un vrai navigateur (le challenge Turnstile du bouton de téléchargement, lui, reste infranchissable en automation propre), puis la dépose via un dropzone XHR dans l'UI.
 3. **Build** — en un clic, l'admin déclenche le pipeline qui clone `main` de SCInsta, compile les dylibs avec Theos, les injecte avec cyan, et applique un patch optionnel (auto-découvert dans `patch/`).
 4. **Intégration** — le résultat devient automatiquement une nouvelle version de l'app `Instagram` (`com.burbn.instagram`) dans le store, avec une actualité notify=1.
 
