@@ -369,6 +369,40 @@ SQL
   ok "Admin '$new_user' recréé sur $env. Connecte-toi avec ces identifiants."
 }
 
+# ────── SCInsta builder ──────
+#
+# Conteneur one-shot build par `docker build` dans tools/scinsta-builder/ du
+# clone de l'env concerne (pour que le code du builder suive les versions
+# deployees de l'app, meme logique que pour le sparse-checkout tools).
+# Image taguee `scinsta-builder:latest` et reutilisee a chaque invocation.
+
+SCINSTA_BUILDER_IMAGE="scinsta-builder:latest"
+
+cmd_scinsta_build() {
+  local env="$1"
+  local dir
+  dir="$(env_dir "$env")/tools/scinsta-builder"
+  [[ -d "$dir" ]] || { err "Builder introuvable : $dir (lance $env-update ?)"; exit 1; }
+
+  info "Build image Docker $SCINSTA_BUILDER_IMAGE (idempotent, cache actif)"
+  docker build -t "$SCINSTA_BUILDER_IMAGE" "$dir"
+
+  local store="/srv/store-${env}"
+  local repo_dir; repo_dir="$(env_dir "$env")"
+  info "Run scinsta-builder env=$env"
+  # /etc/ipastore : upload IPA + flag + progress/result files
+  # /srv/store-<env> : volume de stockage final
+  # /opt/sideserver-<env> (ro) : fallback pour patches (patch/ du clone)
+  docker run --rm \
+    -e IPASTORE_ENV="$env" \
+    -v /etc/ipastore:/etc/ipastore \
+    -v "${store}:/srv/store" \
+    -v "${repo_dir}:/opt/sideserver-${env}:ro" \
+    --network host \
+    "$SCINSTA_BUILDER_IMAGE"
+  ok "Build terminé (env=$env)"
+}
+
 # ────── Aide ──────
 
 usage() {
@@ -402,6 +436,10 @@ $(printf "${C_BOLD}DONNÉES${C_RESET}")
   sync-to-prod        Sync TOTALE dev -> prod (écrase BDD + fichiers prod — IRRÉVERSIBLE)
   prod-reset-users    Supprime tous les admins prod, en crée un nouveau
   dev-reset-users     Idem sur dev
+
+$(printf "${C_BOLD}SCINSTA BUILDER${C_RESET}")
+  prod-scinsta-build  Lance le pipeline SCInsta + Instagram (IPA uploadée requise)
+  dev-scinsta-build   Idem sur dev (habituellement déclenché par systemd)
 
 $(printf "${C_BOLD}AIDE${C_RESET}")
   -h, --help          Cette aide
@@ -494,6 +532,7 @@ case "${1:-}" in
   prod-update)         cmd_update_prod ;;
   prod-check)          cmd_check_update prod ;;
   prod-reset-users)    cmd_reset_users prod ;;
+  prod-scinsta-build)  cmd_scinsta_build prod ;;
   dev-start)           cmd_start dev ;;
   dev-stop)            cmd_stop dev ;;
   dev-restart)         cmd_restart dev ;;
@@ -501,6 +540,7 @@ case "${1:-}" in
   dev-update)          cmd_update_dev ;;
   dev-check)           cmd_check_update dev ;;
   dev-reset-users)     cmd_reset_users dev ;;
+  dev-scinsta-build)   cmd_scinsta_build dev ;;
   self-update)         cmd_self_update ;;
   status)              cmd_status ;;
   sync)                cmd_sync ;;

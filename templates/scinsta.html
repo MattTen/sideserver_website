@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}SCInsta Builder - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>SCInsta Builder</h1>
+    <div class="subtitle">
+      Build d'une IPA Instagram patchée avec <a href="https://github.com/SoCuul/SCInsta" target="_blank" rel="noopener">SCInsta</a>
+      — clone frais de <code>main</code> à chaque build.
+    </div>
+  </div>
+  <div class="row-gap">
+    <button class="btn" type="button" id="sci-check-btn">
+      Vérifier version Instagram
+    </button>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <h2>Instagram (decrypt.day)</h2>
+  <div class="row-2">
+    <div class="field">
+      <label>Version intégrée au store</label>
+      <div class="mono" id="sci-ig-deployed">{{ state.ig_deployed or '—' }}</div>
+    </div>
+    <div class="field">
+      <label>
+        Dernière version sur decrypt.day
+        <span class="badge" id="sci-ig-badge"></span>
+      </label>
+      <div class="mono" id="sci-ig-latest">{{ state.ig_latest or '—' }}</div>
+    </div>
+  </div>
+  <p class="text-muted" style="font-size: 12.5px; margin: 12px 0 0;">
+    Dernier check : <span id="sci-checked">{{ state.last_check_at or 'jamais' }}</span>
+    <span id="sci-check-err-wrap" style="{% if not state.last_check_error %}display:none{% endif %}">
+      — <span class="text-danger" id="sci-check-err">{{ state.last_check_error }}</span>
+    </span>
+    · Source :
+    <a href="https://decrypt.day/app/id389801252" target="_blank" rel="noopener">decrypt.day/app/id389801252</a>
+  </p>
+</div>
+
+<div class="card mb-4">
+  <h2>1. Upload de l'IPA Instagram</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    Télécharge manuellement l'IPA décryptée depuis decrypt.day et dépose-la ici.
+    Le fichier pèse ~280 Mo.
+  </p>
+
+  <label class="dropzone" id="sci-dropzone">
+    <input type="file" id="sci-file-input" accept=".ipa">
+    <strong id="sci-dz-title">Glisse l'IPA Instagram ici</strong>
+    <span class="hint" id="sci-dz-hint">ou clique pour choisir un fichier (.ipa)</span>
+    <div class="progress" id="sci-progress"><div class="progress-bar" id="sci-progress-bar"></div></div>
+  </label>
+
+  <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
+    <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
+      <span><strong>IPA prête</strong> — une IPA Instagram est en attente de build.</span>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-clear-upload">Supprimer</button>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <h2>2. Patch optionnel</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    Script appliqué sur l'IPA après injection SCInsta. Laisse vide pour aucun patch.
+  </p>
+  <div class="field">
+    <label for="sci-patch-select">Patch à appliquer</label>
+    <select id="sci-patch-select" class="input">
+      <option value="">— aucun —</option>
+      {% for p in patches %}
+      <option value="{{ p.filename }}">{{ p.display_name }} ({{ p.filename }})</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <h2>3. Lancer le build</h2>
+  <div class="alert" id="sci-banner" style="display:none"></div>
+  <div class="row-gap" style="margin-top: 10px;">
+    <button class="btn btn-primary" type="button" id="sci-build-btn"
+            {% if state.is_running or not state.upload_ready %}disabled{% endif %}>
+      Builder maintenant
+    </button>
+    <span class="text-muted" style="font-size: 12.5px;">
+      Statut : <span id="sci-build-status">{{ state.last_build_status or 'jamais lancé' }}</span>
+      · Dernier build : <span id="sci-built">{{ state.last_build_at or '—' }}</span>
+    </span>
+  </div>
+  <div id="sci-build-detail" style="margin-top: 10px; font-size: 12.5px;" class="text-muted">
+    {% if state.last_build_scinsta_sha %}
+    Dernier commit SCInsta : <code>{{ state.last_build_scinsta_sha }}</code>
+    {% endif %}
+    {% if state.last_build_patch %}
+    · Patch appliqué : <code>{{ state.last_build_patch }}</code>
+    {% endif %}
+    {% if state.last_build_error %}
+    <div class="alert alert-error" style="margin-top: 10px;">{{ state.last_build_error }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Comment ça marche</h2>
+  <ol class="text-muted" style="font-size: 13px; line-height: 1.7; padding-left: 22px;">
+    <li>Tu récupères manuellement la dernière IPA Instagram décryptée sur
+      <a href="https://decrypt.day/app/id389801252" target="_blank" rel="noopener">decrypt.day</a>
+      (bouton <em>Download for Free</em>).</li>
+    <li>Tu la dépose dans la zone d'upload ci-dessus. L'upload streame directement
+      sur le serveur (~280 Mo).</li>
+    <li>Optionnel : sélectionne un patch à appliquer après l'injection SCInsta.</li>
+    <li>Clique <strong>Builder maintenant</strong>. Un conteneur Docker :
+      clone <code>SoCuul/SCInsta</code> main (frais), lance <code>./build.sh sideload</code>
+      (Theos + cyan + ipapatch), applique le patch choisi, dépose l'IPA final
+      dans le store.</li>
+    <li>Le serveur crée automatiquement une nouvelle <strong>Version</strong>
+      pour <code>com.burbn.instagram</code> et publie un article de news.</li>
+  </ol>
+</div>
+
+<script>
+(function() {
+  const checkBtn = document.getElementById('sci-check-btn');
+  const buildBtn = document.getElementById('sci-build-btn');
+  const banner = document.getElementById('sci-banner');
+  const dropzone = document.getElementById('sci-dropzone');
+  const fileInput = document.getElementById('sci-file-input');
+  const dzTitle = document.getElementById('sci-dz-title');
+  const dzHint = document.getElementById('sci-dz-hint');
+  const progress = document.getElementById('sci-progress');
+  const progressBar = document.getElementById('sci-progress-bar');
+  const uploadReady = document.getElementById('sci-upload-ready');
+  const clearUploadBtn = document.getElementById('sci-clear-upload');
+  const patchSelect = document.getElementById('sci-patch-select');
+
+  function setBanner(kind, msg) {
+    banner.className = 'alert mt-4 ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : 'alert-info');
+    banner.textContent = msg;
+    banner.style.display = msg ? 'block' : 'none';
+  }
+
+  function setBadge(el, kind, text, title) {
+    el.textContent = text;
+    el.title = title || '';
+    el.className = 'badge ' + (
+      kind === 'update' ? 'badge-accent' :
+      kind === 'ok' ? 'badge-ok' : ''
+    );
+    el.style.display = text ? 'inline-block' : 'none';
+    el.style.marginLeft = '8px';
+  }
+
+  function computeBadge(deployed, latest) {
+    if (!latest) return { kind: '', text: 'non vérifié', title: 'Clique "Vérifier version"' };
+    if (!deployed) return { kind: 'update', text: 'à intégrer', title: 'Jamais buildé' };
+    if (deployed === latest) return { kind: 'ok', text: 'à jour', title: '' };
+    return { kind: 'update', text: 'MAJ dispo', title: `Intégré ${deployed} → disponible ${latest}` };
+  }
+
+  function render(state) {
+    document.getElementById('sci-ig-deployed').textContent = state.ig_deployed || '—';
+    document.getElementById('sci-ig-latest').textContent = state.ig_latest || '—';
+    document.getElementById('sci-checked').textContent = state.last_check_at || 'jamais';
+    document.getElementById('sci-built').textContent = state.last_build_at || '—';
+    document.getElementById('sci-build-status').textContent = state.is_running
+      ? (state.build_progress_step || 'en cours…')
+      : (state.last_build_status || 'jamais lancé');
+
+    const errWrap = document.getElementById('sci-check-err-wrap');
+    const errEl = document.getElementById('sci-check-err');
+    if (state.last_check_error) {
+      errEl.textContent = state.last_check_error;
+      errWrap.style.display = '';
+    } else {
+      errWrap.style.display = 'none';
+    }
+
+    const badge = computeBadge(state.ig_deployed, state.ig_latest);
+    setBadge(document.getElementById('sci-ig-badge'), badge.kind, badge.text, badge.title);
+
+    uploadReady.style.display = state.upload_ready ? '' : 'none';
+    buildBtn.disabled = state.is_running || !state.upload_ready;
+    buildBtn.textContent = state.is_running
+      ? (state.build_progress_step ? 'Build : ' + state.build_progress_step : 'Build en cours…')
+      : 'Builder maintenant';
+  }
+
+  // ── Check version ──
+  checkBtn.addEventListener('click', async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = 'Vérification…';
+    setBanner('', 'Interrogation de decrypt.day…');
+    try {
+      const res = await fetch('/scinsta/check', { method: 'POST' });
+      const state = await res.json();
+      render(state);
+      if (state.last_check_error) {
+        setBanner('err', 'Check impossible : ' + state.last_check_error);
+      } else if (state.ig_update_available) {
+        setBanner('ok', `Nouvelle version disponible : ${state.ig_latest}`);
+      } else {
+        setBanner('', state.ig_deployed ? 'Déjà à jour.' : `Version actuelle sur decrypt.day : ${state.ig_latest}`);
+      }
+    } catch (e) {
+      setBanner('err', 'Erreur réseau : ' + e.message);
+    }
+    checkBtn.disabled = false;
+    checkBtn.textContent = 'Vérifier version Instagram';
+  });
+
+  // ── Upload ──
+  function bytesToMb(n) { return (n / 1024 / 1024).toFixed(1) + ' Mo'; }
+
+  function uploadIpa(file) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append('ipa', file, file.name);
+      xhr.open('POST', '/scinsta/upload');
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          progress.style.display = 'block';
+          progressBar.style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
+          dzHint.textContent = bytesToMb(e.loaded) + ' / ' + bytesToMb(e.total);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { resolve({ ok: true }); }
+        } else {
+          reject(new Error('HTTP ' + xhr.status));
+        }
+      };
+      xhr.onerror = () => reject(new Error('upload échoué'));
+      xhr.send(fd);
+    });
+  }
+
+  async function handleFile(file) {
+    if (!file.name.toLowerCase().endsWith('.ipa')) {
+      setBanner('err', 'Fichier .ipa attendu');
+      return;
+    }
+    dropzone.classList.add('drag-over');
+    dzTitle.textContent = 'Upload en cours…';
+    dzHint.textContent = bytesToMb(file.size);
+    progressBar.style.width = '0%';
+    try {
+      await uploadIpa(file);
+      setBanner('ok', 'IPA téléversée (' + bytesToMb(file.size) + ').');
+      dzTitle.textContent = 'Glisse l\'IPA Instagram ici';
+      dzHint.textContent = 'ou clique pour choisir un fichier (.ipa)';
+      progress.style.display = 'none';
+      // Refresh state pour activer le bouton Build
+      const r = await fetch('/scinsta/status'); render(await r.json());
+    } catch (e) {
+      setBanner('err', 'Upload échoué : ' + e.message);
+      dzTitle.textContent = 'Glisse l\'IPA Instagram ici';
+      dzHint.textContent = 'ou clique pour choisir un fichier (.ipa)';
+      progress.style.display = 'none';
+    }
+    dropzone.classList.remove('drag-over');
+  }
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('drag-over'); });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer?.files?.[0];
+    if (f) handleFile(f);
+  });
+
+  clearUploadBtn.addEventListener('click', async () => {
+    await fetch('/scinsta/clear-upload', { method: 'POST' });
+    const r = await fetch('/scinsta/status');
+    render(await r.json());
+    setBanner('', 'IPA en attente supprimée.');
+  });
+
+  // ── Build ──
+  buildBtn.addEventListener('click', async () => {
+    buildBtn.disabled = true;
+    const fd = new FormData();
+    fd.append('patch', patchSelect.value || '');
+    try {
+      const res = await fetch('/scinsta/build', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (res.ok) {
+        setBanner('ok', data.message || 'Build lancé.');
+        startPolling();
+      } else {
+        setBanner('err', data.message || 'Erreur : ' + res.status);
+        buildBtn.disabled = false;
+      }
+    } catch (e) {
+      setBanner('err', 'Erreur réseau : ' + e.message);
+      buildBtn.disabled = false;
+    }
+  });
+
+  // ── Polling pendant le build ──
+  let pollTimer = null;
+  async function poll() {
+    try {
+      const res = await fetch('/scinsta/status');
+      const state = await res.json();
+      render(state);
+      if (!state.is_running) {
+        stopPolling();
+        if (state.last_build_status === 'success') {
+          setBanner('ok', 'Build terminé — nouvelle version déployée.');
+        } else if (state.last_build_status === 'failed') {
+          setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
+        }
+      }
+    } catch (e) { /* ponctuel, on retente */ }
+  }
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(poll, 3000);
+  }
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  // Etat initial (serialise par Jinja pour eviter un aller-retour au load)
+  const initial = {{ state|tojson }};
+  render(initial);
+  if (initial.is_running) startPolling();
+})();
+</script>
+{% endblock %}

@@ -19,9 +19,12 @@ from .routes import dashboard as dashboard_routes
 from .routes import news as news_routes
 from .routes import patches as patches_routes
 from .routes import public as public_routes
+from .routes import scinsta as scinsta_routes
 from .routes import settings as settings_routes
 from .routes import updates as updates_routes
+from .scinsta import consume_build_result, integrate_build_result
 from .updates import get_status
+from .db import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +47,50 @@ async def _update_check_loop() -> None:
         await asyncio.sleep(interval)
 
 
+def _process_scinsta_result() -> None:
+    """Consomme le result file ecrit par le builder a la fin de son execution.
+
+    Execute dans un thread via asyncio.to_thread : les Sessions SQLAlchemy
+    n'aiment pas traverser les frontieres async.
+    """
+    result = consume_build_result()
+    if result is None:
+        return
+    db = SessionLocal()
+    try:
+        err = integrate_build_result(db, result)
+        if err:
+            logger.error("scinsta integration failed: %s", err)
+        else:
+            logger.info("scinsta build integrated: %s", result.get("ipa_filename"))
+    finally:
+        db.close()
+
+
+async def _scinsta_result_loop() -> None:
+    """Watcher : toutes les 5s, integre un result file si present."""
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await asyncio.to_thread(_process_scinsta_result)
+        except Exception:
+            logger.exception("scinsta result loop failed")
+        await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_update_check_loop())
+    update_task = asyncio.create_task(_update_check_loop())
+    scinsta_task = asyncio.create_task(_scinsta_result_loop())
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
+        for t in (update_task, scinsta_task):
+            t.cancel()
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
 
 
 def create_app() -> FastAPI:
@@ -87,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(news_routes.router)
     app.include_router(categories_routes.router)
     app.include_router(patches_routes.router)
+    app.include_router(scinsta_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(updates_routes.router)
 

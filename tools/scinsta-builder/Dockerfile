@@ -1,0 +1,88 @@
+# SCInsta builder — image Docker one-shot invoquee par systemd.
+#
+# Pipeline :
+#   1. git clone SoCuul/SCInsta (branche main, FRESH a chaque build)
+#   2. Theos compile SCInsta.dylib, FLEXing.dylib, libflex.dylib (SIDELOAD=1)
+#   3. cyan injecte les dylibs dans l'IPA Instagram uploadee (+ min iOS 15.0)
+#   4. ipapatch patch l'app + ses extensions pour le sideloading
+#   5. (optionnel) script de patch.py supplementaire choisi dans l'UI
+#   6. depot de l'IPA final dans /srv/store/ipas/ + result JSON dans /etc/ipastore/
+#
+# L'image est volontairement grosse (Theos + SDK + clang) : c'est un outil de
+# build non execute en continu, rebuild uniquement quand la pipeline evolue.
+
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV LANG=C.UTF-8
+
+# Dependances Theos (officielles, cf. https://theos.dev/docs/linux-instructions).
+# - clang / make / ldid / perl : compilation des tweaks iOS
+# - fakeroot : requis par dpkg-deb invoque par Theos (meme si on ne produit
+#   pas de .deb, make package touche dpkg).
+# - git : clone SCInsta + installation de Theos + cyan
+# - cmake : build de FLEXing / libflex (CMakeLists dans le repo SCInsta)
+# - libxml2 : lief via pip a besoin de libxml2 sur certaines plateformes
+# - python3-venv + pip : runtime Python 3.13 via pipx/venv pour cyan
+# - curl / ca-certificates : download des SDKs iOS
+# - unzip / xz-utils / bzip2 / zip : manipulations des archives (IPA, SDK)
+# - zstd : compression utilisee par les archives Theos modernes
+# - rsync : copie des dylibs (sync atomique)
+# - libplist-utils : plutil/plistutil (lecture Info.plist depuis ipapatch)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential clang make perl fakeroot ldid \
+        git curl ca-certificates unzip xz-utils bzip2 zip zstd rsync \
+        cmake pkg-config libplist-utils \
+        python3 python3-pip python3-venv python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─── Theos ─────────────────────────────────────────────────────────────
+# Installe Theos dans /opt/theos (path stable, monte-agnostique).
+# THEOS doit etre exporte dans l'env pour que make SIDELOAD=1 le trouve.
+ENV THEOS=/opt/theos
+RUN git clone --recursive https://github.com/theos/theos.git /opt/theos
+
+# ─── iOS SDK ───────────────────────────────────────────────────────────
+# SDK 16.5 (disponible publiquement via le repo theos/sdks). build.sh de
+# SCInsta exige un SDK >= iOS 16.2 (cf. BUILD_GUIDE). On downloade un seul
+# SDK depuis le tarball officiel pour eviter de cloner tout le repo sdks
+# (~8 Go d'historique).
+RUN mkdir -p /opt/theos/sdks \
+    && curl -fsSL \
+        https://github.com/theos/sdks/releases/download/master-2023-11-03/iPhoneOS16.5.sdk.tar.xz \
+        -o /tmp/sdk.tar.xz 2>/dev/null \
+    || curl -fsSL \
+        https://github.com/theos/sdks/raw/master/iPhoneOS16.5.sdk.tar.xz \
+        -o /tmp/sdk.tar.xz \
+    && tar -xf /tmp/sdk.tar.xz -C /opt/theos/sdks \
+    && rm /tmp/sdk.tar.xz
+
+# ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
+# cyan s'installe depuis git (absent de PyPI). lief est utilise par les
+# scripts patch/*.py, ipapatch depuis son dernier tarball disponible.
+# --break-system-packages : Debian 12 a adopte PEP 668, pip refuse d'ecrire
+# dans /usr/lib/python3 sans override. Comme le conteneur est ephemere et
+# qu'on ne veut pas d'un venv, on passe outre.
+RUN pip install --no-cache-dir --break-system-packages \
+        "cyan @ git+https://github.com/asdfzxcvbn/pyzule-rw" \
+        "lief>=0.16" \
+        requests
+
+# ipapatch : installe depuis le repo officiel (CLI python standalone).
+# Nom canonique du repo : SideStore/ipapatch (anciennement JJTech/ipapatch).
+# Fallback sur une installation no-op si indisponible — le build reste
+# fonctionnel avec cyan seul pour la majorite des cas d'usage.
+RUN pip install --no-cache-dir --break-system-packages \
+        "ipapatch @ git+https://github.com/JJTech0130/ipapatch" \
+    || echo "[WARN] ipapatch non installe — build continuera sans (cyan seul suffit souvent)."
+
+WORKDIR /opt/builder
+
+# PATH inclut $THEOS/bin pour accès a nic.pl, logos.pl et consorts invoques
+# par les Makefiles SCInsta.
+ENV PATH=$THEOS/bin:/usr/local/bin:$PATH
+
+COPY build.py /opt/builder/build.py
+
+ENTRYPOINT ["python3", "-u", "/opt/builder/build.py"]
