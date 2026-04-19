@@ -12,6 +12,7 @@ from ..auth import hash_password, require_user, verify_password
 from ..config import Config
 from ..db import get_db
 from ..models import User
+from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..source_gen import get_setting, set_setting
 from ..templates import templates
 
@@ -47,6 +48,8 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "store_tint": get_setting(db, "store_tint", "c9a678"),
         "store_icon_file": icon_file if icon_file and (Config.ICONS_DIR / icon_file).exists() else "",
         "store_header_file": header_file if header_file and (Config.ICONS_DIR / header_file).exists() else "",
+        "tint_colors": TINT_COLORS,
+        "tint_preset_values": _TINT_PRESET_VALUES,
         "msg": msg,
         "err": err,
         "active": "settings",
