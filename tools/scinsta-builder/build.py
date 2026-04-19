@@ -69,9 +69,14 @@ class _Tee:
 
 
 def _install_log_tee() -> None:
-    """Truncate le log, puis tee stdout+stderr vers la console et le fichier."""
+    """Tee stdout+stderr vers la console et le fichier log.
+
+    Pas de truncate : website-management.sh a deja reinitialise le fichier au
+    tout debut de cmd_scinsta_build et y a ecrit la sortie du docker build.
+    Si on truncait ici, on perdrait toute cette progression (minutes de
+    compilation de l'image avant que build.py ne demarre).
+    """
     ETC.mkdir(parents=True, exist_ok=True)
-    LOG_FILE.write_text("", encoding="utf-8")  # reset pour ce build
     fh = LOG_FILE.open("a", encoding="utf-8", buffering=1)
     sys.stdout = _Tee(sys.__stdout__, fh)
     sys.stderr = _Tee(sys.__stderr__, fh)
