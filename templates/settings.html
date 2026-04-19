@@ -38,9 +38,6 @@
       </form>
       {% if store_icon_file %}
       <form id="remove-icon-form" method="post" action="/settings/icon/remove"></form>
-      <div class="hint mt-4" style="word-break:break-all;">
-        URL SideStore : <a href="{{ base_url }}/icons/{{ store_icon_file }}" target="_blank" class="mono" style="font-size:11px;">{{ base_url }}/icons/{{ store_icon_file }}</a>
-      </div>
       {% endif %}
     </div>
 
@@ -82,16 +79,9 @@
         <label>Sous-titre</label>
         <input class="input" name="store_subtitle" value="{{ store_subtitle }}">
       </div>
-      <div class="row-2">
-        <div class="field">
-          <label>URL publique du serveur</label>
-          <input class="input input-mono" name="base_url" value="{{ base_url }}" required>
-          <span class="hint">Inclure le port si nécessaire (ex : <code>http://192.168.1.100:8080</code>). Utilisée dans <code>source.json</code> pour tous les liens — icône, IPAs, screenshots.</span>
-        </div>
-        <div class="field">
-          <label>Couleur d'accent (hex)</label>
-          <input class="input input-mono" name="store_tint" value="{{ store_tint }}" maxlength="6" pattern="[0-9a-fA-F]{6}">
-        </div>
+      <div class="field">
+        <label>Couleur d'accent (hex)</label>
+        <input class="input input-mono" name="store_tint" value="{{ store_tint }}" maxlength="6" pattern="[0-9a-fA-F]{6}">
       </div>
       <button class="btn btn-primary" type="submit">
         {% include "_icons/check.svg" %}

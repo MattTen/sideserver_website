@@ -30,8 +30,12 @@ def set_setting(db: Session, key: str, value: str) -> None:
     db.commit()
 
 
-def build_source(db: Session) -> dict[str, Any]:
-    base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
+def build_source(db: Session, base_url: str) -> dict[str, Any]:
+    """base_url doit être dérivé de la requête HTTP par l'appelant
+    (str(request.base_url).rstrip('/')) pour que les URLs d'icône, IPAs
+    et screenshots soient joignables par SideStore depuis le même host
+    et port que celui utilisé pour fetcher source.json."""
+    base_url = base_url.rstrip("/")
     store_name = get_setting(db, "store_name", "Magasin Perso")
     store_subtitle = get_setting(db, "store_subtitle", "")
     store_tint = get_setting(db, "store_tint", "c9a678")
