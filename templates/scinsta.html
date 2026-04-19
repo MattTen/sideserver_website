@@ -113,7 +113,7 @@
     <span id="sci-build-patch-wrap"{% if not state.last_build_patch %} style="display:none"{% endif %}>
       · Patch appliqué : <code id="sci-build-patch">{{ state.last_build_patch or '' }}</code>
     </span>
-    <div id="sci-build-error-wrap" class="alert alert-error" style="{% if not state.last_build_error %}display:none; {% endif %}margin-top: 10px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+    <div id="sci-build-error-wrap" class="alert alert-error" style="display:{% if state.last_build_error %}flex{% else %}none{% endif %}; margin-top: 10px; align-items:flex-start; justify-content:space-between; gap:8px;">
       <span id="sci-build-error-msg">{{ state.last_build_error or '' }}</span>
       <button type="button" id="sci-build-error-close" title="Fermer" aria-label="Fermer"
               style="background:none; border:0; color:inherit; cursor:pointer; font-size:16px; line-height:1; padding:0 2px;">×</button>
@@ -245,13 +245,13 @@
     } else {
       patchWrap.style.display = 'none';
     }
-    const errWrap = document.getElementById('sci-build-error-wrap');
-    const errMsg = document.getElementById('sci-build-error-msg');
+    const buildErrWrap = document.getElementById('sci-build-error-wrap');
+    const buildErrMsg = document.getElementById('sci-build-error-msg');
     if (state.last_build_error) {
-      errMsg.textContent = state.last_build_error;
-      errWrap.style.display = 'flex';
+      buildErrMsg.textContent = state.last_build_error;
+      buildErrWrap.style.display = 'flex';
     } else {
-      errWrap.style.display = 'none';
+      buildErrWrap.style.display = 'none';
     }
   }
 
