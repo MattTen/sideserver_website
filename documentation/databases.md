@@ -49,6 +49,8 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `store_description` | Description longue | `""` |
 | `store_tint` | Couleur d'accent (hex 6 chars) | `c9a678` |
 | `base_url` | URL publique du serveur (entrée dans SideStore) | `IPASTORE_BASE_URL` |
+| `store_icon_file` | Nom de fichier de l'icône du store dans `ICONS_DIR` | `""` (fallback `_store.png` puis `default-app.png`) |
+| `store_header_file` | Nom de fichier du header/bannière du store dans `ICONS_DIR` | `""` (optionnel) |
 
 ---
 
@@ -97,13 +99,45 @@ Une version spécifique d'une App (un IPA uploadé). Plusieurs versions par App.
 
 ---
 
+### `news`
+
+Articles publiés dans le feed `source.json`, affichés par SideStore au-dessus de la liste des apps.
+
+| Colonne | Type | Contraintes | Description |
+|---|---|---|---|
+| `id` | INT | PK, autoincrement | Identifiant interne |
+| `identifier` | VARCHAR(128) | UNIQUE, NOT NULL, INDEX | Identifiant stable — SideStore le garde en mémoire pour marquer un article comme lu et décider d'envoyer une notification |
+| `title` | VARCHAR(255) | NOT NULL | Titre de l'article |
+| `caption` | TEXT | NOT NULL | Corps de l'article |
+| `date` | DATETIME | NOT NULL | Date de publication (UTC) |
+| `tint_color` | VARCHAR(8) | NOT NULL | Couleur hex — `""` = hérite de celle du store |
+| `image_path` | VARCHAR(512) | NULL | Nom de fichier relatif dans `NEWS_DIR` (NULL = pas d'image) |
+| `url` | VARCHAR(512) | NOT NULL | URL externe ouverte au clic (vide si lien vers app) |
+| `app_bundle_id` | VARCHAR(255) | NOT NULL | Bundle ID de l'app liée (optionnel) |
+| `notify` | INT | NOT NULL | 1 = SideStore pousse une notification push |
+| `created_at` | DATETIME | NOT NULL | Date de création (UTC) |
+
+---
+
 ## Relations
 
 ```
-users          (aucune relation avec App/Version)
+users          (aucune relation avec les autres tables)
 settings       (aucune relation)
+news           (aucune relation — app_bundle_id est une référence logique non contrainte)
 apps    1 ──< versions   (cascade delete : supprimer une App supprime toutes ses Version)
 ```
+
+---
+
+## Dossiers de fichiers associés
+
+| Dossier (`STORE_DIR/`) | Servi sur | Contenu |
+|---|---|---|
+| `ipas/` | `/ipas/` | Binaires `.ipa` |
+| `icons/` | `/icons/` | Icônes apps + icône/header du store |
+| `screenshots/` | `/screenshots/` | Screenshots apps |
+| `news/` | `/news-img/` | Images des articles |
 
 ---
 

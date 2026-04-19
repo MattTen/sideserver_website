@@ -179,14 +179,15 @@ Voir `documentation/credentials.md` pour le détail complet.
 
 ## Structure des bases de données
 
-4 tables, créées automatiquement au boot par SQLAlchemy (`Base.metadata.create_all()`).
+5 tables, créées automatiquement au boot par SQLAlchemy (`Base.metadata.create_all()`).
 
 | Table | Rôle |
 |---|---|
 | `users` | Comptes admin (username + hash bcrypt) |
-| `settings` | Paramètres clé/valeur du magasin (nom, base_url, tint…) |
+| `settings` | Paramètres clé/valeur du magasin (nom, base_url, tint, icône/header store…) |
 | `apps` | Métadonnées des apps iOS (bundle_id, nom, icône…) |
 | `versions` | IPAs uploadés — relation N/1 vers `apps` (cascade delete) |
+| `news` | Articles du feed SideStore (titre, caption, image, notify, lien app) |
 
 Détail complet des colonnes, index et contraintes : `documentation/databases.md`.
 
