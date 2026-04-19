@@ -92,14 +92,16 @@ templates/          # Jinja2 HTML
 static/             # CSS (style.css), JS (app.js), default-app.png
 tools/
   website-management.sh   # Script de gestion prod/dev (voir ci-dessous)
+  schema-sync.py          # Génère un plan SQL additif pour aligner le schéma d'une BDD sur une autre
   scinsta-builder/        # Conteneur one-shot pour builder SCInsta (lancé par systemd)
     Dockerfile            # Theos + SDK iOS 16.5 + cyan + ipapatch + lief
     build.py              # Clone SCInsta main → build.sh sideload → patch optionnel → store
     README.md             # Pipeline + I/O
 deploy/
   systemd/          # Units systemd :
-                    #   ipastore-update@.{path,service}        — MAJ code
-                    #   ipastore-scinsta-build@.{path,service} — build SCInsta
+                    #   ipastore-update@.{path,service}         — MAJ code
+                    #   ipastore-scinsta-build@.{path,service}  — build SCInsta
+                    #   ipastore-scinsta-cancel@.{path,service} — kill build SCInsta en cours
   bootstrap.sh      # Script d'installation initiale (exécuté en root)
 documentation/      # Documentation serveur et credentials (exclu du serveur)
   server.md         # Architecture, déploiement, features, onglet Patch (pointer vers scinsta_builder.md pour SCInsta)
@@ -161,6 +163,8 @@ Toutes les commandes fonctionnent en tant qu'`altuser` (aucun sudo requis).
 | `dev-check` | Retourne toujours update_available=0 (dev est rolling) |
 | `self-update` | Met à jour le script depuis /opt/sideserver-tools |
 | `sync` | Sync TOTALE prod → dev (BDD + fichiers, écrase dev) |
+| `sync-to-prod` | Sync TOTALE dev → prod (BDD + fichiers, **IRRÉVERSIBLE**) |
+| `sync-schema-to-prod` | Aligne la structure de la BDD prod sur dev (tables/colonnes/index/FKs manquants) — pas de données touchées, additif uniquement via `tools/schema-sync.py` |
 | `prod-reset-users` | Supprime tous les admins prod + crée un nouveau |
 | `dev-reset-users` | Idem sur dev |
 | `status` | État des conteneurs + versions déployées |
@@ -264,6 +268,7 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - `ig_deployed` (version intégrée) est lu **depuis la table `versions`** (dernière `uploaded_at` de `com.burbn.instagram`), pas depuis les settings. Ça reste correct quand l'admin upload l'IPA manuellement via l'onglet Apps.
 - URL source modifiable via l'UI (clé `scinsta_decrypt_url`, route `POST /scinsta/source`). Défaut : `https://decrypt.day/app/id389801252`.
 - **Sortie build temps réel** : `tools/scinsta-builder/build.py` tee `stdout`/`stderr` vers `/etc/ipastore/scinsta-build-log-<env>.txt` (line-buffered) ; l'UI poll `GET /scinsta/logs?offset=N` toutes les 1.5s pour afficher le delta dans un `<pre>`.
+- **Annulation d'un build** : bouton `Annuler le build` → `POST /scinsta/cancel` → flag `scinsta-build-cancel-<env>` → path unit `ipastore-scinsta-cancel@<env>.path` → `docker kill --signal=SIGTERM scinsta-builder-<env>` + écrit un result failed. Conteneur builder nommé `scinsta-builder-<env>` (nom déterministe requis pour le kill).
 - Alerte "IPA prête : V{version}" : `upload_version` lu dans l'Info.plist de `scinsta-upload-<env>.ipa` (exposé dans le state).
 - Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch — **écrase l'IPA en place**, pas d'original préservé).
 - État persistant dans `settings` via clés `scinsta_*` (voir [databases.md](documentation/databases.md)).

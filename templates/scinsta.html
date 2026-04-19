@@ -97,6 +97,10 @@
             {% if state.is_running or not state.upload_ready %}disabled{% endif %}>
       Builder maintenant
     </button>
+    <button class="btn btn-danger" type="button" id="sci-cancel-btn"
+            style="{% if not state.is_running %}display:none{% endif %}">
+      Annuler le build
+    </button>
     <span class="text-muted" style="font-size: 12.5px;">
       Statut : <span id="sci-build-status">{{ state.last_build_status or 'jamais lancé' }}</span>
       · Dernier build : <span id="sci-built">{{ state.last_build_at or '—' }}</span>
@@ -131,6 +135,7 @@
 (function() {
   const checkBtn = document.getElementById('sci-check-btn');
   const buildBtn = document.getElementById('sci-build-btn');
+  const cancelBtn = document.getElementById('sci-cancel-btn');
   const banner = document.getElementById('sci-banner');
   const dropzone = document.getElementById('sci-dropzone');
   const fileInput = document.getElementById('sci-file-input');
@@ -218,6 +223,7 @@
     buildBtn.textContent = state.is_running
       ? (state.build_progress_step ? 'Build : ' + state.build_progress_step : 'Build en cours…')
       : 'Builder maintenant';
+    cancelBtn.style.display = state.is_running ? '' : 'none';
   }
 
   // ── Source URL editable ──
@@ -374,6 +380,27 @@
       setBanner('err', 'Erreur réseau : ' + e.message);
       buildBtn.disabled = false;
     }
+  });
+
+  // ── Annuler le build ──
+  cancelBtn.addEventListener('click', async () => {
+    if (!confirm('Annuler le build en cours ? Le conteneur sera tué et le dernier upload est conservé.')) return;
+    cancelBtn.disabled = true;
+    const prev = cancelBtn.textContent;
+    cancelBtn.textContent = 'Annulation…';
+    try {
+      const res = await fetch('/scinsta/cancel', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setBanner('', data.message || 'Annulation demandée.');
+      } else {
+        setBanner('err', data.message || 'Erreur : ' + res.status);
+      }
+    } catch (e) {
+      setBanner('err', 'Erreur réseau : ' + e.message);
+    }
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = prev;
   });
 
   // ── Polling pendant le build ──

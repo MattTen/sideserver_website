@@ -280,6 +280,71 @@ SQL
   ok "Sync terminée. La BDD et les fichiers dev reflètent la prod."
 }
 
+cmd_sync_schema_to_prod() {
+  # Migration additive uniquement : on ne touche JAMAIS aux donnees prod.
+  # Pas de DROP, pas de MODIFY COLUMN — les divergences de type sur des
+  # colonnes existantes sont affichees en commentaire dans le plan et
+  # laissees au jugement de l'admin.
+  warn "Sync SCHEMA uniquement (DDL) : $DB_DEV -> $DB_PROD"
+  printf "  - CREATE les tables absentes en prod\n"
+  printf "  - ADD COLUMN pour les colonnes manquantes\n"
+  printf "  - ADD INDEX / UNIQUE / FOREIGN KEY pour les cles manquantes\n"
+  printf "  - PAS de DROP, PAS de MODIFY : aucune donnee prod touchee\n"
+  printf "  - Divergences de type sur colonnes existantes : affichees en commentaire, NON corrigees\n"
+  read -r -p "Continuer ? [y/N] " yn
+  [[ "$yn" =~ ^[yYoO]$ ]] || { info "Annulé"; return 1; }
+
+  [[ -f "$MYSQL_DEFAULTS" ]] || { err "Fichier $MYSQL_DEFAULTS manquant."; return 1; }
+
+  local sync_script="$TOOLS_DIR/tools/schema-sync.py"
+  if [[ ! -f "$sync_script" ]]; then
+    err "Script $sync_script introuvable — lance 'self-update' d'abord."
+    return 1
+  fi
+
+  local plan="/tmp/schema-migration-$$.sql"
+  info "Generation du plan ($DB_DEV -> $DB_PROD)"
+  if ! python3 "$sync_script" --source "$DB_DEV" --target "$DB_PROD" \
+       --defaults "$MYSQL_DEFAULTS" --out "$plan"; then
+    err "Echec de la generation du plan"
+    rm -f "$plan"
+    return 1
+  fi
+
+  # Plan vide (une seule ligne "-- Rien a faire") = schemas deja identiques.
+  if [[ ! -s "$plan" ]] || grep -q "^-- Rien a faire" "$plan"; then
+    ok "Schemas deja identiques — rien a faire."
+    rm -f "$plan"
+    return 0
+  fi
+
+  info "Plan de migration :"
+  printf "${C_DIM}----------------------------------------${C_RESET}\n"
+  cat "$plan"
+  printf "${C_DIM}----------------------------------------${C_RESET}\n"
+
+  read -r -p "Appliquer ce plan sur $DB_PROD ? [y/N] " yn2
+  [[ "$yn2" =~ ^[yYoO]$ ]] || {
+    info "Annulé — plan conserve dans $plan pour relecture"
+    return 1
+  }
+
+  # FOREIGN_KEY_CHECKS=0 permet les forward references quand on ajoute
+  # plusieurs tables + FKs dans le meme fichier (ordre d'insertion non trivial).
+  info "Application sur $DB_PROD"
+  if {
+      echo "SET FOREIGN_KEY_CHECKS=0;"
+      cat "$plan"
+      echo "SET FOREIGN_KEY_CHECKS=1;"
+     } | mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$DB_PROD"; then
+    ok "Schema $DB_PROD aligne sur $DB_DEV. Aucune donnee modifiee."
+    rm -f "$plan"
+  else
+    err "Echec de l'application — plan conserve dans $plan pour diagnostic"
+    return 1
+  fi
+}
+
 cmd_sync_to_prod() {
   # Opération IRRÉVERSIBLE : toutes les données prod sont écrasées par dev.
   # Double confirmation exigée pour éviter toute manipulation accidentelle.
@@ -389,11 +454,14 @@ cmd_scinsta_build() {
 
   local store="/srv/store-${env}"
   local repo_dir; repo_dir="$(env_dir "$env")"
-  info "Run scinsta-builder env=$env"
+  local cname="scinsta-builder-${env}"
+  info "Run scinsta-builder env=$env (container=$cname)"
   # /etc/ipastore : upload IPA + flag + progress/result files
   # /srv/store-<env> : volume de stockage final
   # /opt/sideserver-<env> (ro) : fallback pour patches (patch/ du clone)
-  docker run --rm \
+  # --name deterministe : permet a cmd_scinsta_cancel de le killer
+  # proprement (docker kill --signal TERM <name>) si l'admin veut stopper.
+  docker run --rm --name "$cname" \
     -e IPASTORE_ENV="$env" \
     -v /etc/ipastore:/etc/ipastore \
     -v "${store}:/srv/store" \
@@ -401,6 +469,44 @@ cmd_scinsta_build() {
     --network host \
     "$SCINSTA_BUILDER_IMAGE"
   ok "Build terminé (env=$env)"
+}
+
+cmd_scinsta_cancel() {
+  # Stoppe un build en cours : kill le conteneur + ecrit un result failed
+  # pour que le watcher web bascule le state en "failed" et debloque l'UI.
+  # Lance par systemd path unit ipastore-scinsta-cancel@<env>.path qui
+  # surveille /etc/ipastore/scinsta-build-cancel-<env>.
+  local env="$1"
+  local cname="scinsta-builder-${env}"
+  local flag="/etc/ipastore/scinsta-build-cancel-${env}"
+  local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
+  local progress="/etc/ipastore/scinsta-build-progress-${env}"
+  local result="/etc/ipastore/scinsta-build-result-${env}"
+
+  info "Cancel demande pour env=$env"
+  # On supprime le flag de demande AVANT de kill — evite que le path unit
+  # retrigger un nouveau build juste apres qu'on aie tue le conteneur.
+  rm -f "$flag" "$req_flag"
+
+  if docker ps --filter "name=^${cname}\$" --format "{{.Names}}" | grep -q "^${cname}\$"; then
+    info "Kill du conteneur $cname (SIGTERM puis SIGKILL apres 10s)"
+    # SIGTERM d'abord : laisse une chance au finally: Python de nettoyer
+    # le workdir. docker kill attend 10s par defaut avant SIGKILL.
+    docker kill --signal=SIGTERM "$cname" || true
+  else
+    warn "Conteneur $cname non trouve (deja termine ?)"
+  fi
+
+  # Ecrit un result failed pour que le watcher consomme et bascule le
+  # state en "failed" cote UI. Sans ca le state resterait en "running"
+  # jusqu'au prochain restart du conteneur web.
+  local now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  cat > "$result" <<JSON
+{"status":"failed","finished_at":"$now","error":"Build annule par l'admin"}
+JSON
+  rm -f "$progress"
+  ok "Build $env marque comme annule."
 }
 
 # ────── Aide ──────
@@ -434,12 +540,15 @@ $(printf "${C_BOLD}MISE À JOUR DU CODE${C_RESET}")
 $(printf "${C_BOLD}DONNÉES${C_RESET}")
   sync                Sync TOTALE prod -> dev (écrase BDD + fichiers dev)
   sync-to-prod        Sync TOTALE dev -> prod (écrase BDD + fichiers prod — IRRÉVERSIBLE)
+  sync-schema-to-prod Aligne le SCHÉMA prod sur celui de dev (DDL additif, pas de données)
   prod-reset-users    Supprime tous les admins prod, en crée un nouveau
   dev-reset-users     Idem sur dev
 
 $(printf "${C_BOLD}SCINSTA BUILDER${C_RESET}")
   prod-scinsta-build  Lance le pipeline SCInsta + Instagram (IPA uploadée requise)
   dev-scinsta-build   Idem sur dev (habituellement déclenché par systemd)
+  prod-scinsta-cancel Stoppe un build SCInsta en cours sur prod (docker kill + result failed)
+  dev-scinsta-cancel  Idem sur dev
 
 $(printf "${C_BOLD}AIDE${C_RESET}")
   -h, --help          Cette aide
@@ -487,6 +596,7 @@ menu() {
     printf "  ${C_BOLD}DONNÉES${C_RESET}\n"
     printf "    20) Sync TOTALE prod -> dev (écrase dev)\n"
     printf "    25) Sync TOTALE dev -> prod (écrase prod — IRRÉVERSIBLE)\n"
+    printf "    26) Sync SCHÉMA dev -> prod (structure seule, pas de données)\n"
     printf "    21) Self-update (pull ce script)\n"
     printf "    22) Check update prod     23) Check update dev\n"
     printf "\n"
@@ -508,6 +618,7 @@ menu() {
       16) cmd_reset_users dev ;;
       20) cmd_sync ;;
       25) cmd_sync_to_prod ;;
+      26) cmd_sync_schema_to_prod ;;
       21) cmd_self_update ;;
       22) cmd_check_update prod ;;
       23) cmd_check_update dev ;;
@@ -533,6 +644,7 @@ case "${1:-}" in
   prod-check)          cmd_check_update prod ;;
   prod-reset-users)    cmd_reset_users prod ;;
   prod-scinsta-build)  cmd_scinsta_build prod ;;
+  prod-scinsta-cancel) cmd_scinsta_cancel prod ;;
   dev-start)           cmd_start dev ;;
   dev-stop)            cmd_stop dev ;;
   dev-restart)         cmd_restart dev ;;
@@ -541,9 +653,11 @@ case "${1:-}" in
   dev-check)           cmd_check_update dev ;;
   dev-reset-users)     cmd_reset_users dev ;;
   dev-scinsta-build)   cmd_scinsta_build dev ;;
+  dev-scinsta-cancel)  cmd_scinsta_cancel dev ;;
   self-update)         cmd_self_update ;;
   status)              cmd_status ;;
   sync)                cmd_sync ;;
   sync-to-prod)        cmd_sync_to_prod ;;
+  sync-schema-to-prod) cmd_sync_schema_to_prod ;;
   *) err "Commande inconnue : $1"; echo; usage; exit 1 ;;
 esac

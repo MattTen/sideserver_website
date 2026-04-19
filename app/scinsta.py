@@ -120,6 +120,15 @@ def _build_result() -> Path:
     return Config.IPASTORE_ETC / f"scinsta-build-result-{Config.ENV_NAME}"
 
 
+def _cancel_flag() -> Path:
+    """Flag-file ecrit pour demander l'arret d'un build en cours.
+
+    Consomme par ipastore-scinsta-cancel@<env>.path -> service qui fait
+    docker kill sur scinsta-builder-<env> + ecrit un result failed.
+    """
+    return Config.IPASTORE_ETC / f"scinsta-build-cancel-{Config.ENV_NAME}"
+
+
 def _build_log_file() -> Path:
     """Fichier log temps reel du conteneur builder (tee de stdout/stderr).
 
@@ -452,6 +461,24 @@ def upload_instagram_ipa(stream, total_size_hint: Optional[int] = None) -> Path:
 
 def clear_upload() -> None:
     _upload_file().unlink(missing_ok=True)
+
+
+def request_cancel(db: Session) -> Path:
+    """Ecrit le flag-file de cancel.
+
+    systemd (path unit) detecte le fichier et lance un service host-side
+    qui docker kill le conteneur builder et ecrit un result failed. On
+    passe aussi le status en "failed" cote settings immediatement pour
+    debloquer l'UI (le watcher lifespan va aussi le confirmer quand le
+    result file arrivera).
+    """
+    Config.IPASTORE_ETC.mkdir(parents=True, exist_ok=True)
+    flag = _cancel_flag()
+    flag.write_text(
+        json.dumps({"requested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}),
+        encoding="utf-8",
+    )
+    return flag
 
 
 def request_build(db: Session, patch_filename: Optional[str]) -> Path:
