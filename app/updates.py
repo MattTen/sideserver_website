@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import urllib.error
@@ -25,19 +26,29 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
+_VERSION_RE = re.compile(r"^\d+(?:\.\d+)*")
+_GIT_CRED_RE = re.compile(r"https://[^:]+:([^@]+)@github\.com")
+
 
 def _parse_version(v: str) -> tuple[int, ...]:
-    """Parse a dotted numeric version (optional leading 'v'). Non-numeric parts -> 0."""
+    """Parse a dotted numeric version (optional leading 'v'). Non-numeric trailing parts ignored."""
     if not v:
         return ()
     s = v.strip().lstrip("vV")
-    out: list[int] = []
-    for part in s.split("."):
-        try:
-            out.append(int(part))
-        except ValueError:
-            out.append(0)
-    return tuple(out)
+    m = _VERSION_RE.match(s)
+    if not m:
+        return ()
+    return tuple(int(x) for x in m.group(0).split("."))
+
+
+def _read_github_token() -> Optional[str]:
+    """Read the PAT from /etc/ipastore/.git-credentials. Needed for private repos."""
+    try:
+        raw = Path("/etc/ipastore/.git-credentials").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = _GIT_CRED_RE.search(raw)
+    return m.group(1) if m else None
 
 
 def version_gt(a: str, b: str) -> bool:
@@ -63,13 +74,14 @@ def read_current_version() -> Optional[str]:
 def fetch_latest_release() -> Optional[str]:
     """Call GitHub API and return the tag_name of the latest release, or None."""
     url = f"https://api.github.com/repos/{Config.GITHUB_REPO}/releases/latest"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "ipastore-update-checker",
-        },
-    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ipastore-update-checker",
+    }
+    token = _read_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
