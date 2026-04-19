@@ -32,19 +32,20 @@ def _slugify(s: str) -> str:
     return _SLUG_RE.sub("-", s.lower()).strip("-") or secrets.token_hex(4)
 
 
-def _parse_date(raw: str) -> dt.datetime:
-    """Accepte un input datetime-local HTML (YYYY-MM-DDTHH:MM) ou ISO, sinon now()."""
-    raw = raw.strip()
-    if not raw:
-        return dt.datetime.now(dt.UTC).replace(tzinfo=None)
-    try:
-        return dt.datetime.fromisoformat(raw)
-    except ValueError:
-        return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
+def _unique_identifier(db: Session, title: str) -> str:
+    base = _slugify(title)
+    ident = base
+    # SideStore utilise l'identifier comme clé stable pour marquer les articles vus.
+    if db.execute(select(News).where(News.identifier == ident)).scalar_one_or_none():
+        ident = f"{base}-{secrets.token_hex(3)}"
+    return ident
 
 
 def _save_image(upload: UploadFile) -> str | None:
-    """Enregistre l'image dans NEWS_DIR avec un nom versionné (cache-busting)."""
     if upload is None or not upload.filename:
         return None
     ext = _ALLOWED_IMG_EXT.get((upload.content_type or "").lower())
@@ -91,11 +92,8 @@ def news_new(
 @router.post("/news/new")
 async def news_create(
     title: str = Form(...),
-    identifier: str = Form(""),
     caption: str = Form(""),
-    date: str = Form(""),
     tint_color: str = Form(""),
-    url: str = Form(""),
     app_bundle_id: str = Form(""),
     notify: str = Form(""),
     image: UploadFile | None = File(None),
@@ -105,19 +103,14 @@ async def news_create(
     title = title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Titre requis")
-    ident = _slugify(identifier.strip() or title)
-    # identifier doit être unique — SideStore s'en sert comme clé pour marquer
-    # les articles vus. On append un suffixe aléatoire si collision.
-    if db.execute(select(News).where(News.identifier == ident)).scalar_one_or_none():
-        ident = f"{ident}-{secrets.token_hex(3)}"
 
     article = News(
-        identifier=ident,
+        identifier=_unique_identifier(db, title),
         title=title,
         caption=caption.strip(),
-        date=_parse_date(date),
+        date=_utcnow(),
         tint_color=_sanitize_tint(tint_color),
-        url=url.strip(),
+        url="",
         app_bundle_id=app_bundle_id.strip(),
         notify=1 if notify else 0,
         image_path=_save_image(image) if image else None,
@@ -149,9 +142,7 @@ async def news_update(
     article_id: int,
     title: str = Form(...),
     caption: str = Form(""),
-    date: str = Form(""),
     tint_color: str = Form(""),
-    url: str = Form(""),
     app_bundle_id: str = Form(""),
     notify: str = Form(""),
     image: UploadFile | None = File(None),
@@ -164,11 +155,10 @@ async def news_update(
         raise HTTPException(status_code=404)
     article.title = title.strip() or article.title
     article.caption = caption.strip()
-    article.date = _parse_date(date)
     article.tint_color = _sanitize_tint(tint_color)
-    article.url = url.strip()
     article.app_bundle_id = app_bundle_id.strip()
     article.notify = 1 if notify else 0
+    # date inchangée à l'édition — correspond au moment de publication initial
 
     if remove_image and article.image_path:
         (Config.NEWS_DIR / article.image_path).unlink(missing_ok=True)
