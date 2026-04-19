@@ -9,7 +9,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-def _format_size(n: int) -> str:
+def _format_size(n) -> str:
+    n = float(n or 0)
     step = 1024.0
     for unit in ("o", "Kio", "Mio", "Gio"):
         if n < step:
