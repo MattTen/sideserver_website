@@ -141,13 +141,20 @@ def place_ig_ipa(repo: Path, ig_ipa: Path) -> Path:
 
 
 def fix_case_sensitive_submodule(repo: Path) -> None:
-    """Cree modules/flexing -> modules/FLEXing.
+    """Patche les references case-sensitive du repo SCInsta.
 
-    SCInsta Makefile reference `modules/flexing` en minuscules mais le
-    submodule git est checkout comme `modules/FLEXing`. Sur macOS (HFS+
-    case-insensitive) ca fonctionne, mais Linux est case-sensitive donc
-    make echoue avec "No such file or directory". Le symlink resout le
-    probleme sans patcher le Makefile upstream.
+    SCInsta a ete developpe sur macOS avec HFS+ case-insensitive ; deux
+    mismatches se revelent en builds Linux :
+
+    1. SCInsta/Makefile : SUBPROJECTS += modules/flexing (minuscules) vs
+       submodule checkout comme modules/FLEXing (camelCase).
+    2. SCInsta/build.sh : FLEXPATH refere .theos/obj/debug/libflex.dylib
+       mais le libflex/Makefile declare TWEAK_NAME = libFLEX, produisant
+       libFLEX.dylib (idem arm64/arm64e).
+
+    (1) se resout avec un symlink ; (2) avec un sed dans build.sh pour
+    pointer sur le vrai nom de dylib produit. Patcher les Makefiles du
+    submodule n'est pas viable (rebase en vain a chaque clone).
     """
     modules = repo / "modules"
     src = modules / "FLEXing"
@@ -155,6 +162,14 @@ def fix_case_sensitive_submodule(repo: Path) -> None:
     if src.is_dir() and not dst.exists():
         dst.symlink_to("FLEXing", target_is_directory=True)
         log("flexing_symlink", path=str(dst))
+
+    build_sh = repo / "build.sh"
+    if build_sh.is_file():
+        content = build_sh.read_text(encoding="utf-8")
+        patched = content.replace("libflex.dylib", "libFLEX.dylib")
+        if patched != content:
+            build_sh.write_text(patched, encoding="utf-8")
+            log("build_sh_patched", file="libflex.dylib->libFLEX.dylib")
 
 
 def run_scinsta_build(repo: Path) -> Path:
