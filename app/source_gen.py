@@ -8,7 +8,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
+from .config import Config
 from .models import App, Setting
+
+
+_DEFAULT_ICON_PATH = "/static/default-app.png"
 
 
 def get_setting(db: Session, key: str, default: str = "") -> str:
@@ -50,7 +54,10 @@ def build_source(db: Session) -> dict[str, Any]:
             })
         if not versions_payload:
             continue
-        icon_url = f"{base_url}/icons/{app.icon_path}" if app.icon_path else ""
+        if app.icon_path and (Config.ICONS_DIR / app.icon_path).exists():
+            icon_url = f"{base_url}/icons/{app.icon_path}"
+        else:
+            icon_url = f"{base_url}{_DEFAULT_ICON_PATH}"
         try:
             screenshots = json.loads(app.screenshot_urls or "[]")
         except json.JSONDecodeError:
@@ -75,7 +82,11 @@ def build_source(db: Session) -> dict[str, Any]:
         "name": store_name,
         "subtitle": store_subtitle,
         "description": store_description,
-        "iconURL": f"{base_url}/icons/_store.png",
+        "iconURL": (
+            f"{base_url}/icons/_store.png"
+            if (Config.ICONS_DIR / "_store.png").exists()
+            else f"{base_url}{_DEFAULT_ICON_PATH}"
+        ),
         "website": base_url + "/",
         "tintColor": store_tint,
         "featuredApps": featured,
