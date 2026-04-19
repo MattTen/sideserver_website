@@ -111,7 +111,10 @@ RUN set -eu \
         -target arm64-apple-ios15.0 \
         -isysroot $THEOS/sdks/iPhoneOS16.5.sdk \
         -c /tmp/rtstub/stub.c -o /tmp/rtstub/stub.o \
-    && ar rcs "$RSRC/lib/darwin/libclang_rt.ios.a" /tmp/rtstub/stub.o \
+    && $THEOS/toolchain/linux/iphone/bin/llvm-ar rcs \
+        "$RSRC/lib/darwin/libclang_rt.ios.a" /tmp/rtstub/stub.o \
+    && $THEOS/toolchain/linux/iphone/bin/ranlib \
+        "$RSRC/lib/darwin/libclang_rt.ios.a" \
     && rm -rf /tmp/rtstub
 
 # ─── cyan (pyzule-rw) + ipapatch + lief ───────────────────────────────
