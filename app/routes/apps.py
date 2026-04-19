@@ -16,7 +16,8 @@ from ..auth import require_user
 from ..config import Config
 from ..db import get_db
 from ..ipa import parse_ipa, sha256_of_file
-from ..models import App, User, Version
+from ..models import App, News, User, Version
+from .news import unique_identifier
 from ..templates import templates
 
 router = APIRouter()
@@ -79,6 +80,22 @@ def apps_list(
     )
 
 
+def _create_upload_news(db: Session, app: App) -> None:
+    import datetime as dt
+    article = News(
+        identifier=unique_identifier(db, app.name),
+        title=app.name,
+        caption="",
+        date=dt.datetime.now(dt.UTC).replace(tzinfo=None),
+        bg_preset="",
+        app_bundle_id=app.bundle_id,
+        notify=0,
+        image_path=None,
+    )
+    db.add(article)
+    db.commit()
+
+
 @router.post("/apps/upload")
 async def apps_upload(
     request: Request,
@@ -136,6 +153,10 @@ async def apps_upload(
         )
         db.add(version)
         db.commit()
+
+        # Crée automatiquement un article d'actualité pour annoncer cet upload.
+        # L'admin n'a plus qu'à ajouter l'accroche et le visuel depuis /news.
+        _create_upload_news(db, app)
     except HTTPException:
         raise
     except Exception:

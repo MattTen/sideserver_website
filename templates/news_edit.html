@@ -16,10 +16,9 @@
   {% endif %}
 </div>
 
-{% if err %}<div class="alert alert-error">{{ err }}</div>{% endif %}
-
 <form method="post" action="{{ '/news/' ~ item.id if item else '/news/new' }}" enctype="multipart/form-data">
   <div class="two-col">
+
     <div class="card">
       <h2>Contenu</h2>
 
@@ -30,21 +29,7 @@
 
       <div class="field">
         <label>Accroche</label>
-        <textarea class="textarea" name="caption" rows="5" placeholder="Une à deux phrases, affichées sur la carte dans SideStore.">{{ item.caption if item else '' }}</textarea>
-      </div>
-
-      <div class="row-2">
-        <div class="field">
-          <label>Teinte hex <span class="text-dim">(vide = teinte du store)</span></label>
-          <input class="input input-mono" name="tint_color" maxlength="6" pattern="[0-9a-fA-F]{0,6}"
-                 value="{{ item.tint_color if item else '' }}" placeholder="c9a678">
-        </div>
-        <div class="field">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-            <input type="checkbox" name="notify" value="1" {% if item and item.notify %}checked{% endif %}>
-            Notifier les utilisateurs
-          </label>
-        </div>
+        <textarea class="textarea" name="caption" rows="5" placeholder="Une à deux phrases affichées sur la carte dans SideStore.">{{ item.caption if item else '' }}</textarea>
       </div>
 
       <div class="field">
@@ -57,27 +42,63 @@
         </select>
         <span class="hint">SideStore ouvrira la fiche de cette app au tap sur la carte.</span>
       </div>
-    </div>
 
-    <div class="card">
-      <h2>Visuel</h2>
-      <p class="text-muted mb-4" style="font-size: 12.5px;">16/9 recommandé. PNG, JPG ou WebP.</p>
-
-      {% if item and item.image_path %}
-      <div class="news-preview" style="background-image: url('/news-img/{{ item.image_path }}');"></div>
-      <label class="row-gap mt-4" style="cursor:pointer; font-size:13px;">
-        <input type="checkbox" name="remove_image" value="1">
-        <span class="text-muted">Retirer le visuel actuel</span>
-      </label>
-      {% else %}
-      <div class="news-preview news-preview-empty">Pas d'image</div>
-      {% endif %}
-
-      <div class="field mt-4">
-        <label>{{ 'Remplacer par' if item and item.image_path else 'Ajouter un visuel' }}</label>
-        <input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp">
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" name="notify" value="1" {% if item and item.notify %}checked{% endif %}>
+          Notifier les utilisateurs SideStore
+        </label>
       </div>
     </div>
+
+    <div>
+      <div class="card mb-4">
+        <h2>Image</h2>
+        <p class="text-muted mb-4" style="font-size:12.5px;">
+          Affichée dans SideStore quand l'utilisateur consulte l'article. 16/9 recommandé.
+        </p>
+
+        {% if item and item.image_path %}
+        <div class="news-preview" style="background-image: url('/news-img/{{ item.image_path }}');"></div>
+        <label class="row-gap mt-4" style="cursor:pointer; font-size:13px;">
+          <input type="checkbox" name="remove_image" value="1">
+          <span class="text-muted">Retirer l'image</span>
+        </label>
+        {% else %}
+        <div class="news-preview news-preview-empty">Pas d'image</div>
+        {% endif %}
+
+        <div class="field mt-4">
+          <label>{{ 'Remplacer' if item and item.image_path else 'Ajouter une image' }}</label>
+          <input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp">
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Fond de la carte</h2>
+        <p class="text-muted mb-4" style="font-size:12.5px;">
+          Dégradé affiché en arrière-plan. Si une image est définie, elle s'affiche par-dessus.
+        </p>
+
+        <div class="bg-picker">
+          <label class="bg-swatch">
+            <input type="radio" name="bg_preset" value=""
+                   {% if not item or not item.bg_preset %}checked{% endif %}>
+            <span class="bg-swatch-preview bg-swatch-none">—</span>
+            <span class="bg-swatch-label">Aucun</span>
+          </label>
+          {% for key, p in presets.items() %}
+          <label class="bg-swatch">
+            <input type="radio" name="bg_preset" value="{{ key }}"
+                   {% if item and item.bg_preset == key %}checked{% endif %}>
+            <span class="bg-swatch-preview" style="background: {{ p.css }};"></span>
+            <span class="bg-swatch-label">{{ p.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div class="mt-6 row-gap">

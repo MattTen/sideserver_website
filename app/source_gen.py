@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from .config import Config
 from .models import App, News, Setting
+from .news_bg import PRESETS as _NEWS_BG_PRESETS
 
 
 _DEFAULT_ICON_PATH = "/static/default-app.png"
@@ -92,19 +93,20 @@ def build_source(db: Session) -> dict[str, Any]:
 
     news_payload: list[dict[str, Any]] = []
     for article in db.execute(select(News).order_by(News.date.desc())).scalars():
+        preset = _NEWS_BG_PRESETS.get(article.bg_preset) if article.bg_preset else None
         entry: dict[str, Any] = {
             "title": article.title,
             "identifier": article.identifier,
             "caption": article.caption,
             "date": article.date.replace(tzinfo=dt.UTC).isoformat(),
-            # Tint vide = héritage de celle du store pour garantir une couleur.
-            "tintColor": article.tint_color or store_tint,
+            "tintColor": preset["tint"] if preset else store_tint,
             "notify": bool(article.notify),
         }
+        # Priorité imageURL : image uploadée > PNG du preset > absent
         if article.image_path and (Config.NEWS_DIR / article.image_path).exists():
             entry["imageURL"] = f"{base_url}/news-img/{article.image_path}"
-        if article.url:
-            entry["url"] = article.url
+        elif preset:
+            entry["imageURL"] = f"{base_url}/static/news-bg/{article.bg_preset}.png"
         if article.app_bundle_id:
             entry["appID"] = article.app_bundle_id
         news_payload.append(entry)

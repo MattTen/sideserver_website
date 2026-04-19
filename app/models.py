@@ -111,13 +111,10 @@ class News(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     caption: Mapped[str] = mapped_column(Text, default="", nullable=False)
     date: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
-    # Tint optionnelle ("" = utilise celle du store). Hex sans #, ex "c9a678".
-    tint_color: Mapped[str] = mapped_column(String(8), default="", nullable=False)
-    # Nom de fichier relatif dans NEWS_DIR. Null si aucune image.
+    # Clé d'un preset de fond (ex: "midnight"). Détermine tintColor dans source.json.
+    bg_preset: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Nom de fichier relatif dans NEWS_DIR. Si absent, imageURL utilise le PNG du preset.
     image_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    # URL externe ouverte au clic. Si vide et app_bundle_id rempli, SideStore
-    # ouvre la fiche de l'app correspondante.
-    url: Mapped[str] = mapped_column(String(512), default="", nullable=False)
     # Bundle ID d'une app de ce store à lier à l'article (optionnel).
     app_bundle_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     # 1 = SideStore doit pousser une notification aux utilisateurs.
