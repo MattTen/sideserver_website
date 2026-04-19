@@ -57,7 +57,8 @@ class App(Base):
     icon_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     # JSON list d'URLs de screenshots, ex: ["http://…/screens/1.png"].
     screenshot_urls: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
-    featured: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 1 par défaut : toutes les apps apparaissent dans Featured Apps de SideStore.
+    featured: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
     # onupdate : mis à jour automatiquement à chaque modification de la ligne.
     updated_at: Mapped[dt.datetime] = mapped_column(
@@ -111,13 +112,10 @@ class News(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     caption: Mapped[str] = mapped_column(Text, default="", nullable=False)
     date: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
-    # Tint optionnelle ("" = utilise celle du store). Hex sans #, ex "c9a678".
-    tint_color: Mapped[str] = mapped_column(String(8), default="", nullable=False)
-    # Nom de fichier relatif dans NEWS_DIR. Null si aucune image.
+    # Clé d'un preset de fond (ex: "midnight"). Détermine tintColor dans source.json.
+    bg_preset: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    # Nom de fichier relatif dans NEWS_DIR. Si absent, imageURL utilise le PNG du preset.
     image_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    # URL externe ouverte au clic. Si vide et app_bundle_id rempli, SideStore
-    # ouvre la fiche de l'app correspondante.
-    url: Mapped[str] = mapped_column(String(512), default="", nullable=False)
     # Bundle ID d'une app de ce store à lier à l'article (optionnel).
     app_bundle_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     # 1 = SideStore doit pousser une notification aux utilisateurs.

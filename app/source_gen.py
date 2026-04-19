@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from .config import Config
 from .models import App, News, Setting
+from .news_bg import PRESETS as _NEWS_BG_PRESETS
 
 
 _DEFAULT_ICON_PATH = "/static/default-app.png"
@@ -29,11 +30,14 @@ def set_setting(db: Session, key: str, value: str) -> None:
     db.commit()
 
 
-def build_source(db: Session) -> dict[str, Any]:
-    base_url = get_setting(db, "base_url", Config.DEFAULT_BASE_URL).rstrip("/")
+def build_source(db: Session, base_url: str) -> dict[str, Any]:
+    """base_url doit être dérivé de la requête HTTP par l'appelant
+    (str(request.base_url).rstrip('/')) pour que les URLs d'icône, IPAs
+    et screenshots soient joignables par SideStore depuis le même host
+    et port que celui utilisé pour fetcher source.json."""
+    base_url = base_url.rstrip("/")
     store_name = get_setting(db, "store_name", "Magasin Perso")
     store_subtitle = get_setting(db, "store_subtitle", "")
-    store_description = get_setting(db, "store_description", "")
     store_tint = get_setting(db, "store_tint", "c9a678")
     store_icon_file = get_setting(db, "store_icon_file", "")
     store_header_file = get_setting(db, "store_header_file", "")
@@ -61,9 +65,13 @@ def build_source(db: Session) -> dict[str, Any]:
         else:
             icon_url = f"{base_url}{_DEFAULT_ICON_PATH}"
         try:
-            screenshots = json.loads(app.screenshot_urls or "[]")
+            raw_shots = json.loads(app.screenshot_urls or "[]")
         except json.JSONDecodeError:
-            screenshots = []
+            raw_shots = []
+        screenshots = [
+            s if s.startswith(("http://", "https://")) else f"{base_url}/screenshots/{s}"
+            for s in raw_shots
+        ]
         apps.append({
             "name": app.name,
             "bundleIdentifier": app.bundle_id,
@@ -92,34 +100,37 @@ def build_source(db: Session) -> dict[str, Any]:
 
     news_payload: list[dict[str, Any]] = []
     for article in db.execute(select(News).order_by(News.date.desc())).scalars():
+        preset = _NEWS_BG_PRESETS.get(article.bg_preset) if article.bg_preset else None
         entry: dict[str, Any] = {
             "title": article.title,
             "identifier": article.identifier,
             "caption": article.caption,
             "date": article.date.replace(tzinfo=dt.UTC).isoformat(),
-            # Tint vide = héritage de celle du store pour garantir une couleur.
-            "tintColor": article.tint_color or store_tint,
+            "tintColor": preset["tint"] if preset else store_tint,
             "notify": bool(article.notify),
         }
+        # Priorité imageURL : image uploadée > PNG du preset > absent
         if article.image_path and (Config.NEWS_DIR / article.image_path).exists():
             entry["imageURL"] = f"{base_url}/news-img/{article.image_path}"
-        if article.url:
-            entry["url"] = article.url
+        elif preset:
+            entry["imageURL"] = f"{base_url}/static/news-bg/{article.bg_preset}.png"
         if article.app_bundle_id:
             entry["appID"] = article.app_bundle_id
         news_payload.append(entry)
 
+    if store_header_file and (Config.ICONS_DIR / store_header_file).exists():
+        header_url = f"{base_url}/icons/{store_header_file}"
+    else:
+        header_url = f"{base_url}/static/store-header.png"
+
     payload: dict[str, Any] = {
         "name": store_name,
         "subtitle": store_subtitle,
-        "description": store_description,
         "iconURL": store_icon_url,
-        "website": base_url + "/",
+        "headerURL": header_url,
         "tintColor": store_tint,
         "featuredApps": featured,
         "apps": apps,
         "news": news_payload,
     }
-    if store_header_file and (Config.ICONS_DIR / store_header_file).exists():
-        payload["headerURL"] = f"{base_url}/icons/{store_header_file}"
     return payload

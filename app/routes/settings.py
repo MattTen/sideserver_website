@@ -25,7 +25,16 @@ _ALLOWED_IMG_EXT = {
     "image/jpeg": "jpg",
     "image/jpg": "jpg",
     "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+    "image/heic": "heic",
+    "image/heif": "heif",
 }
+_ALLOWED_IMG_SUFFIXES = [
+    (".png", "png"), (".jpg", "jpg"), (".jpeg", "jpg"),
+    (".webp", "webp"), (".gif", "gif"), (".svg", "svg"),
+    (".heic", "heic"), (".heif", "heif"),
+]
 
 
 def _settings_context(db: Session, user: User, msg: str | None = None, err: str | None = None):
@@ -35,9 +44,7 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "user": user,
         "store_name": get_setting(db, "store_name", "Magasin Perso"),
         "store_subtitle": get_setting(db, "store_subtitle", ""),
-        "store_description": get_setting(db, "store_description", ""),
         "store_tint": get_setting(db, "store_tint", "c9a678"),
-        "base_url": get_setting(db, "base_url", Config.DEFAULT_BASE_URL),
         "store_icon_file": icon_file if icon_file and (Config.ICONS_DIR / icon_file).exists() else "",
         "store_header_file": header_file if header_file and (Config.ICONS_DIR / header_file).exists() else "",
         "msg": msg,
@@ -60,23 +67,18 @@ def settings_save(
     request: Request,
     store_name: str = Form("Magasin Perso"),
     store_subtitle: str = Form(""),
-    store_description: str = Form(""),
     store_tint: str = Form("c9a678"),
-    base_url: str = Form(Config.DEFAULT_BASE_URL),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
     tint = re.sub(r"[^0-9a-fA-F]", "", store_tint)[:6].lower() or "c9a678"
-    base_url = base_url.strip().rstrip("/") or Config.DEFAULT_BASE_URL
     set_setting(db, "store_name", store_name.strip() or "Magasin Perso")
     set_setting(db, "store_subtitle", store_subtitle.strip())
-    set_setting(db, "store_description", store_description.strip())
     set_setting(db, "store_tint", tint)
-    set_setting(db, "base_url", base_url)
     return RedirectResponse("/settings", status_code=303)
 
 
-def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
+async def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
     """Persiste une image d'apparence dans ICONS_DIR et retourne son basename.
 
     Le nom final embarque un token aléatoire pour invalider le cache HTTP de
@@ -85,11 +87,18 @@ def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
     """
     ext = _ALLOWED_IMG_EXT.get((upload.content_type or "").lower())
     if ext is None:
-        raise HTTPException(status_code=400, detail="Format non supporté (PNG/JPG/WebP uniquement)")
-    data = upload.file.read()
+        fname = (upload.filename or "").lower()
+        for suffix, e in _ALLOWED_IMG_SUFFIXES:
+            if fname.endswith(suffix):
+                ext = e
+                break
+    if ext is None:
+        raise HTTPException(status_code=400, detail="Format non supporté")
+    await upload.seek(0)
+    data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="Image vide")
-    name = f"_{prefix}-{secrets.token_hex(4)}.{ext}"
+    name = f"{prefix}-{secrets.token_hex(6)}.{ext}"
     (Config.ICONS_DIR / name).write_bytes(data)
     return name
 
@@ -106,7 +115,7 @@ async def settings_upload_icon(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    new_name = _save_appearance_image(icon, "store")
+    new_name = await _save_appearance_image(icon, "store")
     _drop_previous(db, "store_icon_file")
     set_setting(db, "store_icon_file", new_name)
     return RedirectResponse("/settings", status_code=303)
@@ -128,7 +137,7 @@ async def settings_upload_header(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    new_name = _save_appearance_image(header, "header")
+    new_name = await _save_appearance_image(header, "header")
     _drop_previous(db, "store_header_file")
     set_setting(db, "store_header_file", new_name)
     return RedirectResponse("/settings", status_code=303)

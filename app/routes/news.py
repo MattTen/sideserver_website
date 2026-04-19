@@ -14,6 +14,7 @@ from ..auth import require_user
 from ..config import Config
 from ..db import get_db
 from ..models import App, News, User
+from ..news_bg import PRESETS as NEWS_BG_PRESETS
 from ..templates import templates
 
 router = APIRouter()
@@ -32,19 +33,22 @@ def _slugify(s: str) -> str:
     return _SLUG_RE.sub("-", s.lower()).strip("-") or secrets.token_hex(4)
 
 
-def _parse_date(raw: str) -> dt.datetime:
-    """Accepte un input datetime-local HTML (YYYY-MM-DDTHH:MM) ou ISO, sinon now()."""
-    raw = raw.strip()
-    if not raw:
-        return dt.datetime.now(dt.UTC).replace(tzinfo=None)
-    try:
-        return dt.datetime.fromisoformat(raw)
-    except ValueError:
-        return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
 
-def _save_image(upload: UploadFile) -> str | None:
-    """Enregistre l'image dans NEWS_DIR avec un nom versionné (cache-busting)."""
+def unique_identifier(db: Session, title: str) -> str:
+    """Génère un identifier unique dérivé du titre (exporté pour apps.py)."""
+    base = _slugify(title)
+    ident = base
+    # SideStore utilise l'identifier comme clé stable pour marquer les articles vus.
+    if db.execute(select(News).where(News.identifier == ident)).scalar_one_or_none():
+        ident = f"{base}-{secrets.token_hex(3)}"
+    return ident
+
+
+def save_news_image(upload: UploadFile) -> str | None:
+    """Enregistre un visuel dans NEWS_DIR et retourne son basename."""
     if upload is None or not upload.filename:
         return None
     ext = _ALLOWED_IMG_EXT.get((upload.content_type or "").lower())
@@ -58,10 +62,6 @@ def _save_image(upload: UploadFile) -> str | None:
     return name
 
 
-def _sanitize_tint(raw: str) -> str:
-    return re.sub(r"[^0-9a-fA-F]", "", raw)[:6].lower()
-
-
 @router.get("/news")
 def news_list(
     request: Request,
@@ -71,7 +71,7 @@ def news_list(
     items = db.execute(select(News).order_by(News.date.desc())).scalars().all()
     return templates.TemplateResponse(
         request, "news.html",
-        {"user": user, "items": items, "active": "news"},
+        {"user": user, "items": items, "active": "news", "presets": NEWS_BG_PRESETS},
     )
 
 
@@ -84,18 +84,15 @@ def news_new(
     apps = db.execute(select(App).order_by(App.name)).scalars().all()
     return templates.TemplateResponse(
         request, "news_edit.html",
-        {"user": user, "item": None, "apps": apps, "active": "news", "err": None},
+        {"user": user, "item": None, "apps": apps, "presets": NEWS_BG_PRESETS, "active": "news"},
     )
 
 
 @router.post("/news/new")
 async def news_create(
     title: str = Form(...),
-    identifier: str = Form(""),
     caption: str = Form(""),
-    date: str = Form(""),
-    tint_color: str = Form(""),
-    url: str = Form(""),
+    bg_preset: str = Form(""),
     app_bundle_id: str = Form(""),
     notify: str = Form(""),
     image: UploadFile | None = File(None),
@@ -105,22 +102,16 @@ async def news_create(
     title = title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Titre requis")
-    ident = _slugify(identifier.strip() or title)
-    # identifier doit être unique — SideStore s'en sert comme clé pour marquer
-    # les articles vus. On append un suffixe aléatoire si collision.
-    if db.execute(select(News).where(News.identifier == ident)).scalar_one_or_none():
-        ident = f"{ident}-{secrets.token_hex(3)}"
 
     article = News(
-        identifier=ident,
+        identifier=unique_identifier(db, title),
         title=title,
         caption=caption.strip(),
-        date=_parse_date(date),
-        tint_color=_sanitize_tint(tint_color),
-        url=url.strip(),
+        date=_utcnow(),
+        bg_preset=bg_preset if bg_preset in NEWS_BG_PRESETS else "",
         app_bundle_id=app_bundle_id.strip(),
         notify=1 if notify else 0,
-        image_path=_save_image(image) if image else None,
+        image_path=save_news_image(image) if image else None,
     )
     db.add(article)
     db.commit()
@@ -140,7 +131,7 @@ def news_edit_page(
     apps = db.execute(select(App).order_by(App.name)).scalars().all()
     return templates.TemplateResponse(
         request, "news_edit.html",
-        {"user": user, "item": article, "apps": apps, "active": "news", "err": None},
+        {"user": user, "item": article, "apps": apps, "presets": NEWS_BG_PRESETS, "active": "news"},
     )
 
 
@@ -149,9 +140,7 @@ async def news_update(
     article_id: int,
     title: str = Form(...),
     caption: str = Form(""),
-    date: str = Form(""),
-    tint_color: str = Form(""),
-    url: str = Form(""),
+    bg_preset: str = Form(""),
     app_bundle_id: str = Form(""),
     notify: str = Form(""),
     image: UploadFile | None = File(None),
@@ -164,9 +153,7 @@ async def news_update(
         raise HTTPException(status_code=404)
     article.title = title.strip() or article.title
     article.caption = caption.strip()
-    article.date = _parse_date(date)
-    article.tint_color = _sanitize_tint(tint_color)
-    article.url = url.strip()
+    article.bg_preset = bg_preset if bg_preset in NEWS_BG_PRESETS else ""
     article.app_bundle_id = app_bundle_id.strip()
     article.notify = 1 if notify else 0
 
@@ -175,7 +162,7 @@ async def news_update(
         article.image_path = None
 
     if image and image.filename:
-        new_name = _save_image(image)
+        new_name = save_news_image(image)
         if new_name:
             if article.image_path:
                 (Config.NEWS_DIR / article.image_path).unlink(missing_ok=True)
