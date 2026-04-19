@@ -65,7 +65,10 @@
 
   <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
     <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
-      <span><strong>IPA prête</strong> — une IPA Instagram est en attente de build.</span>
+      <span>
+        <strong>IPA prête<span id="sci-upload-version-wrap"{% if not state.upload_version %} style="display:none"{% endif %}> : <span id="sci-upload-version">{{ state.upload_version or '' }}</span></span></strong>
+        — une IPA Instagram est en attente de build.
+      </span>
       <button type="button" class="btn btn-sm btn-ghost" id="sci-clear-upload">Supprimer</button>
     </div>
   </div>
@@ -109,6 +112,18 @@
     {% if state.last_build_error %}
     <div class="alert alert-error" style="margin-top: 10px;">{{ state.last_build_error }}</div>
     {% endif %}
+  </div>
+
+  <div id="sci-log-wrap" style="margin-top: 14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <label style="font-size: 12.5px; color: var(--text-muted); margin: 0;">
+        Sortie du build (temps réel)
+      </label>
+      <label style="font-size: 12px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="sci-log-autoscroll" checked> auto-scroll
+      </label>
+    </div>
+    <pre id="sci-build-log" style="background:#0b0d12; color:#d7dde8; padding:10px 12px; border-radius:6px; font-size:12px; line-height:1.45; max-height:360px; overflow:auto; margin:0; white-space:pre-wrap; word-break:break-word;"></pre>
   </div>
 </div>
 
@@ -191,6 +206,14 @@
     setBadge(document.getElementById('sci-ig-badge'), badge.kind, badge.text, badge.title);
 
     uploadReady.style.display = state.upload_ready ? '' : 'none';
+    const uvWrap = document.getElementById('sci-upload-version-wrap');
+    const uvEl = document.getElementById('sci-upload-version');
+    if (state.upload_version) {
+      uvEl.textContent = state.upload_version;
+      uvWrap.style.display = '';
+    } else {
+      uvWrap.style.display = 'none';
+    }
     buildBtn.disabled = state.is_running || !state.upload_ready;
     buildBtn.textContent = state.is_running
       ? (state.build_progress_step ? 'Build : ' + state.build_progress_step : 'Build en cours…')
@@ -354,7 +377,35 @@
   });
 
   // ── Polling pendant le build ──
+  const logEl = document.getElementById('sci-build-log');
+  const autoScrollEl = document.getElementById('sci-log-autoscroll');
+  // Offset courant dans scinsta-build-log-<env>.txt : chaque poll n'apporte
+  // que le delta, on append localement — evite de renvoyer 2-3 Mo par tick.
+  let logOffset = 0;
+
+  function appendLog(chunk) {
+    if (!chunk) return;
+    logEl.textContent += chunk;
+    if (autoScrollEl.checked) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function pollLog() {
+    try {
+      const res = await fetch('/scinsta/logs?offset=' + logOffset);
+      if (!res.ok) return;
+      const data = await res.json();
+      // Si le builder a tronque le fichier (nouveau build), next_offset
+      // peut etre < offset : on reinitialise le <pre> pour pas melanger.
+      if (data.next_offset < logOffset) {
+        logEl.textContent = '';
+      }
+      appendLog(data.content);
+      logOffset = data.next_offset;
+    } catch (e) { /* best-effort */ }
+  }
+
   let pollTimer = null;
+  let logTimer = null;
   async function poll() {
     try {
       const res = await fetch('/scinsta/status');
@@ -362,6 +413,9 @@
       render(state);
       if (!state.is_running) {
         stopPolling();
+        // Un dernier tick de log pour choper les dernieres lignes ecrites
+        // apres que le status soit passe a success/failed.
+        await pollLog();
         if (state.last_build_status === 'success') {
           setBanner('ok', 'Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
@@ -372,16 +426,29 @@
   }
   function startPolling() {
     if (pollTimer) return;
+    // Reinit du log quand on relance un build : le builder tronque le
+    // fichier au demarrage, on efface l'ancien contenu cote UI aussi.
+    logEl.textContent = '';
+    logOffset = 0;
     pollTimer = setInterval(poll, 3000);
+    logTimer = setInterval(pollLog, 1500);
+    pollLog();
   }
   function stopPolling() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (logTimer) { clearInterval(logTimer); logTimer = null; }
   }
 
   // Etat initial (serialise par Jinja pour eviter un aller-retour au load)
   const initial = {{ state|tojson }};
   render(initial);
-  if (initial.is_running) startPolling();
+  if (initial.is_running) {
+    startPolling();
+  } else {
+    // Meme au repos, on recupere le log du dernier build pour qu'il reste
+    // consultable apres coup (success/failed). Pas de polling continu.
+    pollLog();
+  }
 })();
 </script>
 {% endblock %}

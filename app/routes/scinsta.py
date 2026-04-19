@@ -12,8 +12,8 @@ from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
 from ..scinsta import (
-    clear_upload, get_state, request_build, run_check, set_decrypt_url,
-    upload_instagram_ipa,
+    clear_upload, get_state, read_build_log, request_build, run_check,
+    set_decrypt_url, upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -45,6 +45,18 @@ def scinsta_page(
 def scinsta_status(user: User = Depends(require_user), db: Session = Depends(get_db)):
     """Etat actuel sans requete reseau. Polle par l'UI pendant un build."""
     return JSONResponse(get_state(db).to_dict())
+
+
+@router.get("/logs")
+def scinsta_logs(offset: int = 0, user: User = Depends(require_user)):
+    """Retourne le delta du log de build depuis `offset`.
+
+    L'UI passe `next_offset` du tick precedent pour recuperer uniquement
+    les nouvelles lignes — evite de renvoyer plusieurs Mo a chaque poll.
+    """
+    if offset < 0:
+        offset = 0
+    return JSONResponse(read_build_log(offset))
 
 
 @router.post("/check")

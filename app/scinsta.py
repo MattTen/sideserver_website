@@ -120,6 +120,42 @@ def _build_result() -> Path:
     return Config.IPASTORE_ETC / f"scinsta-build-result-{Config.ENV_NAME}"
 
 
+def _build_log_file() -> Path:
+    """Fichier log temps reel du conteneur builder (tee de stdout/stderr).
+
+    Ecrit par tools/scinsta-builder/build.py via _install_log_tee().
+    L'UI le poll via /scinsta/logs?offset=N pour afficher la sortie en direct.
+    """
+    return Config.IPASTORE_ETC / f"scinsta-build-log-{Config.ENV_NAME}.txt"
+
+
+def read_build_log(offset: int = 0) -> dict:
+    """Lit le log de build a partir d'un offset.
+
+    Retour : {content, next_offset, size}. Si le fichier n'existe pas ou si
+    l'offset depasse la taille actuelle (cas d'une reinitialisation du log
+    entre deux polls), on remet offset=0 pour renvoyer tout le contenu.
+    """
+    path = _build_log_file()
+    if not path.exists():
+        return {"content": "", "next_offset": 0, "size": 0}
+    try:
+        size = path.stat().st_size
+        # Si le fichier a ete tronque entre deux polls (nouveau build), on
+        # repart de zero. Sinon on lit seulement le delta pour pas renvoyer
+        # plusieurs dizaines de Mo a chaque tick.
+        if offset > size:
+            offset = 0
+        with path.open("rb") as f:
+            f.seek(offset)
+            data = f.read()
+        content = data.decode("utf-8", errors="replace")
+        return {"content": content, "next_offset": offset + len(data), "size": size}
+    except OSError as e:
+        logger.warning("scinsta: lecture log failed: %s", e)
+        return {"content": "", "next_offset": offset, "size": 0}
+
+
 @dataclass
 class ScinstaState:
     ig_deployed: Optional[str]
@@ -135,6 +171,7 @@ class ScinstaState:
     decrypt_url: str = DECRYPT_URL_DEFAULT
     build_progress_step: Optional[str] = None
     upload_ready: bool = False                # une IPA est deja en attente
+    upload_version: Optional[str] = None      # version lue dans l'Info.plist de l'upload
     ig_update_available: bool = field(default=False)
 
     @property
@@ -157,8 +194,40 @@ class ScinstaState:
             "build_progress_step": self.build_progress_step,
             "is_running": self.is_running,
             "upload_ready": self.upload_ready,
+            "upload_version": self.upload_version,
             "ig_update_available": self.ig_update_available,
         }
+
+
+def _read_upload_version() -> Optional[str]:
+    """Lit CFBundleShortVersionString dans l'IPA upload en attente.
+
+    Permet d'afficher dans l'UI "IPA prête : Vx.x.x" — utile pour verifier
+    qu'on s'apprete a builder la bonne version (surtout en cas d'echec
+    precedent ou si l'admin a upload plusieurs fois).
+    """
+    import plistlib
+    import zipfile
+
+    path = _upload_file()
+    if not path.exists():
+        return None
+    try:
+        with zipfile.ZipFile(path) as zf:
+            info_name = next(
+                (n for n in zf.namelist()
+                 if n.startswith("Payload/") and n.endswith(".app/Info.plist")
+                 and n.count("/") == 2),
+                None,
+            )
+            if not info_name:
+                return None
+            with zf.open(info_name) as f:
+                plist = plistlib.load(f)
+        v = str(plist.get("CFBundleShortVersionString") or "").strip()
+        return v or None
+    except Exception:  # pragma: no cover - lecture best-effort
+        return None
 
 
 def _latest_instagram_version_in_store(db: Session) -> Optional[str]:
@@ -198,6 +267,7 @@ def get_state(db: Session) -> ScinstaState:
         last_build_scinsta_sha=get_setting(db, "scinsta_last_build_scinsta_sha", "") or None,
         decrypt_url=get_decrypt_url(db),
         upload_ready=_upload_file().exists(),
+        upload_version=_read_upload_version(),
     )
     prog = _build_progress()
     if prog.exists():
