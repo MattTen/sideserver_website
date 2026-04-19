@@ -17,18 +17,36 @@
 <div class="two-col">
   <div class="card">
     <h2>Infos du patch</h2>
-    <p class="text-muted mb-4" style="font-size: 12.5px;">Nom affiché dans la liste et description libre pour te rappeler ce que fait ce patch.</p>
-    <form method="post" action="/patches/{{ patch.filename }}/rename">
+    <form method="post" action="/patches/{{ patch.filename }}/rename" id="patch-info-form">
       <div class="field">
         <label>Nom d'affichage</label>
         <input class="input" name="display_name" value="{{ patch.display_name }}" maxlength="80" required>
       </div>
-      <div class="field">
-        <label>Description</label>
-        <textarea class="input" name="description" rows="4" maxlength="1000" placeholder="À quoi sert ce patch, quelles apps il cible, effets secondaires…">{{ patch.description }}</textarea>
+
+      <div class="field" style="margin-top: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <label style="margin-bottom: 0;">Description</label>
+          <button type="button" id="desc-edit-btn" class="btn btn-sm" onclick="enableDescEdit()">Modifier</button>
+        </div>
+
+        <!-- Vue lecture -->
+        <div id="desc-view" class="patch-desc-view">
+          {% if patch.description %}{{ patch.description }}{% else %}<span class="patch-desc-empty">Aucune description — cliquez sur Modifier pour en ajouter une.</span>{% endif %}
+        </div>
+
+        <!-- Vue édition (cachée par défaut) -->
+        <div id="desc-edit" style="display:none;">
+          <textarea class="input" name="description" id="desc-textarea" rows="5" maxlength="1000" placeholder="À quoi sert ce patch, quelles apps il cible, effets secondaires…">{{ patch.description }}</textarea>
+          <div style="display:flex; gap: 8px; margin-top: 8px;">
+            <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+            <button type="button" class="btn btn-sm" onclick="cancelDescEdit()">Annuler</button>
+          </div>
+        </div>
       </div>
-      <div class="row-gap">
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
+
+      <!-- Le nom d'affichage peut être sauvegardé indépendamment via son propre submit -->
+      <div class="row-gap" id="name-save-row" style="margin-top: 14px;">
+        <button type="submit" class="btn btn-primary btn-sm" id="name-save-btn">Enregistrer le nom</button>
       </div>
     </form>
   </div>
@@ -92,13 +110,33 @@
 
 <script>
 (function () {
+  // Overlay patch
   var form = document.getElementById('patch-run-form');
   var overlay = document.getElementById('patch-overlay');
-  if (!form || !overlay) return;
-  form.addEventListener('submit', function () {
-    overlay.classList.add('is-visible');
-    overlay.setAttribute('aria-hidden', 'false');
-  });
+  if (form && overlay) {
+    form.addEventListener('submit', function () {
+      overlay.classList.add('is-visible');
+      overlay.setAttribute('aria-hidden', 'false');
+    });
+  }
+
+  // Quand la description est en mode édition, masquer le bouton "Enregistrer le nom"
+  // pour éviter la confusion (un seul submit actif à la fois).
 })();
+
+function enableDescEdit() {
+  document.getElementById('desc-view').style.display = 'none';
+  document.getElementById('desc-edit').style.display = 'block';
+  document.getElementById('desc-edit-btn').style.display = 'none';
+  document.getElementById('name-save-row').style.display = 'none';
+  document.getElementById('desc-textarea').focus();
+}
+
+function cancelDescEdit() {
+  document.getElementById('desc-view').style.display = '';
+  document.getElementById('desc-edit').style.display = 'none';
+  document.getElementById('desc-edit-btn').style.display = '';
+  document.getElementById('name-save-row').style.display = '';
+}
 </script>
 {% endblock %}
