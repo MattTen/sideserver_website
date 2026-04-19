@@ -449,8 +449,16 @@ cmd_scinsta_build() {
   dir="$(env_dir "$env")/tools/scinsta-builder"
   [[ -d "$dir" ]] || { err "Builder introuvable : $dir (lance $env-update ?)"; exit 1; }
 
+  # Tee toute la sortie (docker build + docker run + messages info) vers le
+  # fichier log poll par l'UI. Sans ca, l'utilisateur ne voit rien tant que
+  # build.py ne demarre pas (docker build peut prendre plusieurs minutes,
+  # notamment sur premiere execution ou apres modification du Dockerfile).
+  local log_file="/etc/ipastore/scinsta-build-log-${env}.txt"
+  : > "$log_file"
+  exec > >(tee -a "$log_file") 2>&1
+
   info "Build image Docker $SCINSTA_BUILDER_IMAGE (idempotent, cache actif)"
-  docker build -t "$SCINSTA_BUILDER_IMAGE" "$dir"
+  docker build --progress=plain -t "$SCINSTA_BUILDER_IMAGE" "$dir"
 
   local store="/srv/store-${env}"
   local repo_dir; repo_dir="$(env_dir "$env")"
