@@ -49,11 +49,13 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 
 Tout vit sous `/opt/` :
 
-| Chemin                   | Branche/Tag   | Sparse filter | Contenu                   |
-|--------------------------|---------------|---------------|---------------------------|
-| `/opt/sideserver-prod`   | tag de release | `/*  !tools/` | Code de l'app prod        |
-| `/opt/sideserver-dev`    | `dev`         | `/*  !tools/` | Code de l'app dev         |
-| `/opt/sideserver-tools`  | `main`        | `tools/`       | Script `website-management.sh` |
+| Chemin                   | Branche/Tag   | Sparse filter              | Contenu                   |
+|--------------------------|---------------|----------------------------|---------------------------|
+| `/opt/sideserver-prod`   | tag de release | `/*  !tools/  !documentation/` | Code de l'app prod        |
+| `/opt/sideserver-dev`    | `dev`         | `/*  !tools/  !documentation/` | Code de l'app dev         |
+| `/opt/sideserver-tools`  | `main`        | `tools/`                   | Script `website-management.sh` |
+
+> `documentation/` est exclu des trois clones serveur via sparse-checkout (config locale git, le repo GitHub reste complet). Cela évite de déployer de la doc inutile sur la VM.
 
 Les trois clones sont **owned par `altuser`**. Pour éviter l'erreur "dubious ownership" quand root invoque git, `safe.directory` est configuré globalement.
 
