@@ -273,6 +273,50 @@ SQL
   ok "Sync terminée. La BDD et les fichiers dev reflètent la prod."
 }
 
+cmd_sync_to_prod() {
+  # Opération IRRÉVERSIBLE : toutes les données prod sont écrasées par dev.
+  # Double confirmation exigée pour éviter toute manipulation accidentelle.
+  printf "${C_RED}╔══════════════════════════════════════════════════════╗${C_RESET}\n"
+  printf "${C_RED}║  ATTENTION : SYNC DEV -> PROD                        ║${C_RESET}\n"
+  printf "${C_RED}║  Toutes les données PROD seront écrasées par DEV.    ║${C_RESET}\n"
+  printf "${C_RED}║  Cette opération est IRRÉVERSIBLE.                   ║${C_RESET}\n"
+  printf "${C_RED}╚══════════════════════════════════════════════════════╝${C_RESET}\n"
+  read -r -p "Tape 'CONFIRMER' pour continuer : " confirmation
+  [[ "$confirmation" == "CONFIRMER" ]] || { info "Annulé"; return 1; }
+
+  if [[ ! -f "$MYSQL_DEFAULTS" ]]; then
+    err "Fichier $MYSQL_DEFAULTS manquant."
+    return 1
+  fi
+
+  info "Arrêt conteneur prod (évite les écritures concurrentes pendant la restauration)"
+  (cd "$PROD_DIR" && docker compose stop)
+
+  info "Drop + recreate $DB_PROD"
+  mysql --defaults-extra-file="$MYSQL_DEFAULTS" <<SQL
+DROP DATABASE IF EXISTS \`$DB_PROD\`;
+CREATE DATABASE \`$DB_PROD\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON \`$DB_PROD\`.* TO 'ipastore-prod'@'%';
+FLUSH PRIVILEGES;
+SQL
+
+  info "Dump $DB_DEV -> restore $DB_PROD"
+  mysqldump --defaults-extra-file="$MYSQL_DEFAULTS" \
+    --routines --triggers --events \
+    --single-transaction --quick \
+    "$DB_DEV" \
+    | mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$DB_PROD"
+
+  info "Mirror $STORE_DEV -> $STORE_PROD (rsync --delete)"
+  mkdir -p "$STORE_PROD"/{ipas,icons,screenshots}
+  rsync -a --delete "$STORE_DEV/" "$STORE_PROD/"
+
+  info "Redémarrage conteneur prod"
+  (cd "$PROD_DIR" && docker compose start)
+
+  ok "Sync dev -> prod terminée. La BDD et les fichiers prod reflètent dev."
+}
+
 # ────── Reset users ──────
 
 cmd_reset_users() {
@@ -348,6 +392,7 @@ $(printf "${C_BOLD}MISE À JOUR DU CODE${C_RESET}")
 
 $(printf "${C_BOLD}DONNÉES${C_RESET}")
   sync                Sync TOTALE prod -> dev (écrase BDD + fichiers dev)
+  sync-to-prod        Sync TOTALE dev -> prod (écrase BDD + fichiers prod — IRRÉVERSIBLE)
   prod-reset-users    Supprime tous les admins prod, en crée un nouveau
   dev-reset-users     Idem sur dev
 
@@ -396,6 +441,7 @@ menu() {
     printf "\n"
     printf "  ${C_BOLD}DONNÉES${C_RESET}\n"
     printf "    20) Sync TOTALE prod -> dev (écrase dev)\n"
+    printf "    25) Sync TOTALE dev -> prod (écrase prod — IRRÉVERSIBLE)\n"
     printf "    21) Self-update (pull ce script)\n"
     printf "    22) Check update prod     23) Check update dev\n"
     printf "\n"
@@ -416,6 +462,7 @@ menu() {
       15) cmd_update_dev ;;
       16) cmd_reset_users dev ;;
       20) cmd_sync ;;
+      25) cmd_sync_to_prod ;;
       21) cmd_self_update ;;
       22) cmd_check_update prod ;;
       23) cmd_check_update dev ;;
@@ -450,5 +497,6 @@ case "${1:-}" in
   self-update)         cmd_self_update ;;
   status)              cmd_status ;;
   sync)                cmd_sync ;;
+  sync-to-prod)        cmd_sync_to_prod ;;
   *) err "Commande inconnue : $1"; echo; usage; exit 1 ;;
 esac
