@@ -43,21 +43,23 @@
 
     <div class="appearance-block">
       <div class="appearance-label">Bannière (header)</div>
-      <div class="appearance-header-wrap">
-        {% if store_header_file %}
-        <img src="/icons/{{ store_header_file }}" class="appearance-header" alt="Header">
-        {% else %}
-        <div class="appearance-header appearance-header-empty">Optionnel — image large en haut de la source</div>
-        {% endif %}
-      </div>
-      <form method="post" action="/settings/header" enctype="multipart/form-data" class="row-gap mt-4">
-        <label class="btn btn-sm" style="cursor:pointer;">
-          <input type="file" name="header" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
-          {{ 'Remplacer' if store_header_file else 'Téléverser' }}
-        </label>
-        {% if store_header_file %}
-        <button form="remove-header-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
-        {% endif %}
+      <form id="header-form" method="post" action="/settings/header" enctype="multipart/form-data">
+        <div class="appearance-header-wrap" id="header-dropzone">
+          {% if store_header_file %}
+          <img src="/icons/{{ store_header_file }}" class="appearance-header" alt="Header">
+          {% else %}
+          <div class="appearance-header appearance-header-empty">Glisse ou clique pour ajouter une bannière</div>
+          {% endif %}
+        </div>
+        <div class="row-gap mt-4">
+          <label class="btn btn-sm" style="cursor:pointer;">
+            <input type="file" name="header" id="header-input" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
+            {{ 'Remplacer' if store_header_file else 'Téléverser' }}
+          </label>
+          {% if store_header_file %}
+          <button form="remove-header-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+          {% endif %}
+        </div>
       </form>
       {% if store_header_file %}
       <form id="remove-header-form" method="post" action="/settings/header/remove"></form>
@@ -192,5 +194,24 @@ function storeTintCustom(hexWithHash) {
   document.getElementById('store-tint-hidden').value = val;
   document.getElementById('store-tint-label').textContent = '#' + val;
 }
+
+(function() {
+  const zone = document.getElementById('header-dropzone');
+  const input = document.getElementById('header-input');
+  if (!zone || !input) return;
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over'); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+  });
+})();
 </script>
 {% endblock %}

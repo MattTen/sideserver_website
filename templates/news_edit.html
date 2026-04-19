@@ -68,10 +68,12 @@
         <div class="news-preview news-preview-empty">Pas d'image</div>
         {% endif %}
 
-        <div class="field mt-4">
-          <label>{{ 'Remplacer' if item and item.image_path else 'Ajouter une image' }}</label>
-          <input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp">
-        </div>
+        <label class="img-dropzone mt-4" id="news-img-zone">
+          <input type="file" name="image" id="news-img-input" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="newsImgName(this)">
+          <strong>{{ 'Remplacer l\'image' if item and item.image_path else 'Ajouter une image' }}</strong>
+          Glisse ou clique · PNG, JPG, WebP
+          <span class="img-dz-name" id="news-img-name"></span>
+        </label>
       </div>
 
       <div class="card">
@@ -109,4 +111,30 @@
     <a href="/news" class="btn">Annuler</a>
   </div>
 </form>
+
+<script>
+function newsImgName(input) {
+  const el = document.getElementById('news-img-name');
+  if (input.files.length) {
+    el.textContent = input.files[0].name;
+    el.style.display = 'block';
+  }
+}
+(function() {
+  const zone = document.getElementById('news-img-zone');
+  const input = document.getElementById('news-img-input');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over'); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    input.files = dt.files;
+    newsImgName(input);
+  });
+})();
+</script>
 {% endblock %}
