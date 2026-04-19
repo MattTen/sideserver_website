@@ -1,4 +1,11 @@
-"""IPA file parsing: extract Info.plist metadata + app icon."""
+"""Analyse des fichiers IPA : extraction des métadonnées Info.plist et de l'icône.
+
+Un IPA est une archive ZIP. Sa structure est :
+  Payload/
+    MonApp.app/
+      Info.plist   ← métadonnées (bundle_id, version, icônes…)
+      AppIcon*.png ← icônes (noms variés selon la version du SDK)
+"""
 from __future__ import annotations
 
 import hashlib
@@ -11,15 +18,21 @@ from typing import Optional
 
 @dataclass(slots=True)
 class IPAInfo:
+    """Métadonnées extraites d'un fichier IPA."""
     bundle_id: str
     name: str
     version: str
     build_version: str
     min_os_version: str
-    icon_bytes: Optional[bytes] = None
+    icon_bytes: Optional[bytes] = None  # None si aucune icône trouvée dans l'archive
 
 
 def _find_app_dir(zf: zipfile.ZipFile) -> Optional[str]:
+    """Localise le dossier .app principal dans Payload/.
+
+    On vérifie que le chemin a exactement 2 séparateurs (Payload/Foo.app/Info.plist)
+    pour ignorer les .app imbriqués (ex: extensions, frameworks).
+    """
     for name in zf.namelist():
         if name.startswith("Payload/") and name.endswith(".app/Info.plist"):
             if name.count("/") == 2:
@@ -28,18 +41,25 @@ def _find_app_dir(zf: zipfile.ZipFile) -> Optional[str]:
 
 
 def _extract_icon(zf: zipfile.ZipFile, app_dir: str, plist: dict) -> Optional[bytes]:
-    """Best-effort icon extraction from Info.plist CFBundleIcons."""
+    """Extraction best-effort de l'icône principale.
+
+    Stratégie : d'abord les noms déclarés dans CFBundleIcons > CFBundlePrimaryIcon
+    (avec suffixes @3x, @2x, .png), puis une liste de noms génériques courants
+    dans les IPA modernes et anciens. Retourne les bytes du premier fichier trouvé.
+    """
     candidates: list[str] = []
+
+    # Noms déclarés dans le plist (priorité maximale).
     icons = plist.get("CFBundleIcons") or {}
     primary = icons.get("CFBundlePrimaryIcon") or {}
     files = primary.get("CFBundleIconFiles") or []
     if isinstance(files, list):
         candidates.extend(files)
-    for f in files:
-        for suffix in ("@3x.png", "@2x.png", ".png"):
-            candidates.append(f + suffix)
+        for f in files:
+            for suffix in ("@3x.png", "@2x.png", ".png"):
+                candidates.append(f + suffix)
 
-    # Generic fallbacks often found in IPAs
+    # Noms génériques présents dans la majorité des IPA iOS modernes.
     candidates.extend([
         "AppIcon60x60@3x.png",
         "AppIcon60x60@2x.png",
@@ -65,6 +85,7 @@ def _extract_icon(zf: zipfile.ZipFile, app_dir: str, plist: dict) -> Optional[by
 
 
 def parse_ipa(path: Path) -> Optional[IPAInfo]:
+    """Parse un fichier IPA et retourne ses métadonnées, ou None si invalide."""
     try:
         with zipfile.ZipFile(path) as zf:
             app_dir = _find_app_dir(zf)
@@ -91,6 +112,7 @@ def parse_ipa(path: Path) -> Optional[IPAInfo]:
 
 
 def sha256_of_file(path: Path) -> str:
+    """Calcule le SHA-256 d'un fichier par blocs de 1 Mo (compatible fichiers volumineux)."""
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
