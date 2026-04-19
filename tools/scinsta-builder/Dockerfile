@@ -85,13 +85,14 @@ RUN pip install --no-cache-dir --break-system-packages \
         "lief>=0.16" \
         requests
 
-# ipapatch : installe depuis le repo officiel (CLI python standalone).
-# Nom canonique du repo : SideStore/ipapatch (anciennement JJTech/ipapatch).
-# Fallback sur une installation no-op si indisponible — le build reste
-# fonctionnel avec cyan seul pour la majorite des cas d'usage.
+# ipapatch : CLI python qui patch l'IPA + ses extensions pour le sideload
+# (appele en fin de build.sh). Repo canonique = asdfzxcvbn/ipapatch (meme
+# auteur que cyan/pyzule-rw). Les anciens forks JJTech/SideStore n'existent
+# plus publiquement. SCInsta/build.sh l'invoque obligatoirement donc pas
+# de fallback ici — si l'installation echoue, le build plantera de toute
+# facon a l'etape finale.
 RUN pip install --no-cache-dir --break-system-packages \
-        "ipapatch @ git+https://github.com/JJTech0130/ipapatch" \
-    || echo "[WARN] ipapatch non installe — build continuera sans (cyan seul suffit souvent)."
+        "ipapatch @ git+https://github.com/asdfzxcvbn/ipapatch"
 
 WORKDIR /opt/builder
 
