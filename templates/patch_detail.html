@@ -16,12 +16,16 @@
 
 <div class="two-col">
   <div class="card">
-    <h2>Nom d'affichage</h2>
-    <p class="text-muted mb-4" style="font-size: 12.5px;">Change le nom montré dans la liste des patchs pour plus de confort.</p>
+    <h2>Infos du patch</h2>
+    <p class="text-muted mb-4" style="font-size: 12.5px;">Nom affiché dans la liste et description libre pour te rappeler ce que fait ce patch.</p>
     <form method="post" action="/patches/{{ patch.filename }}/rename">
       <div class="field">
-        <label>Nom</label>
+        <label>Nom d'affichage</label>
         <input class="input" name="display_name" value="{{ patch.display_name }}" maxlength="80" required>
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <textarea class="input" name="description" rows="4" maxlength="1000" placeholder="À quoi sert ce patch, quelles apps il cible, effets secondaires…">{{ patch.description }}</textarea>
       </div>
       <div class="row-gap">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -35,7 +39,7 @@
     <p class="text-muted mb-4" style="font-size: 12.5px;">
       Sélectionne l'app + version à patcher. L'IPA sera écrasé en place et le hash mis à jour en BDD.
     </p>
-    <form method="post" action="/patches/{{ patch.filename }}/run">
+    <form method="post" action="/patches/{{ patch.filename }}/run" id="patch-run-form">
       <div class="field">
         <label>Version à patcher</label>
         <select class="input" name="version_id" required>
@@ -70,4 +74,24 @@
   <pre class="mono" style="background: var(--bg-elev-2); padding: 12px; border-radius: var(--radius); overflow-x: auto; max-height: 520px; white-space: pre-wrap; font-size: 12px; line-height: 1.45;">{{ log }}</pre>
 </div>
 {% endif %}
+
+<div id="patch-overlay" class="patch-overlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="patch-overlay-card">
+    <div class="patch-spinner" aria-hidden="true"></div>
+    <div class="patch-overlay-title">Patch en cours…</div>
+    <div class="patch-overlay-sub">Ne ferme pas cette page. Les gros IPAs (Instagram ~270 Mo) peuvent prendre plusieurs minutes.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('patch-run-form');
+  var overlay = document.getElementById('patch-overlay');
+  if (!form || !overlay) return;
+  form.addEventListener('submit', function () {
+    overlay.classList.add('is-visible');
+    overlay.setAttribute('aria-hidden', 'false');
+  });
+})();
+</script>
 {% endblock %}

@@ -443,9 +443,16 @@ Le script doit écraser l'IPA en place. Sortie stdout/stderr capturée et affich
 3. Si succès : recalcul de `size` + `sha256` du fichier écrasé → update de la ligne `versions` en BDD
 4. Log complet (stdout + stderr) affiché dans la page
 
-### Nom d'affichage personnalisable
+### Nom d'affichage et description
 
-Stocké en `settings` sous la clé `patch_display_name:{filename}`. Éditable via le formulaire de la page patch. Par défaut = stem du fichier (`fix_ipa.py` → `fix_ipa`).
+Deux métadonnées libres par patch, éditables depuis la page détail et stockées dans la table `settings` :
+
+- `patch_display_name:{filename}` — nom affiché dans la liste. Défaut : stem du fichier (`fix_ipa.py` → `fix_ipa`).
+- `patch_description:{filename}` — description libre (multi-lignes), montrée dans la colonne "Description" du listing. Défaut : `""`.
+
+### Feedback visuel pendant l'exécution
+
+L'exécution côté serveur est synchrone (`subprocess.run` bloquant). Pour éviter qu'un gros IPA (Instagram ~270 Mo, plusieurs minutes) laisse l'utilisateur face à une page blanche, le template `patch_detail.html` déclenche un overlay plein écran (`.patch-overlay` + `.patch-spinner` dans `style.css`) dès la soumission du formulaire `POST /patches/{filename}/run`. L'overlay reste visible jusqu'à ce que la réponse arrive et remplace la page.
 
 ### Dépendances
 

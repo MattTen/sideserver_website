@@ -13,6 +13,8 @@ modif de code côté app.
 Le nom d'affichage personnalisé est stocké en settings avec la clé
 `patch_display_name:{filename}`. Si aucun nom n'est défini, on retourne le
 stem du fichier (ex: "fix_ipa.py" → "fix_ipa").
+
+La description libre est stockée sous la clé `patch_description:{filename}`.
 """
 from __future__ import annotations
 
@@ -37,11 +39,16 @@ PATCH_DIR = Path(__file__).resolve().parent.parent / "patch"
 class PatchInfo:
     filename: str           # "fix_ipa.py"
     display_name: str       # nom affiché dans l'UI (éditable)
+    description: str        # description libre (éditable)
     path: Path              # chemin absolu vers le script
 
 
 def _display_key(filename: str) -> str:
     return f"patch_display_name:{filename}"
+
+
+def _description_key(filename: str) -> str:
+    return f"patch_description:{filename}"
 
 
 def discover_patches(db: Session) -> list[PatchInfo]:
@@ -61,7 +68,11 @@ def discover_patches(db: Session) -> list[PatchInfo]:
         if p.name.startswith(("_", ".")):
             continue
         display = get_setting(db, _display_key(p.name), "") or p.stem
-        patches.append(PatchInfo(filename=p.name, display_name=display, path=p))
+        description = get_setting(db, _description_key(p.name), "") or ""
+        patches.append(PatchInfo(
+            filename=p.name, display_name=display,
+            description=description, path=p,
+        ))
     return patches
 
 
@@ -75,11 +86,19 @@ def get_patch(db: Session, filename: str) -> PatchInfo | None:
     if not p.is_file() or p.suffix != ".py":
         return None
     display = get_setting(db, _display_key(filename), "") or p.stem
-    return PatchInfo(filename=filename, display_name=display, path=p)
+    description = get_setting(db, _description_key(filename), "") or ""
+    return PatchInfo(
+        filename=filename, display_name=display,
+        description=description, path=p,
+    )
 
 
 def set_display_name(db: Session, filename: str, name: str) -> None:
     set_setting(db, _display_key(filename), name.strip())
+
+
+def set_description(db: Session, filename: str, description: str) -> None:
+    set_setting(db, _description_key(filename), description.strip())
 
 
 def run_patch(patch_path: Path, ipa_path: Path, timeout: int = 900) -> tuple[bool, str]:

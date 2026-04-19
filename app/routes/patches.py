@@ -11,7 +11,10 @@ from ..config import Config
 from ..db import get_db
 from ..ipa import sha256_of_file
 from ..models import App, User, Version
-from ..patches import discover_patches, get_patch, run_patch, set_display_name
+from ..patches import (
+    discover_patches, get_patch, run_patch,
+    set_description, set_display_name,
+)
 from ..templates import templates
 
 router = APIRouter()
@@ -34,6 +37,7 @@ def patches_list(
 def patches_rename(
     filename: str,
     display_name: str = Form(""),
+    description: str = Form(""),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -41,6 +45,7 @@ def patches_rename(
     if patch is None:
         raise HTTPException(status_code=404, detail="Patch inconnu")
     set_display_name(db, filename, display_name)
+    set_description(db, filename, description)
     return RedirectResponse(f"/patches/{filename}", status_code=303)
 
 
