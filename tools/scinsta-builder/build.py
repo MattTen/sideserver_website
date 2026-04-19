@@ -140,6 +140,23 @@ def place_ig_ipa(repo: Path, ig_ipa: Path) -> Path:
     return dest
 
 
+def fix_case_sensitive_submodule(repo: Path) -> None:
+    """Cree modules/flexing -> modules/FLEXing.
+
+    SCInsta Makefile reference `modules/flexing` en minuscules mais le
+    submodule git est checkout comme `modules/FLEXing`. Sur macOS (HFS+
+    case-insensitive) ca fonctionne, mais Linux est case-sensitive donc
+    make echoue avec "No such file or directory". Le symlink resout le
+    probleme sans patcher le Makefile upstream.
+    """
+    modules = repo / "modules"
+    src = modules / "FLEXing"
+    dst = modules / "flexing"
+    if src.is_dir() and not dst.exists():
+        dst.symlink_to("FLEXing", target_is_directory=True)
+        log("flexing_symlink", path=str(dst))
+
+
 def run_scinsta_build(repo: Path) -> Path:
     """Lance `./build.sh sideload` dans le clone. Retourne l'IPA genere.
 
@@ -257,6 +274,7 @@ def main() -> None:
     try:
         repo, scinsta_sha = clone_scinsta(workdir)
         place_ig_ipa(repo, ig_ipa)
+        fix_case_sensitive_submodule(repo)
         patched = run_scinsta_build(repo)
 
         if patch_filename:
