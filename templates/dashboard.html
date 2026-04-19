@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - IPA Store{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Vue d'ensemble</h1>
+    <div class="subtitle">État du magasin et uploads récents.</div>
+  </div>
+  <div class="row-gap">
+    <a href="/apps" class="btn">Applications</a>
+    <a href="#upload" class="btn btn-primary">
+      {% include "_icons/upload.svg" %}
+      <span>Nouvel IPA</span>
+    </a>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat">
+    <p class="stat-label">Applications</p>
+    <div class="stat-value">{{ app_count }}</div>
+    <div class="stat-sub">bundles indexés</div>
+  </div>
+  <div class="stat">
+    <p class="stat-label">Versions</p>
+    <div class="stat-value">{{ version_count }}</div>
+    <div class="stat-sub">builds disponibles</div>
+  </div>
+  <div class="stat">
+    <p class="stat-label">Espace utilisé</p>
+    <div class="stat-value">{{ total_size|size }}</div>
+    <div class="stat-sub">par les IPAs</div>
+  </div>
+  <div class="stat">
+    <p class="stat-label">Magasin</p>
+    <div class="stat-value">online</div>
+    <div class="stat-sub">source.json actif</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card" id="upload">
+    <h2>Déposer un IPA</h2>
+    <p class="text-muted mb-4" style="font-size: 12.5px;">Glisse un fichier <code>.ipa</code> ici. Les métadonnées (bundle ID, version, icône) sont extraites automatiquement.</p>
+    <form id="upload-form" method="post" action="/apps/upload" enctype="multipart/form-data">
+      <label class="dropzone" id="dropzone">
+        <input type="file" name="ipa" accept=".ipa" id="ipa-input" required>
+        <strong>Glisse un IPA</strong>
+        <div class="hint">ou clique pour choisir un fichier</div>
+        <div class="progress"><div class="progress-bar"></div></div>
+      </label>
+      <div class="mt-4 row-gap space-between">
+        <span class="text-dim" id="upload-status" style="font-size: 12.5px;">Aucun fichier sélectionné.</span>
+        <button class="btn btn-primary" type="submit" id="upload-submit" disabled>
+          {% include "_icons/upload.svg" %}
+          <span>Téléverser</span>
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Lien du magasin</h2>
+    <div class="source-box">
+      <div>
+        <div class="source-url" id="src-url">{{ source_url }}</div>
+        <div class="mt-4 row-gap">
+          <button class="btn btn-sm" type="button" id="copy-btn">
+            {% include "_icons/copy.svg" %}
+            <span>Copier</span>
+          </button>
+          <a class="btn btn-sm" href="/source.json" target="_blank">Ouvrir JSON</a>
+          <a class="btn btn-sm" href="/qr.svg" target="_blank">QR plein écran</a>
+        </div>
+      </div>
+      <img src="/qr.svg" alt="QR code source" class="source-qr">
+    </div>
+    <p class="text-muted mt-6" style="font-size: 12.5px;">
+      Dans <strong>SideStore</strong> : onglet Sources puis <code>+</code> et colle l'URL.
+    </p>
+  </div>
+</div>
+
+<div class="card mt-8">
+  <h2>Uploads récents</h2>
+  {% if recent %}
+  <div class="table-wrap mt-4">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Application</th>
+          <th>Version</th>
+          <th>Taille</th>
+          <th>Upload</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v, app in recent %}
+        <tr>
+          <td>
+            <div class="app-cell">
+              {% if app.icon_path %}
+              <img src="/icons/{{ app.icon_path }}" class="app-icon" alt="">
+              {% else %}
+              <div class="app-icon"></div>
+              {% endif %}
+              <div>
+                <div>{{ app.name }}</div>
+                <div class="mono-sm">{{ app.bundle_id }}</div>
+              </div>
+            </div>
+          </td>
+          <td><span class="mono">{{ v.version }}</span> <span class="text-dim mono">({{ v.build_version }})</span></td>
+          <td>{{ v.size|size }}</td>
+          <td class="text-muted">{{ v.uploaded_at|date }}</td>
+          <td><a href="/apps/{{ app.bundle_id }}" class="btn btn-sm btn-ghost">Détail</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <strong>Aucun IPA encore uploadé</strong>
+    Dépose ton premier IPA ci-dessus pour remplir ton magasin.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

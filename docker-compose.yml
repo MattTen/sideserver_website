@@ -1,0 +1,25 @@
+# Compose générique : paramétré via .env local (un clone par environnement).
+# - /opt/sideserver-prod/.env  -> CONTAINER_NAME=sidestore-website-prod, HOST_PORT=80,   etc.
+# - /opt/sideserver-dev/.env   -> CONTAINER_NAME=sidestore-website-dev,  HOST_PORT=8080, etc.
+
+services:
+  ipastore:
+    build: .
+    image: ipastore:${IMAGE_TAG:-local}
+    container_name: ${CONTAINER_NAME:?CONTAINER_NAME manquant dans .env}
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:?HOST_PORT manquant dans .env}:8000"
+    env_file:
+      - ${ENV_FILE:?ENV_FILE manquant dans .env}
+    volumes:
+      - ${STORE_PATH:?STORE_PATH manquant dans .env}:/srv/store
+      - /etc/ipastore:/etc/ipastore
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/source.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
