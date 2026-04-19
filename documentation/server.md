@@ -406,10 +406,61 @@ bind-address = 0.0.0.0
 | `app/main.py`                                 | Lifespan + boucle check 6h                    |
 | `app/source_gen.py`                           | Construction du feed `source.json` (apps, featured, news, header, icône) |
 | `app/routes/news.py`                          | CRUD actualités (section `news[]` du feed)    |
+| `app/patches.py`                              | Découverte + exécution des scripts de patch IPA |
+| `app/routes/patches.py`                       | Routes `/patches/**` (listing, renommage, run) |
+| `patch/*.py`                                  | Scripts de patch IPA (signature `-s /path/to.ipa`) |
+| `documentation/patch_fix_ipa.md`              | Doc du patch générique                          |
+| `documentation/patch_fix_ipa_scinsta.md`      | Doc du wrapper SCInsta                          |
 
 ---
 
-## 11. Apparence du store (source.json)
+## 11. Patchs IPA (onglet Patch)
+
+L'onglet **Patch** de l'UI permet d'appliquer un script de correction sur un IPA déjà uploadé. Conçu pour les cas comme l'assertion ldid `end >= size - 0x10` (iOS 15+).
+
+### Découverte automatique
+
+Au boot du conteneur, aucune inscription n'est nécessaire : chaque `.py` placé directement dans `patch/` (pas récursif, pas les fichiers cachés ni `__init__.py`) est automatiquement listé. Ajouter un patch :
+
+1. Créer `patch/mon_patch.py` dans le repo GitHub
+2. Merger sur `dev` (ou `main` pour prod via release)
+3. `website-management dev-update` (ou `prod-update`) → rebuild de l'image → le patch apparaît dans l'UI
+
+### Contrat CLI des scripts
+
+Chaque script doit respecter la signature :
+
+```
+python3 script.py -s /chemin/vers/app.ipa
+```
+
+Le script doit écraser l'IPA en place. Sortie stdout/stderr capturée et affichée dans l'UI. Exit code 0 = succès, autre = erreur.
+
+### Flow d'exécution
+
+1. Utilisateur ouvre `/patches/{filename}` et choisit une version (dropdown app+version)
+2. POST `/patches/{filename}/run` → subprocess `python {script} -s {ipa_path}` avec timeout 900s
+3. Si succès : recalcul de `size` + `sha256` du fichier écrasé → update de la ligne `versions` en BDD
+4. Log complet (stdout + stderr) affiché dans la page
+
+### Nom d'affichage et description
+
+Deux métadonnées libres par patch, éditables depuis la page détail et stockées dans la table `settings` :
+
+- `patch_display_name:{filename}` — nom affiché dans la liste. Défaut : stem du fichier (`fix_ipa.py` → `fix_ipa`).
+- `patch_description:{filename}` — description libre (multi-lignes), montrée dans la colonne "Description" du listing. Défaut : `""`.
+
+### Feedback visuel pendant l'exécution
+
+L'exécution côté serveur est synchrone (`subprocess.run` bloquant). Pour éviter qu'un gros IPA (Instagram ~270 Mo, plusieurs minutes) laisse l'utilisateur face à une page blanche, le template `patch_detail.html` déclenche un overlay plein écran (`.patch-overlay` + `.patch-spinner` dans `style.css`) dès la soumission du formulaire `POST /patches/{filename}/run`. L'overlay reste visible jusqu'à ce que la réponse arrive et remplace la page.
+
+### Dépendances
+
+Les scripts de patch partagent le venv du conteneur (même `sys.executable`). Les deps communes (notamment `lief` pour la re-sérialisation Mach-O) sont déclarées dans `requirements.txt` à la racine.
+
+---
+
+## 12. Apparence du store (source.json)
 
 Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin remplit ces champs :
 
