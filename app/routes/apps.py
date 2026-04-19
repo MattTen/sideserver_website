@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_user
+from ..categories import get_categories
 from ..config import Config
 from ..db import get_db
 from ..ipa import parse_ipa, sha256_of_file
@@ -26,19 +27,39 @@ router = APIRouter()
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]+")
 
 TINT_COLORS: list[tuple[str, str]] = [
-    ("Violet",  "833ab4"),
-    ("Indigo",  "5b50d6"),
-    ("Bleu",    "2563eb"),
-    ("Ciel",    "0ea5e9"),
-    ("Teal",    "0891b2"),
-    ("Vert",    "059669"),
-    ("Lime",    "65a30d"),
-    ("Ambre",   "d97706"),
-    ("Or",      "c9a678"),
-    ("Orange",  "ea580c"),
-    ("Rouge",   "dc2626"),
-    ("Rose",    "db2777"),
-    ("Gris",    "6b7280"),
+    # Violets
+    ("Lavande",     "a78bfa"),
+    ("Violet",      "7c3aed"),
+    ("Indigo",      "4f46e5"),
+    ("Aubergine",   "6b21a8"),
+    # Bleus
+    ("Ciel",        "38bdf8"),
+    ("Bleu",        "2563eb"),
+    ("Bleu foncé",  "1d4ed8"),
+    ("Marine",      "1e3a5f"),
+    # Teals / Cyans
+    ("Cyan",        "06b6d4"),
+    ("Teal",        "0d9488"),
+    # Verts
+    ("Vert",        "16a34a"),
+    ("Émeraude",    "059669"),
+    ("Olive",       "65a30d"),
+    # Jaunes / Ambrés
+    ("Jaune",       "eab308"),
+    ("Ambre",       "f59e0b"),
+    ("Or",          "c9a678"),
+    # Oranges / Rouges
+    ("Orange",      "f97316"),
+    ("Corail",      "f87171"),
+    ("Rouge",       "ef4444"),
+    ("Cramoisi",    "b91c1c"),
+    # Roses
+    ("Rose vif",    "ec4899"),
+    ("Rose",        "db2777"),
+    ("Bordeaux",    "9f1239"),
+    # Neutres
+    ("Gris",        "6b7280"),
+    ("Ardoise",     "475569"),
 ]
 _TINT_PRESET_VALUES = {h for _, h in TINT_COLORS}
 
@@ -193,6 +214,7 @@ def app_detail(
             "screenshots": screenshots,
             "tint_colors": TINT_COLORS,
             "tint_preset_values": _TINT_PRESET_VALUES,
+            "categories": get_categories(db),
             "active": "apps",
         },
     )

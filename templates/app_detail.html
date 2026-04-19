@@ -101,7 +101,12 @@
         </div>
         <div class="field">
           <label>Catégorie</label>
-          <input class="input" name="category" value="{{ app.category }}">
+          <select class="input" name="category">
+            <option value="">— Aucune —</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}" {% if app.category == cat %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+          </select>
         </div>
       </div>
       <div class="field">
@@ -134,12 +139,11 @@
           <input type="hidden" name="tint_color" id="tint-hidden" value="{{ app.tint_color }}">
           <div id="tint-custom-row" class="row-gap mt-4"
                style="display:{% if cur not in tint_preset_values %}flex{% else %}none{% endif %}; align-items:center;">
-            <span class="text-muted" style="font-size:12.5px;">#</span>
-            <input class="input input-mono" id="tint-custom-input" maxlength="6"
-                   pattern="[0-9a-fA-F]{6}" placeholder="rrggbb"
-                   value="{{ app.tint_color }}" style="width:110px;"
-                   oninput="tintCustom(this.value)">
-            <span class="tint-preview" id="tint-preview" style="background:#{{ app.tint_color }};"></span>
+            <input type="color" id="tint-color-picker"
+                   value="#{{ app.tint_color.lower() }}"
+                   oninput="tintCustom(this.value)"
+                   style="width:40px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
+            <span class="text-muted input-mono" id="tint-custom-label" style="font-size:12.5px;">#{{ app.tint_color.lower() }}</span>
           </div>
         </div>
         <div class="field">
@@ -184,20 +188,19 @@
 function tintPick(val) {
   const hidden = document.getElementById('tint-hidden');
   const row = document.getElementById('tint-custom-row');
-  const preview = document.getElementById('tint-preview');
   if (val === 'custom') {
     row.style.display = 'flex';
   } else {
     row.style.display = 'none';
     hidden.value = val;
-    preview.style.background = '#' + val;
+    document.getElementById('tint-color-picker').value = '#' + val;
+    document.getElementById('tint-custom-label').textContent = '#' + val;
   }
 }
-function tintCustom(val) {
-  if (/^[0-9a-fA-F]{6}$/.test(val)) {
-    document.getElementById('tint-hidden').value = val;
-    document.getElementById('tint-preview').style.background = '#' + val;
-  }
+function tintCustom(hexWithHash) {
+  const val = hexWithHash.replace('#', '').toLowerCase();
+  document.getElementById('tint-hidden').value = val;
+  document.getElementById('tint-custom-label').textContent = '#' + val;
 }
 </script>
 {% endblock %}

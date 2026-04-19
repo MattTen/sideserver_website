@@ -25,7 +25,16 @@ _ALLOWED_IMG_EXT = {
     "image/jpeg": "jpg",
     "image/jpg": "jpg",
     "image/webp": "webp",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+    "image/heic": "heic",
+    "image/heif": "heif",
 }
+_ALLOWED_IMG_SUFFIXES = [
+    (".png", "png"), (".jpg", "jpg"), (".jpeg", "jpg"),
+    (".webp", "webp"), (".gif", "gif"), (".svg", "svg"),
+    (".heic", "heic"), (".heif", "heif"),
+]
 
 
 def _settings_context(db: Session, user: User, msg: str | None = None, err: str | None = None):
@@ -82,18 +91,18 @@ async def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
     """
     ext = _ALLOWED_IMG_EXT.get((upload.content_type or "").lower())
     if ext is None:
-        # Fallback : détecter depuis l'extension du nom de fichier
         fname = (upload.filename or "").lower()
-        for suffix, e in [(".png", "png"), (".jpg", "jpg"), (".jpeg", "jpg"), (".webp", "webp")]:
+        for suffix, e in _ALLOWED_IMG_SUFFIXES:
             if fname.endswith(suffix):
                 ext = e
                 break
     if ext is None:
-        raise HTTPException(status_code=400, detail="Format non supporté (PNG/JPG/WebP uniquement)")
+        raise HTTPException(status_code=400, detail="Format non supporté")
+    await upload.seek(0)
     data = await upload.read()
     if not data:
         raise HTTPException(status_code=400, detail="Image vide")
-    name = f"_{prefix}-{secrets.token_hex(4)}.{ext}"
+    name = f"{prefix}-{secrets.token_hex(6)}.{ext}"
     (Config.ICONS_DIR / name).write_bytes(data)
     return name
 
