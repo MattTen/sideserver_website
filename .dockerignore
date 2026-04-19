@@ -12,7 +12,7 @@ __pycache__
 README.md
 LICENSE
 deploy/
-website-management.sh
+tools/
 docker-compose.yml
 Dockerfile
 .dockerignore

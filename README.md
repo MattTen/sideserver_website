@@ -25,33 +25,37 @@ La BDD est créée par le bootstrap avec deux schémas :
 
 ## Administration
 
-Le script `website-management.sh` gère les deux environnements. Sans argument, il affiche un menu interactif. Avec un argument, il exécute une commande unique.
+Le script `tools/website-management.sh` est distribué sur la VM via un **clone sparse dédié** à `/opt/sideserver-tools/` (un seul exemplaire du script sur disque, versionné via git). Un symlink global `/usr/local/bin/website-management` le rend appelable depuis n'importe où.
+
+Sans argument : menu interactif. Avec un argument : commande unique.
 
 ```bash
-./website-management.sh                  # menu interactif
-./website-management.sh --help           # aide détaillée
+website-management                  # menu interactif
+website-management --help           # aide détaillée
 
 # Conteneurs
-./website-management.sh prod-start       # start/stop/restart/logs
-./website-management.sh dev-start
-./website-management.sh status
+website-management prod-start       # start/stop/restart/logs
+website-management dev-start
+website-management status
 
-# Mise à jour après un git push
-./website-management.sh prod-update      # pull main  + rebuild + restart
-./website-management.sh dev-update       # pull dev   + rebuild + restart
+# Mise à jour du code après un git push
+website-management prod-update      # pull main + rebuild + restart
+website-management dev-update       # pull dev  + rebuild + restart
+website-management self-update      # pull le script lui-même
 
 # Données
-./website-management.sh sync                  # copie TOTALE prod -> dev (écrase dev)
-./website-management.sh prod-reset-users      # purge users + prompt login/mdp
-./website-management.sh dev-reset-users
+website-management sync                  # copie TOTALE prod -> dev (écrase dev)
+website-management prod-reset-users      # purge users + prompt login/mdp
+website-management dev-reset-users
 ```
 
-### Workflow code
+### Workflow de mise à jour (manuel)
 
-1. Modifier localement sur la branche `dev`, `git push`.
-2. Sur la VM : `./website-management.sh dev-update`.
-3. Une fois validé, merger `dev` -> `main` et `git push`.
-4. Sur la VM : `./website-management.sh prod-update`.
+1. Push sur `dev` depuis ta machine.
+2. Sur la VM : `website-management dev-update`.
+3. Validation OK, merge `dev` -> `main` + push.
+4. Sur la VM : `website-management prod-update`.
+5. Si le script a changé : `website-management self-update`.
 
 ## Configuration
 
@@ -64,9 +68,9 @@ app/              # code Python (FastAPI)
 templates/        # Jinja2
 static/           # CSS + JS
 deploy/           # install.sh, nginx, systemd (legacy) + bootstrap.sh
+tools/            # website-management.sh (distribué en clone sparse dédié)
 Dockerfile
 docker-compose.yml
-website-management.sh
 ```
 
 ## Licence
