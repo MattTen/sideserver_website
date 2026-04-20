@@ -510,9 +510,16 @@ cmd_scinsta_cancel() {
   local result="/etc/ipastore/scinsta-build-result-${env}"
 
   info "Cancel demande pour env=$env"
-  # On supprime le flag de demande AVANT de kill — evite que le path unit
-  # retrigger un nouveau build juste apres qu'on aie tue le conteneur.
-  rm -f "$flag" "$req_flag"
+  # On supprime le req_flag SEULEMENT s'il est plus ancien que le cancel_flag :
+  # evite de wiper un req_flag fraichement ecrit par l'utilisateur qui relance
+  # un nouveau build juste apres avoir cliqué Annuler. Sans cette garde, la
+  # sequence "Cancel -> Build" faisait disparaitre le nouveau req_flag et
+  # aucun nouveau build ne demarrait (le path unit ne retrigger que sur
+  # transition absent -> present).
+  if [[ -f "$req_flag" && -f "$flag" && ! "$req_flag" -nt "$flag" ]]; then
+    rm -f "$req_flag"
+  fi
+  rm -f "$flag"
 
   if docker ps --filter "name=^${cname}\$" --format "{{.Names}}" | grep -q "^${cname}\$"; then
     info "Kill du conteneur $cname (SIGTERM puis SIGKILL apres 10s)"
