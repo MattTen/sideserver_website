@@ -28,6 +28,7 @@ Cles settings utilisees (clefs/valeurs, aucune migration BDD) :
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import re
@@ -628,17 +629,22 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
 
     app = _ensure_instagram_app(db, ipa_path)
 
-    # Si l'IG version n'a pas ete fournie par le builder, on la relit depuis
-    # l'Info.plist (l'IPA patche conserve les metadata de l'app originale).
-    if not ig_v:
-        from .ipa import parse_ipa
-        info = parse_ipa(ipa_path)
-        if info:
+    # Relit toujours version ET build_version depuis l'Info.plist : SideStore
+    # compare ces champs a ceux du source.json au moment du sideload et refuse
+    # l'install en cas de mismatch (CFBundleVersion/CFBundleShortVersionString).
+    # Utiliser le SHA SCInsta comme build_version cassait l'install — la seule
+    # valeur valide est le CFBundleVersion reel de l'IPA Instagram.
+    from .ipa import parse_ipa
+    info = parse_ipa(ipa_path)
+    if info:
+        if not ig_v:
             ig_v = info.version
+        build_label = info.build_version or "1"
+    else:
+        build_label = "1"
 
     size = result.get("size") or ipa_path.stat().st_size
     sha256 = result.get("sha256") or sha256_of_file(ipa_path)
-    build_label = sci_sha or "scinsta"
 
     existing = db.query(Version).filter(
         Version.app_id == app.id,
@@ -658,6 +664,32 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
             changelog=f"Instagram {ig_v} + SCInsta",
         )
         db.add(ver)
+    else:
+        # Rebuild de la meme version IG (meme CFBundleVersion) avec un nouveau
+        # commit SCInsta : on remplace l'IPA existant en place et on bump
+        # uploaded_at pour que SideStore re-propose l'install.
+        old_filename = existing.ipa_filename
+        existing.ipa_filename = filename
+        existing.size = size
+        existing.sha256 = sha256
+        existing.changelog = f"Instagram {ig_v} + SCInsta"
+        existing.uploaded_at = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+        if old_filename and old_filename != filename:
+            (Config.IPAS_DIR / old_filename).unlink(missing_ok=True)
+
+    # Purge des rows Version obsoletes pour la meme IG version : anciennes
+    # lignes creees avec build_version = short SHA SCInsta (refus d'install
+    # SideStore), ou upload vanille avant le build SCInsta. On ne garde
+    # qu'un seul IPA par (app, version, CFBundleVersion).
+    stale_versions = db.query(Version).filter(
+        Version.app_id == app.id,
+        Version.version == ig_v,
+        Version.build_version != build_label,
+    ).all()
+    for stale in stale_versions:
+        if stale.ipa_filename and stale.ipa_filename != filename:
+            (Config.IPAS_DIR / stale.ipa_filename).unlink(missing_ok=True)
+        db.delete(stale)
 
     set_setting(db, "scinsta_last_build_status", "success")
     set_setting(db, "scinsta_last_build_error", "")
