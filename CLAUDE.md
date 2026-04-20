@@ -265,7 +265,7 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - Check de version sur decrypt.day via `curl_cffi` (TLS impersonation Chrome) — passe Cloudflare. Fallback multi-impersonations puis urllib.
 - Upload manuel de l'IPA Instagram (le bouton de téléchargement decrypt.day est derrière Turnstile interactif, pas bypass-able proprement) — **pas** de scraping automatique de l'IPA.
 - Le build clone **toujours** `main` de `SoCuul/SCInsta` (fresh), jamais la release `.deb`.
-- Pipeline systemd `ipastore-scinsta-build@{env}.path` → conteneur one-shot `tools/scinsta-builder/` → IPA déposé dans `/srv/store-{env}/ipas/` → watcher lifespan crée Version + News.
+- Pipeline systemd `ipastore-scinsta-build@{env}.path` → conteneur one-shot `tools/scinsta-builder/` → IPA déposé dans `/srv/store-{env}/ipas/` → watcher lifespan crée la Version (changelog sobre : `Instagram <v> + SCInsta`). **Pas d'article news auto** (l'admin publie manuellement via l'onglet News s'il le souhaite). Métadonnées App (`developer_name`, `description`, icône…) figées à la création — **jamais** ré-écrites aux builds suivants.
 - `bundle_id = com.burbn.instagram` ; `build_version = <short_sha_scinsta>` pour éviter le conflit `UNIQUE(app_id, version, build_version)`.
 - `ig_deployed` (version intégrée) est lu **depuis la table `versions`** (dernière `uploaded_at` de `com.burbn.instagram`), pas depuis les settings. Ça reste correct quand l'admin upload l'IPA manuellement via l'onglet Apps.
 - URL source modifiable via l'UI (clé `scinsta_decrypt_url`, route `POST /scinsta/source`). Défaut : `https://decrypt.day/app/id389801252`.

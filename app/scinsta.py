@@ -592,11 +592,15 @@ def _ensure_instagram_app(db: Session, ipa_path: Path):
 
 
 def integrate_build_result(db: Session, result: dict) -> Optional[str]:
-    """Applique un result file de build : cree Version + article news.
+    """Applique un result file de build : cree la Version en BDD.
+
+    L'App Instagram est creee si absente (metadonnees figees a la creation,
+    non mises a jour aux builds suivants). Aucun article news automatique :
+    l'admin les redige manuellement via l'onglet News s'il le souhaite.
 
     Retourne None en cas de succes, un message d'erreur sinon.
     """
-    from .models import News, Version
+    from .models import Version
     from .ipa import sha256_of_file
 
     status = result.get("status")
@@ -643,9 +647,6 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
     ).first()
 
     if existing is None:
-        changelog = f"Build automatique — Instagram {ig_v} + SCInsta @{sci_sha or 'main'}"
-        if patch_used:
-            changelog += f" (patch appliqué : {patch_used})"
         ver = Version(
             app_id=app.id,
             ipa_filename=filename,
@@ -654,28 +655,9 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
             size=size,
             sha256=sha256,
             min_os_version="15.0",
-            changelog=changelog,
+            changelog=f"Instagram {ig_v} + SCInsta",
         )
         db.add(ver)
-
-    # Article news notify=1 pour declencher la notif SideStore
-    news_id = f"scinsta-{ig_v}-{sci_sha or 'main'}"
-    existing_news = db.query(News).filter(News.identifier == news_id).first()
-    if existing_news is None:
-        news = News(
-            identifier=news_id,
-            title=f"Instagram {ig_v} patché",
-            caption=(
-                f"Nouvelle build d'Instagram {ig_v} avec SCInsta "
-                f"{('@' + sci_sha) if sci_sha else 'main'}. "
-                "Met à jour depuis SideStore."
-            ),
-            bg_preset="royal",
-            image_path=None,
-            app_bundle_id=INSTAGRAM_BUNDLE_ID,
-            notify=1,
-        )
-        db.add(news)
 
     set_setting(db, "scinsta_last_build_status", "success")
     set_setting(db, "scinsta_last_build_error", "")
