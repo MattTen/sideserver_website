@@ -55,6 +55,7 @@
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
     Téléchargez manuellement l'IPA Instagram depuis decrypt.day et déposez-la ici.
   </p>
+  <div id="sci-upload-msg" style="display:none; margin-bottom:10px;"></div>
 
   <label class="dropzone" id="sci-dropzone">
     <input type="file" id="sci-file-input" accept=".ipa">
@@ -247,6 +248,14 @@
   const clearUploadBtn = document.getElementById('sci-clear-upload');
   const patchSelect = document.getElementById('sci-patch-select');
   const buildMsgEl = document.getElementById('sci-build-msg');
+
+  const uploadMsgEl = document.getElementById('sci-upload-msg');
+  function setUploadMsg(text, kind) {
+    if (!text) { uploadMsgEl.style.display = 'none'; uploadMsgEl.textContent = ''; return; }
+    const s = BUILD_MSG_STYLES[kind || 'success'];
+    uploadMsgEl.style.cssText = `display:block; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    uploadMsgEl.textContent = text;
+  }
 
   const BUILD_MSG_STYLES = {
     success: { bg: 'rgba(126,179,138,0.12)', border: 'var(--success)', color: '#9dcfa7' },
@@ -474,7 +483,7 @@
     progressBar.style.width = '0%';
     try {
       await uploadIpa(file);
-      setBanner('ok', 'IPA téléversée (' + bytesToMb(file.size) + ').');
+      setUploadMsg('IPA téléversée (' + bytesToMb(file.size) + ').');
       dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
       dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
@@ -485,7 +494,7 @@
       // Note de version "défaut" depend de upload_version : refresh apres upload.
       renderChangelog(s);
     } catch (e) {
-      setBanner('err', 'Téléversement échoué : ' + e.message);
+      setUploadMsg('Téléversement échoué : ' + e.message, 'error');
       dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
       dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
