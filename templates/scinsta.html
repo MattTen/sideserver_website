@@ -537,7 +537,7 @@
       const res = await fetch('/scinsta/cancel', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setBanner('', data.message || 'Annulation demandée.');
+        setBanner('', '');
       } else {
         setBanner('err', data.message || 'Erreur : ' + res.status);
       }
@@ -605,7 +605,12 @@
         if (state.last_build_status === 'success') {
           setBanner('ok', 'Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
-          setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
+          // Si "Build annulé", le message apparaît déjà dans sci-build-error-wrap.
+          if (state.last_build_error !== 'Build annulé') {
+            setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
+          } else {
+            setBanner('', '');
+          }
         }
       }
     } catch (e) { /* ponctuel, on retente */ }
