@@ -702,7 +702,34 @@
       }
     }
 
-    editBtn.addEventListener('click', () => setMetaEditing(row, true));
+    editBtn.addEventListener('click', () => {
+      // Avant d'ouvrir l'edition de la teinte, on aligne les radios sur la
+      // valeur courante (input.value contient l'hex sans #) : preset si elle
+      // est dans la palette, sinon "custom" (arc-en-ciel) + on affiche le
+      // color picker pre-rempli. Sans ce sync, les radios restent figes sur
+      // l'etat initial de la page meme apres un save.
+      if (field === 'tint_color') {
+        const cur = (input.value || '').replace('#', '').toLowerCase();
+        const presetRadios = row.querySelectorAll('input[name^="tint_preset_"]');
+        let matched = false;
+        presetRadios.forEach(r => {
+          if (r.value === cur) { r.checked = true; matched = true; }
+        });
+        const customRadio = row.querySelector('input[value="custom"]');
+        const customRow = row.querySelector('.meta-color-custom');
+        const customPicker = row.querySelector('.meta-color-picker');
+        const customLabel = row.querySelector('.meta-color-label');
+        if (!matched && cur) {
+          if (customRadio) customRadio.checked = true;
+          if (customRow) customRow.style.display = 'flex';
+          if (customPicker) customPicker.value = '#' + cur;
+          if (customLabel) customLabel.textContent = '#' + cur;
+        } else {
+          if (customRow) customRow.style.display = 'none';
+        }
+      }
+      setMetaEditing(row, true);
+    });
     cancelBtn.addEventListener('click', () => setMetaEditing(row, false));
 
     saveBtn.addEventListener('click', async () => {
