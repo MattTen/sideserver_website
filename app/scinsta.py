@@ -629,9 +629,7 @@ def request_cancel(db: Session) -> Path:
     qui docker kill le conteneur builder et ecrit un result failed. On
     passe aussi le status en "failed" cote settings immediatement pour
     debloquer l'UI (le watcher lifespan va aussi le confirmer quand le
-    result file arrivera) — sinon le bouton "Builder maintenant" reste
-    grise jusqu'a 5s (tour du watcher) et un nouveau build clique pendant
-    ce temps renvoie 409 "Un build est deja en cours".
+    result file arrivera).
     """
     Config.IPASTORE_ETC.mkdir(parents=True, exist_ok=True)
     flag = _cancel_flag()
@@ -639,11 +637,6 @@ def request_cancel(db: Session) -> Path:
         json.dumps({"requested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}),
         encoding="utf-8",
     )
-    set_setting(db, "scinsta_last_build_status", "failed")
-    set_setting(db, "scinsta_last_build_error", "Build annulé")
-    set_setting(db, "scinsta_last_build_at",
-                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    db.commit()
     return flag
 
 
