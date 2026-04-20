@@ -248,10 +248,19 @@
   const patchSelect = document.getElementById('sci-patch-select');
   const buildMsgEl = document.getElementById('sci-build-msg');
 
+  const BUILD_MSG_STYLES = {
+    success: { bg: 'rgba(126,179,138,0.12)', border: 'var(--success)', color: '#9dcfa7' },
+    warning: { bg: 'rgba(234,179,8,0.10)',   border: '#ca8a04',        color: '#fbbf24' },
+    error:   { bg: 'var(--danger-soft)',      border: 'var(--danger)',  color: '#e89d91' },
+  };
   function setBuildMsg(text, kind) {
-    if (!text) { buildMsgEl.style.display = 'none'; buildMsgEl.textContent = ''; buildMsgEl.className = 'alert'; return; }
-    buildMsgEl.className = 'alert alert-' + (kind || 'success');
-    buildMsgEl.style.display = 'block';
+    if (!text) {
+      buildMsgEl.style.display = 'none';
+      buildMsgEl.textContent = '';
+      return;
+    }
+    const s = BUILD_MSG_STYLES[kind || 'success'];
+    buildMsgEl.style.cssText = `display:block; margin-top:10px; margin-bottom:0; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
     buildMsgEl.textContent = text;
   }
 
@@ -624,9 +633,9 @@
     } catch (e) { /* ponctuel, on retente */ }
   }
   function startPolling() {
-    if (pollTimer) return;
-    // Reinit du log quand on relance un build : le builder tronque le
-    // fichier au demarrage, on efface l'ancien contenu cote UI aussi.
+    // Force-restart : nettoie un eventuel timer residuel (ex: apres cancel
+    // ou un build precedent qui n'aurait pas stoppe proprement).
+    stopPolling();
     logEl.textContent = '';
     logOffset = 0;
     pollTimer = setInterval(poll, 3000);
