@@ -335,7 +335,7 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   font-family: var(--mono);
 }
 .badge-accent { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.badge-ok { border-color: var(--success); color: var(--success); background: rgba(126, 179, 138, 0.12); }
+.badge-ok { border-color: #4caf74; color: #4caf74; background: rgba(76, 175, 116, 0.12); }
 .badge-danger { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
