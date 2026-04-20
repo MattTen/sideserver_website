@@ -191,7 +191,7 @@
   <div class="field">
     <label for="sci-patch-select">Patch à appliquer</label>
     <select id="sci-patch-select" class="input">
-      <option value="">— aucun —</option>
+      <option value="">— Aucun —</option>
       {% for p in patches %}
       <option value="{{ p.filename }}">{{ p.display_name }} ({{ p.filename }})</option>
       {% endfor %}
