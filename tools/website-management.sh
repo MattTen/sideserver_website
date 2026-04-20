@@ -197,6 +197,24 @@ cmd_update_dev() {
   docker ps --filter "name=$(container_name dev)" --format "  {{.Names}}  {{.Status}}"
 }
 
+# Bypass d'urgence du workflow release-based : pull direct de main + rebuild.
+# A n'utiliser que pour un hotfix critique en attendant qu'une vraie release
+# soit taggee. La version ecrite est marquee "rolling-main-<sha>" pour eviter
+# les faux positifs de prod-check (qui compare a la derniere release GitHub).
+cmd_pull_prod() {
+  local dir; dir="$(env_dir prod)"
+  warn "PULL D'URGENCE : pull direct de 'main' sans passer par une release."
+  warn "A n'utiliser que pour un hotfix ; tag une release des que possible."
+  info "Pull branche 'main' dans $dir"
+  (cd "$dir" \
+    && git_auth fetch origin main \
+    && git reset --hard origin/main \
+    && docker compose up -d --build)
+  write_version_file prod "rolling-main-$(git -C "$dir" rev-parse --short HEAD)"
+  ok "Prod mis à jour (rolling main)"
+  docker ps --filter "name=$(container_name prod)" --format "  {{.Names}}  {{.Status}}"
+}
+
 cmd_update() {
   case "$1" in
     prod) cmd_update_prod ;;
@@ -541,6 +559,7 @@ $(printf "${C_BOLD}CONTENEURS${C_RESET}")
 $(printf "${C_BOLD}MISE À JOUR DU CODE${C_RESET}")
   prod-update         Déploie la dernière RELEASE GitHub (si > version actuelle)
   prod-check          Affiche current / latest / update_available (machine-readable)
+  prod-pull           URGENCE : pull direct de 'main' + rebuild (bypass release)
   dev-update          git pull 'dev' + rebuild (rolling)
   dev-check           Retourne update_available=0 (dev est rolling)
   self-update         Met à jour ce script depuis /opt/sideserver-tools
@@ -594,6 +613,7 @@ menu() {
     printf "     3) Restart                4) Logs\n"
     printf "     5) Update (dernière release)\n"
     printf "     6) Reset utilisateurs\n"
+    printf "     7) Pull d'urgence (main direct, bypass release)\n"
     printf "\n"
     printf "  ${C_BOLD}DEV${C_RESET} (port 8080, rolling branche dev)\n"
     printf "    11) Start                 12) Stop\n"
@@ -618,6 +638,7 @@ menu() {
        4) cmd_logs prod ;;
        5) cmd_update_prod ;;
        6) cmd_reset_users prod ;;
+       7) cmd_pull_prod ;;
       11) cmd_start dev ;;
       12) cmd_stop dev ;;
       13) cmd_restart dev ;;
@@ -649,6 +670,7 @@ case "${1:-}" in
   prod-restart)        cmd_restart prod ;;
   prod-logs)           cmd_logs prod ;;
   prod-update)         cmd_update_prod ;;
+  prod-pull)           cmd_pull_prod ;;
   prod-check)          cmd_check_update prod ;;
   prod-reset-users)    cmd_reset_users prod ;;
   prod-scinsta-build)  cmd_scinsta_build prod ;;
