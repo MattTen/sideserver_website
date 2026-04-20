@@ -165,13 +165,7 @@
       <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn"
               {% if not state.upload_ready %}disabled style="opacity:.4; cursor:not-allowed;"{% endif %}>Modifier</button>
     </div>
-    <div class="patch-desc-view meta-box">
-      {% if state.upload_ready %}
-      <span id="sci-changelog-text">{{ state.changelog }}</span>
-      {% else %}
-      <span id="sci-changelog-text" class="patch-desc-empty">Uploadez une IPA pour définir la note de version.</span>
-      {% endif %}
-    </div>
+    <div class="patch-desc-view meta-box">{% if state.upload_ready %}<span id="sci-changelog-text">{{ state.changelog }}</span>{% else %}<span id="sci-changelog-text" class="patch-desc-empty">Uploadez une IPA pour définir la note de version.</span>{% endif %}</div>
   </div>
   <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
     <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
