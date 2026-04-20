@@ -515,10 +515,16 @@ cmd_scinsta_cancel() {
   rm -f "$flag" "$req_flag"
 
   if docker ps --filter "name=^${cname}\$" --format "{{.Names}}" | grep -q "^${cname}\$"; then
-    info "Kill du conteneur $cname (SIGTERM puis SIGKILL apres 10s)"
-    # SIGTERM d'abord : laisse une chance au finally: Python de nettoyer
-    # le workdir. docker kill attend 10s par defaut avant SIGKILL.
-    docker kill --signal=SIGTERM "$cname" || true
+    info "Stop du conteneur $cname (SIGTERM -t2 puis SIGKILL, bloquant)"
+    # docker stop envoie SIGTERM, attend -t secondes, puis SIGKILL. Bloque
+    # jusqu'a ce que le conteneur soit reellement arrete. On prefere stop
+    # a kill parce que build.py est PID 1 dans le conteneur : sans handler
+    # explicite, le kernel Linux IGNORE les signaux sans handler pour PID 1
+    # (sauf SIGKILL). Un `docker kill --signal=SIGTERM` ne tuait donc rien
+    # et le build continuait — c'est le bug "cancel ne fait rien, le build
+    # precedent continue". 2s de grace suffit : build.py n'a pas de cleanup
+    # critique, et si le container survit SIGKILL prend le relais.
+    docker stop -t 2 "$cname" || true
   else
     warn "Conteneur $cname non trouve (deja termine ?)"
   fi
