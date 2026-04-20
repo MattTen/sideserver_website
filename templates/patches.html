@@ -6,7 +6,7 @@
     <h1>Patch</h1>
     <div class="subtitle">
       {{ patches|length }} script{{ 's' if patches|length != 1 else '' }} découvert{{ 's' if patches|length != 1 else '' }} dans <code>patch/</code>.
-      Ajoute un <code>.py</code> au repo pour qu'il apparaisse automatiquement après un pull.
+      Ajoutez un <code>.py</code> au dépôt pour qu'il apparaisse automatiquement après un pull.
     </div>
   </div>
 </div>
@@ -39,7 +39,7 @@
 {% else %}
 <div class="empty">
   <strong>Aucun patch disponible</strong>
-  Ajoute un fichier <code>.py</code> dans le dossier <code>patch/</code> du repo GitHub, puis pull.
+  Ajoutez un fichier <code>.py</code> dans le dossier <code>patch/</code> du dépôt GitHub, puis effectuez un pull.
   Le script doit respecter la signature <code>patch.py -s /chemin/vers/app.ipa</code>.
 </div>
 {% endif %}
