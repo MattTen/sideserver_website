@@ -50,6 +50,90 @@
   </div>
 </div>
 
+<div class="card mb-4" id="sci-meta-card">
+  <h2>Métadonnées</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    {% if state.app_exists %}
+    Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.
+    {% else %}
+    Champs pré-remplis à la création de l'app Instagram au prochain build. Tous obligatoires.
+    {% endif %}
+  </p>
+  {% set meta_fields = [
+    ('name', 'Nom', 'input'),
+    ('developer_name', 'Développeur', 'input'),
+    ('category', 'Catégorie', 'select'),
+    ('subtitle', 'Sous-titre', 'input'),
+    ('description', 'Description', 'textarea'),
+    ('tint_color', 'Teinte', 'color'),
+  ] %}
+  {% for key, label, kind in meta_fields %}
+  <div class="meta-row" data-field="{{ key }}" style="padding:10px 0; border-top:1px solid var(--border);">
+    <div class="meta-view" style="display:flex; align-items:flex-start; gap:12px;">
+      <div style="flex:1; min-width:0;">
+        <div class="v-meta" style="font-weight:500; margin-bottom:2px;">{{ label }}</div>
+        {% if kind == 'color' %}
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span class="color-swatch meta-swatch" style="background:#{{ state.meta[key] or 'cccccc' }};"></span>
+          <code class="meta-value mono-sm">{% if state.meta[key] %}#{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</code>
+        </div>
+        {% else %}
+        <div class="meta-value" style="white-space:pre-wrap; word-break:break-word;">{% if state.meta[key] %}{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</div>
+        {% endif %}
+      </div>
+      <button type="button" class="btn btn-sm btn-ghost meta-edit-btn">Modifier</button>
+    </div>
+    <div class="meta-edit" style="display:none; gap:8px; align-items:flex-start; flex-direction:column;">
+      <label class="v-meta" style="display:block;">{{ label }}</label>
+      {% if kind == 'select' %}
+      <select class="input meta-input" style="width:100%;">
+        {% for c in categories %}
+        <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      {% elif kind == 'textarea' %}
+      <textarea class="textarea meta-input" rows="4" style="width:100%;">{{ state.meta[key] }}</textarea>
+      {% elif kind == 'color' %}
+      <div style="display:flex; align-items:center; gap:10px;">
+        <input type="color" class="meta-input" value="#{{ state.meta[key] or 'cccccc' }}" style="width:44px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
+        <span class="text-muted mono-sm meta-color-label">#{{ state.meta[key] or 'cccccc' }}</span>
+      </div>
+      {% else %}
+      <input type="text" class="input meta-input" value="{{ state.meta[key] }}" style="width:100%;" required>
+      {% endif %}
+      <div style="display:flex; gap:6px;">
+        <button type="button" class="btn btn-sm btn-primary meta-save-btn">Enregistrer</button>
+        <button type="button" class="btn btn-sm btn-ghost meta-cancel-btn">Annuler</button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mb-4" id="sci-changelog-card">
+  <h2>Note de version</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    Appliquée à la prochaine version Instagram intégrée. Laisse vide pour revenir au défaut.
+  </p>
+  <div id="sci-changelog-view" style="display:flex; align-items:flex-start; gap:12px;">
+    <div style="flex:1; min-width:0; white-space:pre-wrap; word-break:break-word;">
+      <span id="sci-changelog-text">{{ state.changelog }}</span>
+      {% if not state.changelog_is_override %}
+      <span class="badge" style="margin-left:8px; font-size:11px;" id="sci-changelog-default-badge">défaut</span>
+      {% endif %}
+    </div>
+    <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn">Modifier</button>
+  </div>
+  <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
+    <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button type="button" class="btn btn-sm btn-primary" id="sci-changelog-save">Enregistrer</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-cancel">Annuler</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-reset" title="Revenir au défaut auto">Réinitialiser</button>
+    </div>
+  </div>
+</div>
+
 <div class="card mb-4">
   <h2>1. Upload de l'IPA Instagram</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
@@ -257,6 +341,10 @@
     } else {
       buildErrWrap.style.display = 'none';
     }
+
+    // Les sections Metadonnees + Note de version peuvent changer entre deux
+    // polls (ex: build termine -> App creee, ou settings consommes). Les
+    // helpers dediees sont appeles au besoin via renderAllMeta/renderChangelog.
   }
 
   // ── Source URL editable ──
@@ -493,6 +581,11 @@
         // Un dernier tick de log pour choper les dernieres lignes ecrites
         // apres que le status soit passe a success/failed.
         await pollLog();
+        // Apres build : l'App peut venir d'etre creee (App.row prend le relais
+        // des settings pending) et le changelog peut avoir change — on
+        // refresh les deux sections pour refleter la nouvelle realite.
+        renderAllMeta(state.meta || {});
+        renderChangelog(state);
         if (state.last_build_status === 'success') {
           setBanner('ok', 'Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
@@ -516,9 +609,169 @@
     if (logTimer) { clearInterval(logTimer); logTimer = null; }
   }
 
+  // ── Metadonnees editables (Nom, Developpeur, Categorie, Sous-titre, Description, Teinte)
+  // Chaque <div class="meta-row"> contient un .meta-view (read-only) et un
+  // .meta-edit (formulaire). On toggle display + on ecoute save/cancel sur
+  // chaque ligne. Le re-render apres save vient du state renvoye par le POST.
+  function setMetaEditing(row, editing) {
+    row.querySelector('.meta-view').style.display = editing ? 'none' : 'flex';
+    const edit = row.querySelector('.meta-edit');
+    edit.style.display = editing ? 'flex' : 'none';
+    if (editing) {
+      const inp = row.querySelector('.meta-input');
+      if (inp && inp.focus) inp.focus();
+    }
+  }
+
+  function renderMetaField(row, value) {
+    const field = row.dataset.field;
+    const valueEl = row.querySelector('.meta-value');
+    if (field === 'tint_color') {
+      const hex = (value || '').toLowerCase();
+      const swatch = row.querySelector('.meta-swatch');
+      if (swatch) swatch.style.background = '#' + (hex || 'cccccc');
+      valueEl.innerHTML = hex
+        ? '#' + hex
+        : '<span class="text-dim">(vide)</span>';
+    } else {
+      valueEl.textContent = value || '';
+      if (!value) valueEl.innerHTML = '<span class="text-dim">(vide)</span>';
+    }
+  }
+
+  function renderAllMeta(meta) {
+    document.querySelectorAll('.meta-row').forEach(row => {
+      renderMetaField(row, meta[row.dataset.field]);
+    });
+  }
+
+  document.querySelectorAll('.meta-row').forEach(row => {
+    const editBtn = row.querySelector('.meta-edit-btn');
+    const saveBtn = row.querySelector('.meta-save-btn');
+    const cancelBtn = row.querySelector('.meta-cancel-btn');
+    const input = row.querySelector('.meta-input');
+    const field = row.dataset.field;
+
+    // Preview temps reel du code hex pendant l'edition de la teinte.
+    if (field === 'tint_color' && input) {
+      const label = row.querySelector('.meta-color-label');
+      input.addEventListener('input', () => {
+        if (label) label.textContent = input.value.toLowerCase();
+      });
+    }
+
+    editBtn.addEventListener('click', () => setMetaEditing(row, true));
+    cancelBtn.addEventListener('click', () => setMetaEditing(row, false));
+
+    saveBtn.addEventListener('click', async () => {
+      let value = input.value;
+      if (field === 'tint_color') value = value.replace('#', '');
+      value = (value || '').trim();
+      if (!value) {
+        setBanner('err', 'Valeur requise.');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append('value', value);
+        const res = await fetch('/scinsta/metadata/' + field, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setBanner('err', 'Erreur : ' + (data.detail || res.status));
+        } else {
+          const state = await res.json();
+          render(state);
+          renderAllMeta(state.meta || {});
+          setMetaEditing(row, false);
+          setBanner('ok', 'Métadonnée enregistrée.');
+        }
+      } catch (e) {
+        setBanner('err', 'Erreur réseau : ' + e.message);
+      }
+      saveBtn.disabled = false;
+    });
+  });
+
+  // ── Note de version (changelog override) ──
+  const cgView = document.getElementById('sci-changelog-view');
+  const cgEdit = document.getElementById('sci-changelog-edit');
+  const cgText = document.getElementById('sci-changelog-text');
+  const cgInput = document.getElementById('sci-changelog-input');
+  const cgEditBtn = document.getElementById('sci-changelog-edit-btn');
+  const cgSaveBtn = document.getElementById('sci-changelog-save');
+  const cgCancelBtn = document.getElementById('sci-changelog-cancel');
+  const cgResetBtn = document.getElementById('sci-changelog-reset');
+
+  function setChangelogEditing(editing) {
+    cgView.style.display = editing ? 'none' : 'flex';
+    cgEdit.style.display = editing ? 'flex' : 'none';
+    if (editing) {
+      cgInput.value = cgText.textContent || '';
+      cgInput.focus();
+    }
+  }
+
+  function renderChangelog(state) {
+    cgText.textContent = state.changelog || '';
+    // Badge "défaut" : affiche tant que l'admin n'a pas override.
+    const badge = document.getElementById('sci-changelog-default-badge');
+    if (state.changelog_is_override) {
+      if (badge) badge.remove();
+    } else if (!badge) {
+      // Re-crée le badge si passage override -> defaut suite a un reset.
+      const span = document.createElement('span');
+      span.id = 'sci-changelog-default-badge';
+      span.className = 'badge';
+      span.style.marginLeft = '8px';
+      span.style.fontSize = '11px';
+      span.textContent = 'défaut';
+      cgText.after(span);
+    }
+  }
+
+  async function postChangelog(value) {
+    const fd = new FormData();
+    fd.append('value', value);
+    const res = await fetch('/scinsta/changelog', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setBanner('err', 'Erreur : ' + (data.detail || res.status));
+      return null;
+    }
+    return await res.json();
+  }
+
+  cgEditBtn.addEventListener('click', () => setChangelogEditing(true));
+  cgCancelBtn.addEventListener('click', () => setChangelogEditing(false));
+  cgSaveBtn.addEventListener('click', async () => {
+    cgSaveBtn.disabled = true;
+    const state = await postChangelog(cgInput.value);
+    if (state) {
+      render(state);
+      renderChangelog(state);
+      setChangelogEditing(false);
+      setBanner('ok', 'Note de version enregistrée.');
+    }
+    cgSaveBtn.disabled = false;
+  });
+  cgResetBtn.addEventListener('click', async () => {
+    cgResetBtn.disabled = true;
+    // Chaine vide -> le backend efface l'override et retombe sur le template.
+    const state = await postChangelog('');
+    if (state) {
+      render(state);
+      renderChangelog(state);
+      setChangelogEditing(false);
+      setBanner('', 'Note de version réinitialisée.');
+    }
+    cgResetBtn.disabled = false;
+  });
+
   // Etat initial (serialise par Jinja pour eviter un aller-retour au load)
   const initial = {{ state|tojson }};
   render(initial);
+  renderAllMeta(initial.meta || {});
   if (initial.is_running) {
     startPolling();
   } else {

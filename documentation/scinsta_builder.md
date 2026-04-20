@@ -17,6 +17,24 @@ Toute l'info et les interactions liées à la **version** :
 - Dernier check : timestamp + éventuelle erreur.
 - **Source : `<url>` [Modifier]** — l'URL interrogée est éditable. Utile si decrypt.day change de slug, tombe, ou si l'admin veut pointer vers un miroir. Clic sur `Modifier` → input + boutons Enregistrer/Annuler.
 
+### Carte "Métadonnées"
+Entre la carte decrypt.day et l'upload. Affiche 6 champs de l'App Instagram (dans l'ordre : **Nom**, **Développeur**, **Catégorie**, **Sous-titre**, **Description**, **Teinte**), chacun en lecture seule avec un bouton `Modifier` à droite (même pattern UI que la source URL et les descriptions de patchs).
+
+Deux régimes :
+- **App existe en BDD** (`state.app_exists == true`) — les valeurs affichées viennent de la ligne `apps` directement. Clic sur `Modifier` + `Enregistrer` → `POST /scinsta/metadata/{field}` → update de la colonne `App.<field>`. Équivalent strict à éditer la fiche dans l'onglet Applications.
+- **App n'existe pas encore** — les valeurs viennent des settings `scinsta_meta_*` (toutes vides par défaut, sauf si l'admin a commencé à saisir). Une bannière "Champs pré-remplis à la création de l'app Instagram au prochain build. Tous obligatoires." rappelle que les valeurs seront consommées. À la création (`_ensure_instagram_app` au premier build réussi), chaque setting non vide est injecté dans la ligne `App`, les settings sont ensuite vidés (la ligne devient source de vérité).
+
+Validation commune (côté route et UI) : aucun champ ne peut être vide. `Catégorie` accepte les catégories du store + `aucune` (prepend) ; si l'admin n'a rien choisi, `aucune` est le défaut effectif.
+
+Hex `tint_color` normalisé côté serveur (3 ou 6 caractères, `#` optionnel, lowercase).
+
+### Carte "Note de version"
+Juste après Métadonnées. Affiche la note qui sera utilisée au prochain build, avec bouton `Modifier` + `Réinitialiser`.
+
+- Par défaut (aucun override) : preview `Instagram <version> + SCInsta` où `<version>` est la version connue la plus récente (`ig_latest` decrypt.day en priorité, sinon `ig_deployed`). Badge `défaut` visible pour indiquer que le texte sera régénéré à chaque build.
+- Après `Modifier` + `Enregistrer` : `POST /scinsta/changelog` écrit `scinsta_meta_changelog`. L'override est **persistant** — utilisé pour tous les builds suivants jusqu'à ce que l'admin clique `Réinitialiser` (qui vide le setting).
+- Intégré dans `integrate_build_result` : si `scinsta_meta_changelog` est non vide, il remplit `Version.changelog` verbatim ; sinon, auto-génération `Instagram <v> + SCInsta`.
+
 ### Carte "1. Upload de l'IPA Instagram"
 Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Une alerte "IPA prête : V{version}" s'affiche quand un upload est en attente (la version est lue depuis `CFBundleShortVersionString` de l'Info.plist), avec un bouton `Supprimer`.
 
@@ -130,6 +148,8 @@ Validation côté route : schéma `http://` ou `https://` obligatoire, rien d'au
 | POST    | `/scinsta/clear-upload` | Supprime l'upload en attente                               |
 | POST    | `/scinsta/build`      | Écrit le flag-file de build (form field `patch` optionnel)   |
 | POST    | `/scinsta/cancel`     | Écrit le flag-file de cancel (kill le conteneur builder)     |
+| POST    | `/scinsta/metadata/{field}` | Met à jour un champ metadata (`name`, `developer_name`, `subtitle`, `description`, `tint_color`, `category`) — App row si existe, sinon setting pending |
+| POST    | `/scinsta/changelog`  | Override persistant de la Note de version (setting `scinsta_meta_changelog`, chaîne vide = reset) |
 
 Toutes les routes (sauf l'éventuelle visite) exigent auth admin via `Depends(require_user)`.
 
@@ -151,8 +171,17 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 | `scinsta_last_build_ipa`           | Filename du dernier IPA produit                                 |
 | `scinsta_last_build_patch`         | Filename du patch appliqué                                      |
 | `scinsta_last_build_scinsta_sha`   | Short SHA du commit SCInsta cloné                               |
+| `scinsta_meta_name`                | Metadata pending : nom                                          |
+| `scinsta_meta_developer_name`      | Metadata pending : développeur                                  |
+| `scinsta_meta_subtitle`            | Metadata pending : sous-titre                                   |
+| `scinsta_meta_description`         | Metadata pending : description                                  |
+| `scinsta_meta_tint_color`          | Metadata pending : teinte hex (sans `#`)                        |
+| `scinsta_meta_category`            | Metadata pending : catégorie (`aucune` par défaut)              |
+| `scinsta_meta_changelog`           | Override persistant de la Note de version (vide = auto)         |
 
 > `scinsta_ig_version_deployed` n'existe **pas** — la version déployée est toujours lue depuis la table `versions` directement (source de vérité unique : la BDD).
+>
+> Les clés `scinsta_meta_*` (sauf `scinsta_meta_changelog`) sont **éphémères** : consommées (vidées) par `_ensure_instagram_app` à la création de la ligne `App`. Après la création, toute édition UI d'une metadata va directement sur `App.<field>` (la ligne devient source de vérité).
 
 ---
 
@@ -160,11 +189,11 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 
 `integrate_build_result(db, result)` dans `app/scinsta.py` :
 
-1. Crée l'App `com.burbn.instagram` **si absente uniquement** (tint `E1306C`, catégorie `social`, icône extraite de l'Info.plist de l'IPA). Si l'App existe déjà, ses métadonnées (`developer_name`, `description`, `subtitle`, icône…) sont **figées** et ne sont **pas** ré-écrites à chaque build — l'admin reste maître du contenu saisi dans l'onglet Applications.
+1. Crée l'App `com.burbn.instagram` **si absente uniquement**, en lisant les settings pending `scinsta_meta_*` (saisis via l'onglet SCInsta) ; à défaut retombe sur les valeurs par défaut embarquées (tint `E1306C`, catégorie `aucune`, description fixe, etc.). L'icône est extraite de l'Info.plist de l'IPA. Si l'App existe déjà, ses métadonnées (`name`, `developer_name`, `description`, `subtitle`, `category`, `tint_color`, icône…) sont **figées** et ne sont **pas** ré-écrites à chaque build — l'admin reste maître du contenu via l'onglet Applications ou la section Métadonnées de SCInsta.
 2. Insère (ou met à jour en place si déjà présente) la `Version` avec :
    - `version = <IG version>` (ex: `425.0.0`) — lu depuis `CFBundleShortVersionString` de l'Info.plist.
    - `build_version = <CFBundleVersion>` (ex: `933996394`) — lu depuis l'Info.plist de l'IPA final. **Doit** correspondre au `CFBundleVersion` réel ; sinon SideStore refuse l'install avec un mismatch "version trouvée dans l'IPA ≠ version du store". Le short SHA SCInsta n'est **plus** utilisé comme `build_version` (cassait l'install), il reste tracé dans le setting `scinsta_last_build_scinsta_sha`.
-   - `changelog = "Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
+   - `changelog` = override `scinsta_meta_changelog` si non vide, sinon auto `"Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
    - **Rebuilds du même CFBundleVersion** : la ligne Version existante est remplacée en place (nouveau `ipa_filename`, `size`, `sha256`, `uploaded_at` bumpé) et l'ancien IPA est supprimé du disque.
    - **Purge des lignes obsolètes** : toutes les autres Versions pour la même App + `version` IG mais avec un `build_version` différent (ex : lignes historiques créées avec short SHA, ou upload vanille pré-SCInsta) sont supprimées, IPAs inclus — un seul IPA par `(app, version, CFBundleVersion)` reste en BDD.
 3. **Aucun article news automatique** — l'admin rédige manuellement depuis l'onglet News s'il veut annoncer le build (et déclencher la notif push via `notify=1`).
