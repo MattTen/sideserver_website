@@ -34,7 +34,7 @@ flag systemd   →  website-management <env>-scinsta-build
 
 Durée typique : **5-10 min** avec l'image cachée (premier build ~25 min à cause du download du SDK via git-lfs).
 
-Container nommé `scinsta-builder-<env>` (obligatoire pour que `ipastore-scinsta-cancel@<env>` puisse faire `docker kill`).
+Container nommé `scinsta-builder-<env>` (obligatoire pour que `ipastore-scinsta-cancel@<env>` puisse faire `docker stop -t 2`).
 
 ---
 
@@ -261,7 +261,7 @@ Tous les échanges hôte ↔ conteneur passent par `/etc/ipastore/` (volume mont
 | `scinsta-build-progress-<env>` | builder → web | Écrasé à chaque étape par `log()`, supprimé en fin |
 | `scinsta-build-result-<env>` | builder → web | Écrit en fin, consommé par `_scinsta_result_loop` (lifespan web) |
 | `scinsta-build-log-<env>.txt` | builder → web | Tee stdout/stderr, lu incrémentalement par `GET /scinsta/logs?offset=N` |
-| `scinsta-build-cancel-<env>` | web → systemd | Créé par `POST /scinsta/cancel`, déclenche `docker kill scinsta-builder-<env>` |
+| `scinsta-build-cancel-<env>` | web → systemd | Créé par `POST /scinsta/cancel`, déclenche `docker stop -t 2 scinsta-builder-<env>` |
 | `scinsta-upload-<env>.ipa` | web → builder | IPA Instagram uploadée manuellement, supprimée par le web après intégration |
 
 ### Gotcha systemd : pas d'`ExecStartPre=/bin/rm`
@@ -361,4 +361,4 @@ SCInsta lui-même n'est **pas** pinné : clone `main --depth 1` à chaque build 
 | [tools/scinsta-builder/README.md](../tools/scinsta-builder/README.md) | Pipeline + I/O (résumé court) |
 | [deploy/systemd/ipastore-scinsta-build@.service](../deploy/systemd/ipastore-scinsta-build@.service) | Runner systemd (timeout 30 min) |
 | [deploy/systemd/ipastore-scinsta-build@.path](../deploy/systemd/ipastore-scinsta-build@.path) | Watcher du flag |
-| [deploy/systemd/ipastore-scinsta-cancel@.service](../deploy/systemd/ipastore-scinsta-cancel@.service) | Cancel via `docker kill` |
+| [deploy/systemd/ipastore-scinsta-cancel@.service](../deploy/systemd/ipastore-scinsta-cancel@.service) | Cancel via `docker stop -t 2` (SIGTERM → 2s → SIGKILL) |

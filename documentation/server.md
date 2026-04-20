@@ -420,7 +420,7 @@ bind-address = 0.0.0.0
 | `deploy/systemd/ipastore-scinsta-build@.path` | Watcher du flag-file de build SCInsta           |
 | `deploy/systemd/ipastore-scinsta-build@.service` | Exécuteur : lance `website-management {env}-scinsta-build` |
 | `deploy/systemd/ipastore-scinsta-cancel@.path` | Watcher du flag-file de cancel SCInsta         |
-| `deploy/systemd/ipastore-scinsta-cancel@.service` | Exécuteur : `docker kill scinsta-builder-{env}` + result failed |
+| `deploy/systemd/ipastore-scinsta-cancel@.service` | Exécuteur : `docker stop -t 2 scinsta-builder-{env}` + result failed |
 
 ---
 
@@ -480,7 +480,7 @@ Commandes `website-management` associées (pilotées par la path unit `ipastore-
 |---|---|
 | `prod-scinsta-build`  | Build + run du conteneur builder pour prod |
 | `dev-scinsta-build`   | Idem pour dev |
-| `prod-scinsta-cancel` | `docker kill scinsta-builder-prod` + écrit un result failed (pilotée par `ipastore-scinsta-cancel@prod.path`) |
+| `prod-scinsta-cancel` | `docker stop -t 2 scinsta-builder-prod` + écrit un result failed (pilotée par `ipastore-scinsta-cancel@prod.path`) |
 | `dev-scinsta-cancel`  | Idem pour dev |
 
 **Doc complète** : [scinsta_builder.md](scinsta_builder.md) — flux utilisateur, pipeline systemd/Docker, bypass Cloudflare, URL source modifiable, routes API, clés settings, intégration BDD.
