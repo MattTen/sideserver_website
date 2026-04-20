@@ -25,6 +25,13 @@ Cles settings utilisees (clefs/valeurs, aucune migration BDD) :
 - `scinsta_last_build_ipa`       — filename du dernier IPA produit
 - `scinsta_last_build_patch`     — filename du patch applique (ou vide)
 - `scinsta_last_build_scinsta_sha` — short SHA du commit SCInsta clone
+- `scinsta_meta_name`             — metadonnee pending (appliquee a la creation App)
+- `scinsta_meta_developer_name`
+- `scinsta_meta_subtitle`
+- `scinsta_meta_description`
+- `scinsta_meta_tint_color`
+- `scinsta_meta_category`
+- `scinsta_meta_changelog`        — override de la Note de version (sinon auto)
 """
 from __future__ import annotations
 
@@ -48,6 +55,24 @@ logger = logging.getLogger(__name__)
 
 DECRYPT_URL_DEFAULT = "https://decrypt.day/app/id389801252"
 INSTAGRAM_BUNDLE_ID = "com.burbn.instagram"
+
+# Valeurs par defaut appliquees a la creation de l'App Instagram si aucune
+# metadonnee n'a ete saisie par l'admin via l'UI SCInsta. Une fois l'App
+# creee, ces defauts ne servent plus (la ligne App devient source de verite).
+_META_FIELDS = ("name", "developer_name", "subtitle", "description",
+                "tint_color", "category")
+_META_DEFAULTS = {
+    "name": "Instagram",
+    "developer_name": "Instagram, Inc. (SCInsta)",
+    "subtitle": "Instagram patché via SCInsta",
+    "description": (
+        "Version d'Instagram injectée avec SCInsta, un tweak iOS qui "
+        "débride l'app (pas de pubs, téléchargement de médias, modes "
+        "cachés…). Build généré depuis l'onglet SCInsta du serveur."
+    ),
+    "tint_color": "E1306C",
+    "category": "aucune",
+}
 
 
 def get_decrypt_url(db: Session) -> str:
@@ -198,6 +223,11 @@ class ScinstaState:
     upload_ready: bool = False                # une IPA est deja en attente
     upload_version: Optional[str] = None      # version lue dans l'Info.plist de l'upload
     ig_update_available: bool = field(default=False)
+    # Metadonnees editables (lues depuis App si existante, sinon settings).
+    app_exists: bool = False
+    meta: dict = field(default_factory=dict)
+    changelog: str = ""
+    changelog_is_override: bool = False
 
     @property
     def is_running(self) -> bool:
@@ -221,7 +251,91 @@ class ScinstaState:
             "upload_ready": self.upload_ready,
             "upload_version": self.upload_version,
             "ig_update_available": self.ig_update_available,
+            "app_exists": self.app_exists,
+            "meta": self.meta,
+            "changelog": self.changelog,
+            "changelog_is_override": self.changelog_is_override,
         }
+
+
+# ── Metadonnees editables ────────────────────────────────────────────────────
+
+def _get_instagram_app(db: Session):
+    """Retourne l'App Instagram en BDD (ou None si pas encore creee)."""
+    from .models import App
+    return db.query(App).filter(App.bundle_id == INSTAGRAM_BUNDLE_ID).first()
+
+
+def read_metadata(db: Session) -> dict:
+    """Retourne les metadonnees affichees dans l'UI SCInsta.
+
+    Source de verite :
+      - App existe -> valeurs de la ligne App (editions appliquees directement).
+      - App absente -> valeurs pending dans settings `scinsta_meta_*`.
+        Laissees vides par defaut : l'admin doit les completer avant le 1er
+        build (sauf `category` qui tombe a "aucune" par defaut, matchant ce
+        qui est injecte dans l'App a sa creation).
+    """
+    app = _get_instagram_app(db)
+    if app is not None:
+        return {
+            "name": app.name or "",
+            "developer_name": app.developer_name or "",
+            "subtitle": app.subtitle or "",
+            "description": app.description or "",
+            "tint_color": (app.tint_color or "").lower(),
+            "category": app.category or "",
+        }
+    return {
+        f: get_setting(db, f"scinsta_meta_{f}", "")
+        for f in _META_FIELDS
+    }
+
+
+def save_metadata_field(db: Session, field_name: str, value: str) -> None:
+    """Met a jour un champ metadata.
+
+    - App existe : update direct de la colonne correspondante.
+    - App absente : stocke la valeur pending dans settings. Sera consommee a
+      la creation de l'App au prochain build.
+    """
+    if field_name not in _META_FIELDS:
+        raise ValueError(f"champ metadata inconnu : {field_name}")
+    app = _get_instagram_app(db)
+    if app is not None:
+        setattr(app, field_name, value)
+        db.commit()
+    else:
+        set_setting(db, f"scinsta_meta_{field_name}", value)
+        db.commit()
+
+
+def _build_default_changelog(ig_version: Optional[str]) -> str:
+    """Texte par defaut de la Note de version : 'Instagram <v> + SCInsta'."""
+    return f"Instagram {ig_version or 'x.x.x'} + SCInsta"
+
+
+def read_changelog(db: Session, ig_version: Optional[str]) -> tuple[str, bool]:
+    """Retourne (texte_affiche, is_override).
+
+    - Override setting non vide -> (override, True).
+    - Sinon -> (template par defaut avec version connue, False).
+    """
+    override = get_setting(db, "scinsta_meta_changelog", "")
+    if override:
+        return override, True
+    return _build_default_changelog(ig_version), False
+
+
+def save_changelog(db: Session, value: str) -> None:
+    """Persiste la Note de version dans settings.
+
+    Une chaine vide -> on supprime l'override (retour au template par defaut).
+    Sera consommee au prochain build par integrate_build_result (sinon,
+    l'auto-generation 'Instagram <v> + SCInsta' prend le relais).
+    """
+    set_setting(db, "scinsta_meta_changelog", value.strip())
+    db.commit()
 
 
 def _read_upload_version() -> Optional[str]:
@@ -302,6 +416,15 @@ def get_state(db: Session) -> ScinstaState:
         except (OSError, json.JSONDecodeError):
             pass
     state.ig_update_available = version_gt(state.ig_latest or "", state.ig_deployed or "")
+
+    # Metadonnees + Note de version pour l'onglet SCInsta. app_exists pilote
+    # l'UI (required vs. facultatif, hint "l'app n'existe pas encore").
+    state.app_exists = _get_instagram_app(db) is not None
+    state.meta = read_metadata(db)
+    # Pour la preview du changelog, on prend la derniere version connue
+    # (ig_latest decrypt.day en priorite, sinon ig_deployed).
+    preview_v = state.ig_latest or state.ig_deployed
+    state.changelog, state.changelog_is_override = read_changelog(db, preview_v)
     return state
 
 
@@ -551,7 +674,19 @@ def consume_build_result() -> Optional[dict]:
 # -----------------------------------------------------------------------------
 
 def _ensure_instagram_app(db: Session, ipa_path: Path):
-    """Retourne l'App Instagram en BDD, la creant depuis l'IPA si absente."""
+    """Retourne l'App Instagram en BDD, la creant depuis l'IPA si absente.
+
+    Metadonnees appliquees a la creation :
+      1. Valeurs pending saisies par l'admin via l'UI SCInsta (settings
+         `scinsta_meta_*`), si non vides.
+      2. Sinon, defauts embarques (_META_DEFAULTS).
+      3. Le nom tombe par defaut sur celui lu dans l'Info.plist de l'IPA si
+         l'admin ne l'a pas override.
+
+    Une fois l'App creee, les settings sont consommes (effaces) — la ligne
+    App devient source de verite et les futures editions UI la modifient
+    directement.
+    """
     from .models import App
     from .ipa import parse_ipa
     import secrets as _secrets
@@ -561,7 +696,6 @@ def _ensure_instagram_app(db: Session, ipa_path: Path):
         return app
 
     info = parse_ipa(ipa_path)
-    name = info.name if info and info.bundle_id == INSTAGRAM_BUNDLE_ID else "Instagram"
     icon_path: Optional[str] = None
     if info and info.icon_bytes:
         # Meme scheme que les uploads d'icone (token aleatoire pour invalider
@@ -571,24 +705,34 @@ def _ensure_instagram_app(db: Session, ipa_path: Path):
         (Config.ICONS_DIR / fname).write_bytes(info.icon_bytes)
         icon_path = fname
 
+    # Pour chaque champ : pending setting > nom extrait de l'IPA (name only) > defaut.
+    pending = {f: get_setting(db, f"scinsta_meta_{f}", "") for f in _META_FIELDS}
+    ipa_name = info.name if info and info.bundle_id == INSTAGRAM_BUNDLE_ID else ""
+    values = {
+        "name": pending["name"] or ipa_name or _META_DEFAULTS["name"],
+        "developer_name": pending["developer_name"] or _META_DEFAULTS["developer_name"],
+        "subtitle": pending["subtitle"] or _META_DEFAULTS["subtitle"],
+        "description": pending["description"] or _META_DEFAULTS["description"],
+        "tint_color": pending["tint_color"] or _META_DEFAULTS["tint_color"],
+        "category": pending["category"] or _META_DEFAULTS["category"],
+    }
+
     app = App(
         bundle_id=INSTAGRAM_BUNDLE_ID,
-        name=name,
-        developer_name="Instagram, Inc. (SCInsta)",
-        subtitle="Instagram patché via SCInsta",
-        description=(
-            "Version d'Instagram injectée avec SCInsta, un tweak iOS qui "
-            "débride l'app (pas de pubs, téléchargement de médias, modes "
-            "cachés…). Build généré depuis l'onglet SCInsta du serveur."
-        ),
-        tint_color="E1306C",
-        category="social",
         icon_path=icon_path,
         screenshot_urls="[]",
         featured=1,
+        **values,
     )
     db.add(app)
     db.flush()
+
+    # Nettoyage des settings pending : la ligne App est desormais source de
+    # verite, les settings deviendraient stale si on les laissait.
+    for f in _META_FIELDS:
+        if pending[f]:
+            set_setting(db, f"scinsta_meta_{f}", "")
+
     return app
 
 
@@ -646,6 +790,11 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
     size = result.get("size") or ipa_path.stat().st_size
     sha256 = result.get("sha256") or sha256_of_file(ipa_path)
 
+    # Note de version : override admin (setting `scinsta_meta_changelog`)
+    # en priorite, sinon auto-generation "Instagram <v> + SCInsta".
+    override_changelog = get_setting(db, "scinsta_meta_changelog", "")
+    changelog_text = override_changelog or f"Instagram {ig_v} + SCInsta"
+
     existing = db.query(Version).filter(
         Version.app_id == app.id,
         Version.version == ig_v,
@@ -661,7 +810,7 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
             size=size,
             sha256=sha256,
             min_os_version="15.0",
-            changelog=f"Instagram {ig_v} + SCInsta",
+            changelog=changelog_text,
         )
         db.add(ver)
     else:
@@ -672,7 +821,7 @@ def integrate_build_result(db: Session, result: dict) -> Optional[str]:
         existing.ipa_filename = filename
         existing.size = size
         existing.sha256 = sha256
-        existing.changelog = f"Instagram {ig_v} + SCInsta"
+        existing.changelog = changelog_text
         existing.uploaded_at = dt.datetime.now(dt.UTC).replace(tzinfo=None)
         if old_filename and old_filename != filename:
             (Config.IPAS_DIR / old_filename).unlink(missing_ok=True)
