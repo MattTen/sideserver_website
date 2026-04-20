@@ -57,7 +57,7 @@
             <div class="v-meta">Min iOS : <code>{{ v.min_os_version }}</code></div>
             <div class="v-meta">Fichier : <code>{{ v.ipa_filename }}</code></div>
             <form method="post" action="/apps/{{ app.bundle_id }}/versions/{{ v.id }}/changelog" class="mt-4">
-              <label class="v-meta" style="display:block; margin-bottom:4px;">Changelog / description</label>
+              <label class="v-meta" style="display:block; margin-bottom:4px;">Note de version</label>
               <textarea class="textarea" name="changelog" rows="3">{{ v.changelog }}</textarea>
               <button type="submit" class="btn btn-sm mt-4">Enregistrer</button>
             </form>

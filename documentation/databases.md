@@ -63,6 +63,13 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `scinsta_last_build_ipa` | Nom de fichier de l'IPA produit par le dernier build réussi | `""` |
 | `scinsta_last_build_patch` | Nom du patch appliqué au dernier build (vide si aucun) | `""` |
 | `scinsta_last_build_scinsta_sha` | Short SHA du commit SCInsta cloné pour le dernier build | `""` |
+| `scinsta_meta_name` | Nom pending pour l'App Instagram (consommé à la création depuis l'onglet SCInsta) | `""` |
+| `scinsta_meta_developer_name` | Développeur pending | `""` |
+| `scinsta_meta_subtitle` | Sous-titre pending | `""` |
+| `scinsta_meta_description` | Description pending | `""` |
+| `scinsta_meta_tint_color` | Teinte hex (sans `#`) pending | `""` |
+| `scinsta_meta_category` | Catégorie pending (`aucune` par défaut à la création) | `""` |
+| `scinsta_meta_changelog` | Override persistant de la Note de version des builds SCInsta. Si vide, auto-génération `Instagram <v> + SCInsta` | `""` |
 
 ---
 

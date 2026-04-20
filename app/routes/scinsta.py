@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from ..auth import require_user
+from ..categories import get_categories
 from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
+from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..scinsta import (
-    clear_build_log, clear_upload, dismiss_last_build_error, get_state,
-    read_build_log, request_build, request_cancel, run_check, set_decrypt_url,
-    upload_instagram_ipa,
+    _META_FIELDS, clear_build_log, clear_upload, dismiss_last_build_error,
+    get_state, read_build_log, request_build, request_cancel, run_check,
+    save_changelog, save_metadata_field, set_decrypt_url, upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -30,6 +33,10 @@ def scinsta_page(
 ):
     state = get_state(db)
     patches = discover_patches(db)
+    # Categories : on prepend "aucune" (choix par defaut quand l'App n'existe
+    # pas encore) + les categories existantes du store. "aucune" est aussi
+    # stocke tel quel dans App.category si l'admin garde le defaut.
+    cats = ["aucune"] + [c for c in get_categories(db) if c.lower() != "aucune"]
     return templates.TemplateResponse(
         request,
         "scinsta.html",
@@ -38,6 +45,9 @@ def scinsta_page(
             "active": "scinsta",
             "state": state.to_dict(),
             "patches": patches,
+            "categories": cats,
+            "tint_colors": TINT_COLORS,
+            "tint_preset_values": _TINT_PRESET_VALUES,
         },
     )
 
@@ -72,6 +82,50 @@ def scinsta_check(user: User = Depends(require_user), db: Session = Depends(get_
     """Interroge decrypt.day pour la derniere version Instagram."""
     state = run_check(db)
     return JSONResponse(state.to_dict())
+
+
+@router.post("/metadata/{field}")
+def scinsta_set_metadata(
+    field: str,
+    value: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Met a jour un champ metadata Instagram (App row ou setting pending).
+
+    Regle UI : aucun champ ne peut etre vide (sauf via l'UI on envoie
+    toujours quelque chose — "aucune" pour category si l'admin n'a rien
+    specifie). On valide ici pour eviter qu'un admin contournant la
+    validation client se retrouve avec une App sans nom ou description.
+    """
+    if field not in _META_FIELDS:
+        raise HTTPException(status_code=404, detail="Champ inconnu")
+    value = value.strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Valeur requise")
+    if field == "tint_color":
+        # Normalisation : hex 3 ou 6 caracteres sans '#'. L'UI envoie deja
+        # sans le '#', mais un admin pourrait coller depuis un picker.
+        v = value.lstrip("#").lower()
+        if not re.fullmatch(r"[0-9a-f]{3}|[0-9a-f]{6}", v):
+            raise HTTPException(status_code=400, detail="Couleur hex invalide")
+        value = v
+    save_metadata_field(db, field, value)
+    return JSONResponse(get_state(db).to_dict())
+
+
+@router.post("/changelog")
+def scinsta_set_changelog(
+    value: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Met a jour la Note de version (override persistant).
+
+    Chaine vide -> reset au template auto "Instagram <v> + SCInsta".
+    """
+    save_changelog(db, value)
+    return JSONResponse(get_state(db).to_dict())
 
 
 @router.post("/source")
@@ -172,5 +226,5 @@ def scinsta_build(
     logger.info("SCInsta build requested: flag=%s patch=%s", flag, patch_filename)
     return JSONResponse({
         "ok": True,
-        "message": "Build lancé. La page se rafraîchit automatiquement.",
+        "message": "Build lancé.",
     })

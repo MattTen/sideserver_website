@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, has_any_user
+from ..config import Config
 from ..db import get_db
 from ..models import App, Version
 from ..templates import templates
@@ -35,7 +36,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         ).all()
     )
 
-    base_url = str(request.base_url).rstrip("/")
+    # Même règle que source.json : IPASTORE_BASE_URL prime pour rester
+    # cohérent avec ce que SideStore voit (utile derrière reverse proxy).
+    base_url = (Config.DEFAULT_BASE_URL or str(request.base_url)).rstrip("/")
 
     return templates.TemplateResponse(
         request, "dashboard.html",
