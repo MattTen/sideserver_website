@@ -286,6 +286,18 @@
     // Le banner vit desormais dans la carte "Instagram (decrypt.day)" : on
     // garde une marge top reduite parce qu'il est inline dans le bloc.
     banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : kind === 'warning' ? 'alert-warning' : 'alert-info');
+    // warning-soft : jaune attenué pour les messages d'attente transitoires
+    // (ex: "Interrogation de decrypt.day…") — moins saillant qu'un résultat.
+    if (kind === 'warning-soft') {
+      banner.className = 'alert';
+      banner.style.background = 'rgba(234,179,8,0.05)';
+      banner.style.borderColor = 'rgba(202,138,4,0.3)';
+      banner.style.color = '#a07d10';
+    } else {
+      banner.style.background = '';
+      banner.style.borderColor = '';
+      banner.style.color = '';
+    }
     banner.textContent = msg;
     banner.style.display = msg ? 'block' : 'none';
   }
@@ -426,7 +438,7 @@
   checkBtn.addEventListener('click', async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = 'Vérification…';
-    setBanner('warning', 'Interrogation de decrypt.day…');
+    setBanner('warning-soft', 'Interrogation de decrypt.day…');
     try {
       const res = await fetch('/scinsta/check', { method: 'POST' });
       const state = await res.json();
