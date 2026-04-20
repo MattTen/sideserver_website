@@ -147,14 +147,11 @@
 
 <div class="card mb-4" id="sci-changelog-card">
   <h2>3. Note de version</h2>
-  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    Appliquée à la prochaine version Instagram intégrée. Laisse vide pour revenir au défaut.
-  </p>
   <div id="sci-changelog-view">
     <div class="meta-head">
-      <span class="meta-label">Note de version
+      <span class="meta-label">
         {% if state.upload_ready and not state.changelog_is_override %}
-        <span class="badge" style="margin-left:6px; font-size:11px;" id="sci-changelog-default-badge">défaut</span>
+        <span class="badge" style="font-size:11px;" id="sci-changelog-default-badge">défaut</span>
         {% endif %}
       </span>
       <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn"
@@ -808,10 +805,9 @@
         const span = document.createElement('span');
         span.id = 'sci-changelog-default-badge';
         span.className = 'badge';
-        span.style.marginLeft = '6px';
         span.style.fontSize = '11px';
         span.textContent = 'défaut';
-        cgText.after(span);
+        document.querySelector('#sci-changelog-view .meta-label').appendChild(span);
       }
     } else {
       if (badge) badge.remove();
