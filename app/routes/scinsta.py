@@ -13,6 +13,7 @@ from ..categories import get_categories
 from ..db import get_db
 from ..models import User
 from ..patches import discover_patches, get_patch
+from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..scinsta import (
     _META_FIELDS, clear_build_log, clear_upload, dismiss_last_build_error,
     get_state, read_build_log, request_build, request_cancel, run_check,
@@ -45,6 +46,8 @@ def scinsta_page(
             "state": state.to_dict(),
             "patches": patches,
             "categories": cats,
+            "tint_colors": TINT_COLORS,
+            "tint_preset_values": _TINT_PRESET_VALUES,
         },
     )
 
