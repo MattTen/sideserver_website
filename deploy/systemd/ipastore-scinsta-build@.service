@@ -1,0 +1,21 @@
+[Unit]
+Description=Build SCInsta IPA (Instagram + SCInsta main clone) pour %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=altuser
+Group=altuser
+# Le flag est lu PUIS supprime par build.py (read_flag_payload) une fois que
+# le container demarre — pas d'ExecStartPre=rm ici, sinon le contenu JSON
+# (dont le nom du patch optionnel) est perdu avant que build.py puisse le
+# lire. PathExists ne re-trigger que sur transition absent -> present, pas
+# de risque de boucle infinie : si build.py crash avant l'unlink, le flag
+# reste en place mais n'est pas retraite tant que le fichier existe.
+ExecStart=/usr/local/bin/website-management %i-scinsta-build
+StandardOutput=journal
+StandardError=journal
+# Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min selon la connexion
+# et la charge de la VM. 30 min laisse de la marge pour un retry interne.
+TimeoutStartSec=1800

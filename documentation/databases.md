@@ -53,6 +53,16 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `store_header_file` | Nom de fichier du header/bannière du store dans `ICONS_DIR` | `""` (optionnel) |
 | `patch_display_name:{filename}` | Nom d'affichage personnalisé du patch `{filename}` (onglet Patch) | stem du fichier |
 | `patch_description:{filename}` | Description libre du patch `{filename}` affichée dans la liste et éditable dans le détail | `""` |
+| `scinsta_decrypt_url` | URL source interrogée pour le check version (editable dans l'UI SCInsta) | `https://decrypt.day/app/id389801252` |
+| `scinsta_ig_version_latest` | Dernière version Instagram vue sur decrypt.day lors du dernier check | `""` |
+| `scinsta_last_check_at` | ISO timestamp du dernier check decrypt.day | `""` |
+| `scinsta_last_check_error` | Message d'erreur si le dernier check a échoué (ex: Cloudflare challenge) | `""` |
+| `scinsta_last_build_at` | ISO timestamp du dernier build SCInsta terminé | `""` |
+| `scinsta_last_build_status` | État du dernier build : `idle` / `requested` / `running` / `success` / `failed` | `""` |
+| `scinsta_last_build_error` | Message d'erreur si le dernier build a échoué | `""` |
+| `scinsta_last_build_ipa` | Nom de fichier de l'IPA produit par le dernier build réussi | `""` |
+| `scinsta_last_build_patch` | Nom du patch appliqué au dernier build (vide si aucun) | `""` |
+| `scinsta_last_build_scinsta_sha` | Short SHA du commit SCInsta cloné pour le dernier build | `""` |
 
 ---
 

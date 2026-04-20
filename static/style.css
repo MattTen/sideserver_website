@@ -244,6 +244,12 @@ code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
 .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn .icon { width: 14px; height: 14px; }
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 /* === Inputs === */
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -329,6 +335,8 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   font-family: var(--mono);
 }
 .badge-accent { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.badge-ok { border-color: var(--success); color: var(--success); background: rgba(126, 179, 138, 0.12); }
+.badge-danger { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* === Auth pages === */
