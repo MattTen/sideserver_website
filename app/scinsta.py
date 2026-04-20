@@ -286,10 +286,10 @@ def read_metadata(db: Session) -> dict:
             "tint_color": (app.tint_color or "").lower(),
             "category": app.category or "",
         }
-    return {
-        f: get_setting(db, f"scinsta_meta_{f}", "")
-        for f in _META_FIELDS
-    }
+    meta = {f: get_setting(db, f"scinsta_meta_{f}", "") for f in _META_FIELDS}
+    if not meta.get("category"):
+        meta["category"] = "aucune"
+    return meta
 
 
 def save_metadata_field(db: Session, field_name: str, value: str) -> None:
