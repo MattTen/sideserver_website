@@ -798,7 +798,6 @@
           render(state);
           renderAllMeta(state.meta || {});
           setMetaEditing(row, false);
-          setBanner('ok', 'Métadonnée enregistrée.');
         }
       } catch (e) {
         setBanner('err', 'Erreur réseau : ' + e.message);
