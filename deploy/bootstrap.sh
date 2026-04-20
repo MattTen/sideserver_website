@@ -105,17 +105,21 @@ done
 echo "[bootstrap] Installation des unités systemd (path + service templatisés)..."
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)/systemd"
 if [[ -d "$SRC_DIR" ]]; then
-  install -m 644 "$SRC_DIR/ipastore-update@.path"           /etc/systemd/system/ipastore-update@.path
-  install -m 644 "$SRC_DIR/ipastore-update@.service"        /etc/systemd/system/ipastore-update@.service
-  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.path"    /etc/systemd/system/ipastore-scinsta-build@.path
-  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.service" /etc/systemd/system/ipastore-scinsta-build@.service
+  install -m 644 "$SRC_DIR/ipastore-update@.path"            /etc/systemd/system/ipastore-update@.path
+  install -m 644 "$SRC_DIR/ipastore-update@.service"         /etc/systemd/system/ipastore-update@.service
+  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.path"     /etc/systemd/system/ipastore-scinsta-build@.path
+  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.service"  /etc/systemd/system/ipastore-scinsta-build@.service
+  install -m 644 "$SRC_DIR/ipastore-scinsta-cancel@.path"    /etc/systemd/system/ipastore-scinsta-cancel@.path
+  install -m 644 "$SRC_DIR/ipastore-scinsta-cancel@.service" /etc/systemd/system/ipastore-scinsta-cancel@.service
   systemctl daemon-reload
   systemctl enable --now \
-    ipastore-update@prod.path        ipastore-update@dev.path \
-    ipastore-scinsta-build@prod.path ipastore-scinsta-build@dev.path
+    ipastore-update@prod.path         ipastore-update@dev.path \
+    ipastore-scinsta-build@prod.path  ipastore-scinsta-build@dev.path \
+    ipastore-scinsta-cancel@prod.path ipastore-scinsta-cancel@dev.path
   echo "  units activées :"
   echo "    ipastore-update@{prod,dev}.path"
   echo "    ipastore-scinsta-build@{prod,dev}.path"
+  echo "    ipastore-scinsta-cancel@{prod,dev}.path"
 else
   echo "  /!\\ $SRC_DIR absent — unités systemd non installées."
   echo "      (normal si tu lances bootstrap.sh depuis un clone sparse qui exclut deploy/)"
