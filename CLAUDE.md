@@ -107,7 +107,8 @@ documentation/      # Documentation serveur et credentials (exclu du serveur)
   server.md         # Architecture, déploiement, features, onglet Patch (pointer vers scinsta_builder.md pour SCInsta)
   databases.md      # Schéma BDD complet (tables + settings keys)
   credentials.md    # Cycle de vie des secrets
-  scinsta_builder.md        # Doc complète onglet SCInsta (flux, pipeline, bypass CF, URL editable)
+  scinsta_builder.md        # Doc complète onglet SCInsta (flux UI, bypass CF, URL editable, BDD)
+  scinsta_build.md          # Doc technique pipeline de build (Dockerfile, Theos toolchain, stubs, workarounds Linux)
   patch_fix_ipa.md          # Doc technique fix_ipa.py
   patch_fix_ipa_scinsta.md  # Doc technique fix_ipa_scinsta.py
 CLAUDE.md           # Ce fichier (exclu du serveur)
@@ -246,7 +247,8 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 ### 4. Documentation
 **À chaque feature ajoutée, modifiée ou supprimée** : mettre à jour les fichiers concernés dans `documentation/` :
 - `documentation/server.md` → architecture, script, déploiement, systemd, onglet Patch
-- `documentation/scinsta_builder.md` → tout changement sur l'onglet SCInsta (UI, pipeline, bypass CF, URL source…)
+- `documentation/scinsta_builder.md` → tout changement sur l'onglet SCInsta côté UI/web (flux, bypass CF, URL source, intégration BDD…)
+- `documentation/scinsta_build.md` → tout changement de la pipeline de build (Dockerfile, toolchain Theos, SDK, stubs compiler-rt, fix case-sensitivity, ipapatch/cyan/ldid…)
 - `documentation/credentials.md` → tout ce qui touche aux credentials
 - `documentation/databases.md` → toute modification du schéma BDD (tables + clés `settings`)
 - `documentation/patch_fix_ipa.md` + `patch_fix_ipa_scinsta.md` → si les scripts de patch évoluent
@@ -272,7 +274,8 @@ Le seul flux autorisé : dev → prod via `sync-to-prod`, et uniquement à la de
 - Alerte "IPA prête : V{version}" : `upload_version` lu dans l'Info.plist de `scinsta-upload-<env>.ipa` (exposé dans le state).
 - Patch optionnel au build = n'importe quel script de `patch/` (même contrat CLI que l'onglet Patch — **écrase l'IPA en place**, pas d'original préservé).
 - État persistant dans `settings` via clés `scinsta_*` (voir [databases.md](documentation/databases.md)).
-- **Doc complète** : [documentation/scinsta_builder.md](documentation/scinsta_builder.md).
+- **Doc complète côté UI/web** : [documentation/scinsta_builder.md](documentation/scinsta_builder.md).
+- **Doc complète côté pipeline de build** (Dockerfile, toolchain iOS, stubs compiler-rt, workarounds Linux, case-sensitivity, ipapatch/cyan/ldid) : [documentation/scinsta_build.md](documentation/scinsta_build.md).
 
 ### 7. Static files
 Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` montés sur `/ipas`, `/icons`, `/screenshots` depuis `STORE_DIR`. Ces URLs apparaissent dans `source.json` et sont accédées directement par SideStore sans authentification.

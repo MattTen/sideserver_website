@@ -174,7 +174,8 @@
     el.title = title || '';
     el.className = 'badge ' + (
       kind === 'update' ? 'badge-accent' :
-      kind === 'ok' ? 'badge-ok' : ''
+      kind === 'ok' ? 'badge-ok' :
+      kind === 'danger' ? 'badge-danger' : ''
     );
     el.style.display = text ? 'inline-block' : 'none';
     el.style.marginLeft = '8px';
@@ -183,8 +184,8 @@
   function computeBadge(deployed, latest) {
     if (!latest) return { kind: '', text: 'non vérifié', title: 'Clique "Vérifier version"' };
     if (!deployed) return { kind: 'update', text: 'à intégrer', title: 'Jamais buildé' };
-    if (deployed === latest) return { kind: 'ok', text: 'à jour', title: '' };
-    return { kind: 'update', text: 'MAJ dispo', title: `Intégré ${deployed} → disponible ${latest}` };
+    if (deployed === latest) return { kind: 'ok', text: 'À jour', title: '' };
+    return { kind: 'danger', text: 'MAJ dispo', title: `Intégré ${deployed} → disponible ${latest}` };
   }
 
   function render(state) {
@@ -524,6 +525,11 @@
     // Meme au repos, on recupere le log du dernier build pour qu'il reste
     // consultable apres coup (success/failed). Pas de polling continu.
     pollLog();
+    // Check auto de la version decrypt.day au chargement : l'admin n'a pas
+    // a cliquer "Verifier version" pour savoir si une MAJ est dispo. On
+    // declenche seulement si aucun build n'est en cours (pour ne pas
+    // parasiter la carte) — un clic simule donne le meme resultat.
+    checkBtn.click();
   }
 })();
 </script>
