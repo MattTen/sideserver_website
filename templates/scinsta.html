@@ -53,13 +53,13 @@
 <div class="card mb-4">
   <h2>1. Upload de l'IPA Instagram</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    Télécharge manuellement l'IPA décryptée depuis decrypt.day et dépose-la ici.
+    Téléchargez manuellement l'IPA décryptée depuis decrypt.day et déposez-la ici.
   </p>
 
   <label class="dropzone" id="sci-dropzone">
     <input type="file" id="sci-file-input" accept=".ipa">
-    <strong id="sci-dz-title">Glisse l'IPA Instagram ici</strong>
-    <span class="hint" id="sci-dz-hint">ou clique pour choisir un fichier (.ipa)</span>
+    <strong id="sci-dz-title">Déposer l'IPA Instagram ici</strong>
+    <span class="hint" id="sci-dz-hint">ou cliquer pour sélectionner un fichier (.ipa)</span>
     <div class="progress" id="sci-progress"><div class="progress-bar" id="sci-progress-bar"></div></div>
   </label>
 
@@ -182,8 +182,8 @@
   }
 
   function computeBadge(deployed, latest) {
-    if (!latest) return { kind: '', text: 'non vérifié', title: 'Clique "Vérifier version"' };
-    if (!deployed) return { kind: 'update', text: 'à intégrer', title: 'Jamais buildé' };
+    if (!latest) return { kind: '', text: 'non vérifié', title: 'Cliquez sur "Vérifier version"' };
+    if (!deployed) return { kind: 'update', text: 'à intégrer', title: 'Aucun build intégré' };
     if (deployed === latest) return { kind: 'ok', text: 'À jour', title: '' };
     return { kind: 'danger', text: 'Mise à jour disponible', title: `Intégré ${deployed} → disponible ${latest}` };
   }
@@ -353,21 +353,21 @@
       return;
     }
     dropzone.classList.add('drag-over');
-    dzTitle.textContent = 'Upload en cours…';
+    dzTitle.textContent = 'Téléversement en cours…';
     dzHint.textContent = bytesToMb(file.size);
     progressBar.style.width = '0%';
     try {
       await uploadIpa(file);
       setBanner('ok', 'IPA téléversée (' + bytesToMb(file.size) + ').');
-      dzTitle.textContent = 'Glisse l\'IPA Instagram ici';
-      dzHint.textContent = 'ou clique pour choisir un fichier (.ipa)';
+      dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
+      dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
       // Refresh state pour activer le bouton Build
       const r = await fetch('/scinsta/status'); render(await r.json());
     } catch (e) {
-      setBanner('err', 'Upload échoué : ' + e.message);
-      dzTitle.textContent = 'Glisse l\'IPA Instagram ici';
-      dzHint.textContent = 'ou clique pour choisir un fichier (.ipa)';
+      setBanner('err', 'Téléversement échoué : ' + e.message);
+      dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
+      dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
     }
     dropzone.classList.remove('drag-over');

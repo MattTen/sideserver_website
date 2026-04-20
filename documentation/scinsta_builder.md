@@ -57,7 +57,7 @@ Un `<pre>` sous le bouton affiche la **sortie temps réel** du conteneur builder
    6. Ecrit scinsta-build-result-<env> (JSON)
 [conteneur web] _scinsta_result_loop (poll 5s dans lifespan) :
    - Consomme le result file
-   - integrate_build_result : cree l'App si absente + Version + News(notify=1)
+   - integrate_build_result : cree l'App si absente + Version (pas d'article news auto)
    - Supprime l'upload consume
 ```
 
@@ -160,12 +160,12 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 
 `integrate_build_result(db, result)` dans `app/scinsta.py` :
 
-1. Crée l'App `com.burbn.instagram` si absente (tint `E1306C`, catégorie `social`, icône extraite de l'Info.plist de l'IPA).
+1. Crée l'App `com.burbn.instagram` **si absente uniquement** (tint `E1306C`, catégorie `social`, icône extraite de l'Info.plist de l'IPA). Si l'App existe déjà, ses métadonnées (`developer_name`, `description`, `subtitle`, icône…) sont **figées** et ne sont **pas** ré-écrites à chaque build — l'admin reste maître du contenu saisi dans l'onglet Applications.
 2. Insère la `Version` avec :
    - `version = <IG version>` (ex: `425.0.0`)
    - `build_version = <short_sha_scinsta>` (ex: `a1b2c3d`) — **indispensable** pour éviter le conflit `UNIQUE(app_id, version, build_version)` quand plusieurs builds de la même version IG sont produits avec des commits SCInsta différents.
-   - `changelog = "Build automatique — Instagram <v> + SCInsta @<sha> (patch appliqué : <f>)"`
-3. Crée un article `News` avec `notify=1` → SideStore pousse une notification push aux clients.
+   - `changelog = "Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
+3. **Aucun article news automatique** — l'admin rédige manuellement depuis l'onglet News s'il veut annoncer le build (et déclencher la notif push via `notify=1`).
 4. Supprime `scinsta-upload-<env>.ipa` pour que l'UI n'affiche plus "upload en attente".
 
 ---
