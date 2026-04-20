@@ -645,7 +645,7 @@
         renderChangelog(state);
         setBuildMsg('');
         if (state.last_build_status === 'success') {
-          setBanner('ok', 'Build terminé — nouvelle version déployée.');
+          setBuildMsg('Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
           // "Build annulé" s'affiche dans sci-build-error-wrap, pas de bannière.
           if (state.last_build_error !== 'Build annulé') {
