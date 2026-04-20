@@ -222,6 +222,7 @@ class ScinstaState:
     build_progress_step: Optional[str] = None
     upload_ready: bool = False                # une IPA est deja en attente
     upload_version: Optional[str] = None      # version lue dans l'Info.plist de l'upload
+    upload_name: Optional[str] = None         # CFBundleDisplayName de l'IPA uploadee
     ig_update_available: bool = field(default=False)
     # Metadonnees editables (lues depuis App si existante, sinon settings).
     app_exists: bool = False
@@ -250,6 +251,7 @@ class ScinstaState:
             "is_running": self.is_running,
             "upload_ready": self.upload_ready,
             "upload_version": self.upload_version,
+            "upload_name": self.upload_name,
             "ig_update_available": self.ig_update_available,
             "app_exists": self.app_exists,
             "meta": self.meta,
@@ -338,19 +340,17 @@ def save_changelog(db: Session, value: str) -> None:
     db.commit()
 
 
-def _read_upload_version() -> Optional[str]:
-    """Lit CFBundleShortVersionString dans l'IPA upload en attente.
+def _read_upload_info() -> tuple[Optional[str], Optional[str]]:
+    """Lit CFBundleShortVersionString et CFBundleDisplayName de l'IPA uploadée.
 
-    Permet d'afficher dans l'UI "IPA prête : Vx.x.x" — utile pour verifier
-    qu'on s'apprete a builder la bonne version (surtout en cas d'echec
-    precedent ou si l'admin a upload plusieurs fois).
+    Retourne (version, display_name). Chaque valeur peut être None si absente.
     """
     import plistlib
     import zipfile
 
     path = _upload_file()
     if not path.exists():
-        return None
+        return None, None
     try:
         with zipfile.ZipFile(path) as zf:
             info_name = next(
@@ -360,13 +360,14 @@ def _read_upload_version() -> Optional[str]:
                 None,
             )
             if not info_name:
-                return None
+                return None, None
             with zf.open(info_name) as f:
                 plist = plistlib.load(f)
-        v = str(plist.get("CFBundleShortVersionString") or "").strip()
-        return v or None
+        v = str(plist.get("CFBundleShortVersionString") or "").strip() or None
+        name = str(plist.get("CFBundleDisplayName") or plist.get("CFBundleName") or "").strip() or None
+        return v, name
     except Exception:  # pragma: no cover - lecture best-effort
-        return None
+        return None, None
 
 
 def _latest_instagram_version_in_store(db: Session) -> Optional[str]:
@@ -406,7 +407,7 @@ def get_state(db: Session) -> ScinstaState:
         last_build_scinsta_sha=get_setting(db, "scinsta_last_build_scinsta_sha", "") or None,
         decrypt_url=get_decrypt_url(db),
         upload_ready=_upload_file().exists(),
-        upload_version=_read_upload_version(),
+        **dict(zip(("upload_version", "upload_name"), _read_upload_info())),
     )
     prog = _build_progress()
     if prog.exists():
