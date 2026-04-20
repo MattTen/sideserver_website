@@ -207,7 +207,7 @@
     <span id="sci-build-patch-wrap"{% if not state.last_build_patch %} style="display:none"{% endif %}>
       · Patch appliqué : <code id="sci-build-patch">{{ state.last_build_patch or '' }}</code>
     </span>
-    <div id="sci-build-msg" style="display:none; margin-top:8px; font-size:12.5px;"></div>
+    <div id="sci-build-msg" class="alert" style="display:none; margin-top:10px; margin-bottom:0;"></div>
     <div id="sci-build-error-wrap" class="alert alert-error" style="display:{% if state.last_build_error %}flex{% else %}none{% endif %}; margin-top: 10px; align-items:flex-start; justify-content:space-between; gap:8px;">
       <span id="sci-build-error-msg">{{ state.last_build_error or '' }}</span>
       <button type="button" id="sci-build-error-close" title="Fermer" aria-label="Fermer"
@@ -248,11 +248,11 @@
   const patchSelect = document.getElementById('sci-patch-select');
   const buildMsgEl = document.getElementById('sci-build-msg');
 
-  function setBuildMsg(text, color) {
-    if (!text) { buildMsgEl.style.display = 'none'; buildMsgEl.textContent = ''; return; }
-    buildMsgEl.textContent = text;
-    buildMsgEl.style.color = color || 'var(--text-muted)';
+  function setBuildMsg(text, kind) {
+    if (!text) { buildMsgEl.style.display = 'none'; buildMsgEl.textContent = ''; buildMsgEl.className = 'alert'; return; }
+    buildMsgEl.className = 'alert alert-' + (kind || 'success');
     buildMsgEl.style.display = 'block';
+    buildMsgEl.textContent = text;
   }
 
   // Source editable : vue read-only <-> input + boutons Save/Cancel
@@ -546,9 +546,9 @@
       const res = await fetch('/scinsta/cancel', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setBuildMsg('Annulation demandée.');
+        setBuildMsg('Annulation demandée.', 'warning');
       } else {
-        setBuildMsg(data.message || 'Erreur : ' + res.status, 'var(--danger)');
+        setBuildMsg(data.message || 'Erreur : ' + res.status, 'error');
       }
     } catch (e) {
       setBanner('err', 'Erreur réseau : ' + e.message);
