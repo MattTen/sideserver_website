@@ -226,5 +226,5 @@ def scinsta_build(
     logger.info("SCInsta build requested: flag=%s patch=%s", flag, patch_filename)
     return JSONResponse({
         "ok": True,
-        "message": "Build lancé. La page se rafraîchit automatiquement.",
+        "message": "Build lancé.",
     })
