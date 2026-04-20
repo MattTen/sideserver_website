@@ -115,7 +115,7 @@
         {% if kind == 'select' %}
         <select class="input meta-input" style="width:100%;">
           {% for c in categories %}
-          <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{{ c }}</option>
+          <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{% if c|lower == 'aucune' %}— Aucune —{% else %}{{ c }}{% endif %}</option>
           {% endfor %}
         </select>
         {% elif kind == 'textarea' %}
