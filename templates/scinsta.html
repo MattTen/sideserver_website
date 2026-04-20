@@ -207,6 +207,7 @@
     <span id="sci-build-patch-wrap"{% if not state.last_build_patch %} style="display:none"{% endif %}>
       · Patch appliqué : <code id="sci-build-patch">{{ state.last_build_patch or '' }}</code>
     </span>
+    <div id="sci-build-msg" style="display:none; margin-top:8px; font-size:12.5px;"></div>
     <div id="sci-build-error-wrap" class="alert alert-error" style="display:{% if state.last_build_error %}flex{% else %}none{% endif %}; margin-top: 10px; align-items:flex-start; justify-content:space-between; gap:8px;">
       <span id="sci-build-error-msg">{{ state.last_build_error or '' }}</span>
       <button type="button" id="sci-build-error-close" title="Fermer" aria-label="Fermer"
@@ -245,6 +246,14 @@
   const uploadReady = document.getElementById('sci-upload-ready');
   const clearUploadBtn = document.getElementById('sci-clear-upload');
   const patchSelect = document.getElementById('sci-patch-select');
+  const buildMsgEl = document.getElementById('sci-build-msg');
+
+  function setBuildMsg(text, color) {
+    if (!text) { buildMsgEl.style.display = 'none'; buildMsgEl.textContent = ''; return; }
+    buildMsgEl.textContent = text;
+    buildMsgEl.style.color = color || 'var(--text-muted)';
+    buildMsgEl.style.display = 'block';
+  }
 
   // Source editable : vue read-only <-> input + boutons Save/Cancel
   const sourceView = document.getElementById('sci-source-view');
@@ -507,7 +516,7 @@
       const res = await fetch('/scinsta/build', { method: 'POST', body: fd });
       const data = await res.json();
       if (res.ok) {
-        setBanner('ok', data.message || 'Build lancé.');
+        setBuildMsg(data.message || 'Build lancé.');
         startPolling();
       } else {
         setBanner('err', data.message || 'Erreur : ' + res.status);
@@ -537,9 +546,9 @@
       const res = await fetch('/scinsta/cancel', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setBanner('', '');
+        setBuildMsg('Annulation demandée.');
       } else {
-        setBanner('err', data.message || 'Erreur : ' + res.status);
+        setBuildMsg(data.message || 'Erreur : ' + res.status, 'var(--danger)');
       }
     } catch (e) {
       setBanner('err', 'Erreur réseau : ' + e.message);
@@ -602,14 +611,13 @@
         // refresh les deux sections pour refleter la nouvelle realite.
         renderAllMeta(state.meta || {});
         renderChangelog(state);
+        setBuildMsg('');
         if (state.last_build_status === 'success') {
           setBanner('ok', 'Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
-          // Si "Build annulé", le message apparaît déjà dans sci-build-error-wrap.
+          // "Build annulé" s'affiche dans sci-build-error-wrap, pas de bannière.
           if (state.last_build_error !== 'Build annulé') {
             setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
-          } else {
-            setBanner('', '');
           }
         }
       }
