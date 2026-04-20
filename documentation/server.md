@@ -149,6 +149,7 @@ website-management --help           # aide
 |----------------------|------------------------------------------------------------------------|
 | `sync`               | Clone TOTAL prod → dev (drop+recreate BDD dev + rsync --delete du store). **Écrase tout ce qui est dans dev.** |
 | `sync-to-prod`       | Clone TOTAL dev → prod (drop+recreate BDD prod + rsync --delete du store). **IRRÉVERSIBLE — écrase prod.** Double confirmation exigée. |
+| `sync-schema-to-prod`| Aligne la **structure** de la BDD prod sur celle de dev (tables + colonnes + index + FKs manquants). **Aucune donnée touchée** — opérations ADDITIVES uniquement (`CREATE TABLE`, `ADD COLUMN`, `ADD INDEX`, `ADD FOREIGN KEY`). Pas de `DROP`, pas de `MODIFY`. Les divergences de type sur colonnes existantes sont affichées en commentaire dans le plan pour revue manuelle. Génère un plan SQL via `tools/schema-sync.py`, l'affiche, demande confirmation avant application. |
 | `prod-reset-users`   | Prompt login/mdp, supprime tous les users prod, crée un nouvel admin.  |
 | `dev-reset-users`    | Idem sur dev.                                                          |
 
@@ -411,6 +412,15 @@ bind-address = 0.0.0.0
 | `patch/*.py`                                  | Scripts de patch IPA (signature `-s /path/to.ipa`) |
 | `documentation/patch_fix_ipa.md`              | Doc du patch générique                          |
 | `documentation/patch_fix_ipa_scinsta.md`      | Doc du wrapper SCInsta                          |
+| `app/scinsta.py`                              | Logique SCInsta (check decrypt.day, upload IPA, flag build, intégration) |
+| `app/routes/scinsta.py`                       | Routes `/scinsta/**` (UI, upload, build)        |
+| `templates/scinsta.html`                      | UI de l'onglet SCInsta                          |
+| `tools/scinsta-builder/Dockerfile`            | Image Theos + cyan + ipapatch + lief (builder one-shot) |
+| `tools/scinsta-builder/build.py`              | Pipeline : clone SCInsta main → `build.sh sideload` → patch optionnel → store |
+| `deploy/systemd/ipastore-scinsta-build@.path` | Watcher du flag-file de build SCInsta           |
+| `deploy/systemd/ipastore-scinsta-build@.service` | Exécuteur : lance `website-management {env}-scinsta-build` |
+| `deploy/systemd/ipastore-scinsta-cancel@.path` | Watcher du flag-file de cancel SCInsta         |
+| `deploy/systemd/ipastore-scinsta-cancel@.service` | Exécuteur : `docker kill scinsta-builder-{env}` + result failed |
 
 ---
 
@@ -460,7 +470,24 @@ Les scripts de patch partagent le venv du conteneur (même `sys.executable`). Le
 
 ---
 
-## 12. Apparence du store (source.json)
+## 12. SCInsta builder (onglet SCInsta)
+
+Onglet dédié à la production de builds **Instagram + SCInsta** ([SoCuul/SCInsta](https://github.com/SoCuul/SCInsta)) directement depuis l'UI admin, avec bypass Cloudflare (via `curl_cffi`) pour le check de version et upload manuel pour l'IPA (Turnstile infranchissable sur le bouton de téléchargement).
+
+Commandes `website-management` associées (pilotées par la path unit `ipastore-scinsta-build@`, pas listées dans le menu interactif) :
+
+| Commande | Action |
+|---|---|
+| `prod-scinsta-build`  | Build + run du conteneur builder pour prod |
+| `dev-scinsta-build`   | Idem pour dev |
+| `prod-scinsta-cancel` | `docker kill scinsta-builder-prod` + écrit un result failed (pilotée par `ipastore-scinsta-cancel@prod.path`) |
+| `dev-scinsta-cancel`  | Idem pour dev |
+
+**Doc complète** : [scinsta_builder.md](scinsta_builder.md) — flux utilisateur, pipeline systemd/Docker, bypass Cloudflare, URL source modifiable, routes API, clés settings, intégration BDD.
+
+---
+
+## 13. Apparence du store (source.json)
 
 Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin remplit ces champs :
 
