@@ -50,90 +50,6 @@
   </div>
 </div>
 
-<div class="card mb-4" id="sci-meta-card">
-  <h2>Métadonnées</h2>
-  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    {% if state.app_exists %}
-    Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.
-    {% else %}
-    Champs pré-remplis à la création de l'app Instagram au prochain build. Tous obligatoires.
-    {% endif %}
-  </p>
-  {% set meta_fields = [
-    ('name', 'Nom', 'input'),
-    ('developer_name', 'Développeur', 'input'),
-    ('category', 'Catégorie', 'select'),
-    ('subtitle', 'Sous-titre', 'input'),
-    ('description', 'Description', 'textarea'),
-    ('tint_color', 'Teinte', 'color'),
-  ] %}
-  {% for key, label, kind in meta_fields %}
-  <div class="meta-row" data-field="{{ key }}" style="padding:10px 0; border-top:1px solid var(--border);">
-    <div class="meta-view" style="display:flex; align-items:flex-start; gap:12px;">
-      <div style="flex:1; min-width:0;">
-        <div class="v-meta" style="font-weight:500; margin-bottom:2px;">{{ label }}</div>
-        {% if kind == 'color' %}
-        <div style="display:flex; align-items:center; gap:6px;">
-          <span class="color-swatch meta-swatch" style="background:#{{ state.meta[key] or 'cccccc' }};"></span>
-          <code class="meta-value mono-sm">{% if state.meta[key] %}#{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</code>
-        </div>
-        {% else %}
-        <div class="meta-value" style="white-space:pre-wrap; word-break:break-word;">{% if state.meta[key] %}{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</div>
-        {% endif %}
-      </div>
-      <button type="button" class="btn btn-sm btn-ghost meta-edit-btn">Modifier</button>
-    </div>
-    <div class="meta-edit" style="display:none; gap:8px; align-items:flex-start; flex-direction:column;">
-      <label class="v-meta" style="display:block;">{{ label }}</label>
-      {% if kind == 'select' %}
-      <select class="input meta-input" style="width:100%;">
-        {% for c in categories %}
-        <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}
-      </select>
-      {% elif kind == 'textarea' %}
-      <textarea class="textarea meta-input" rows="4" style="width:100%;">{{ state.meta[key] }}</textarea>
-      {% elif kind == 'color' %}
-      <div style="display:flex; align-items:center; gap:10px;">
-        <input type="color" class="meta-input" value="#{{ state.meta[key] or 'cccccc' }}" style="width:44px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
-        <span class="text-muted mono-sm meta-color-label">#{{ state.meta[key] or 'cccccc' }}</span>
-      </div>
-      {% else %}
-      <input type="text" class="input meta-input" value="{{ state.meta[key] }}" style="width:100%;" required>
-      {% endif %}
-      <div style="display:flex; gap:6px;">
-        <button type="button" class="btn btn-sm btn-primary meta-save-btn">Enregistrer</button>
-        <button type="button" class="btn btn-sm btn-ghost meta-cancel-btn">Annuler</button>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-
-<div class="card mb-4" id="sci-changelog-card">
-  <h2>Note de version</h2>
-  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    Appliquée à la prochaine version Instagram intégrée. Laisse vide pour revenir au défaut.
-  </p>
-  <div id="sci-changelog-view" style="display:flex; align-items:flex-start; gap:12px;">
-    <div style="flex:1; min-width:0; white-space:pre-wrap; word-break:break-word;">
-      <span id="sci-changelog-text">{{ state.changelog }}</span>
-      {% if not state.changelog_is_override %}
-      <span class="badge" style="margin-left:8px; font-size:11px;" id="sci-changelog-default-badge">défaut</span>
-      {% endif %}
-    </div>
-    <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn">Modifier</button>
-  </div>
-  <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
-    <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
-    <div style="display:flex; gap:6px; align-items:center;">
-      <button type="button" class="btn btn-sm btn-primary" id="sci-changelog-save">Enregistrer</button>
-      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-cancel">Annuler</button>
-      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-reset" title="Revenir au défaut auto">Réinitialiser</button>
-    </div>
-  </div>
-</div>
-
 <div class="card mb-4">
   <h2>1. Upload de l'IPA Instagram</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
@@ -158,8 +74,110 @@
   </div>
 </div>
 
+<div class="card mb-4" id="sci-meta-card">
+  <h2>2. Métadonnées</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    {% if state.app_exists %}
+    Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.
+    {% else %}
+    Champs pré-remplis à la création de l'app Instagram au prochain build. Tous obligatoires.
+    {% endif %}
+  </p>
+  {% set meta_fields = [
+    ('name', 'Nom', 'input'),
+    ('developer_name', 'Développeur', 'input'),
+    ('category', 'Catégorie', 'select'),
+    ('subtitle', 'Sous-titre', 'input'),
+    ('description', 'Description', 'textarea'),
+    ('tint_color', 'Teinte', 'color'),
+  ] %}
+  <div class="meta-grid">
+    {% for key, label, kind in meta_fields %}
+    <div class="meta-row" data-field="{{ key }}">
+      <div class="meta-view">
+        <div class="meta-head">
+          <span class="meta-label">{{ label }}</span>
+          <button type="button" class="btn btn-sm btn-ghost meta-edit-btn">Modifier</button>
+        </div>
+        {% if kind == 'color' %}
+        <div class="patch-desc-view meta-box" style="display:flex; align-items:center; gap:8px; min-height:0;">
+          <span class="color-swatch meta-swatch" style="background:#{{ state.meta[key] or 'cccccc' }};"></span>
+          <code class="meta-value mono-sm">{% if state.meta[key] %}#{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</code>
+        </div>
+        {% else %}
+        <div class="patch-desc-view meta-box meta-value">{% if state.meta[key] %}{{ state.meta[key] }}{% else %}<span class="patch-desc-empty">(vide)</span>{% endif %}</div>
+        {% endif %}
+      </div>
+      <div class="meta-edit" style="display:none; flex-direction:column; gap:8px;">
+        <div class="meta-head">
+          <span class="meta-label">{{ label }}</span>
+        </div>
+        {% if kind == 'select' %}
+        <select class="input meta-input" style="width:100%;">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        {% elif kind == 'textarea' %}
+        <textarea class="textarea meta-input" rows="4" style="width:100%;">{{ state.meta[key] }}</textarea>
+        {% elif kind == 'color' %}
+        {% set cur = (state.meta[key] or '').lower() %}
+        <div class="tint-picker">
+          {% for tlabel, hex in tint_colors %}
+          <label class="tint-swatch" style="background:#{{ hex }};" title="{{ tlabel }}">
+            <input type="radio" name="tint_preset_{{ key }}" value="{{ hex }}" {% if cur == hex %}checked{% endif %}>
+          </label>
+          {% endfor %}
+          <label class="tint-swatch tint-swatch-custom" title="Personnalisé">
+            <input type="radio" name="tint_preset_{{ key }}" value="custom" {% if cur and cur not in tint_preset_values %}checked{% endif %}>
+          </label>
+        </div>
+        <input type="hidden" class="meta-input" value="{{ cur or 'cccccc' }}">
+        <div class="meta-color-custom row-gap" style="display:{% if cur and cur not in tint_preset_values %}flex{% else %}none{% endif %}; align-items:center;">
+          <input type="color" class="meta-color-picker" value="#{{ cur or 'cccccc' }}" style="width:40px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
+          <span class="text-muted mono-sm meta-color-label">#{{ cur or 'cccccc' }}</span>
+        </div>
+        {% else %}
+        <input type="text" class="input meta-input" value="{{ state.meta[key] }}" style="width:100%;" required>
+        {% endif %}
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="btn btn-sm btn-primary meta-save-btn">Enregistrer</button>
+          <button type="button" class="btn btn-sm btn-ghost meta-cancel-btn">Annuler</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card mb-4" id="sci-changelog-card">
+  <h2>3. Note de version</h2>
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
+    Appliquée à la prochaine version Instagram intégrée. Laisse vide pour revenir au défaut.
+  </p>
+  <div id="sci-changelog-view">
+    <div class="meta-head">
+      <span class="meta-label">Note de version
+        {% if not state.changelog_is_override %}
+        <span class="badge" style="margin-left:6px; font-size:11px;" id="sci-changelog-default-badge">défaut</span>
+        {% endif %}
+      </span>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn">Modifier</button>
+    </div>
+    <div class="patch-desc-view meta-box"><span id="sci-changelog-text">{{ state.changelog }}</span></div>
+  </div>
+  <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
+    <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button type="button" class="btn btn-sm btn-primary" id="sci-changelog-save">Enregistrer</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-cancel">Annuler</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-reset" title="Revenir au défaut auto">Réinitialiser</button>
+    </div>
+  </div>
+</div>
+
 <div class="card mb-4">
-  <h2>2. Patch optionnel</h2>
+  <h2>4. Patch optionnel</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
     Script appliqué sur l'IPA après injection SCInsta. Laisse vide pour aucun patch.
   </p>
@@ -175,7 +193,7 @@
 </div>
 
 <div class="card mb-4">
-  <h2>3. Lancer le build</h2>
+  <h2>5. Lancer le build</h2>
   <div class="row-gap">
     <button class="btn btn-primary" type="button" id="sci-build-btn"
             {% if state.is_running or not state.upload_ready %}disabled{% endif %}>
@@ -614,12 +632,13 @@
   // .meta-edit (formulaire). On toggle display + on ecoute save/cancel sur
   // chaque ligne. Le re-render apres save vient du state renvoye par le POST.
   function setMetaEditing(row, editing) {
-    row.querySelector('.meta-view').style.display = editing ? 'none' : 'flex';
+    row.querySelector('.meta-view').style.display = editing ? '' : '';
+    row.querySelector('.meta-view').style.display = editing ? 'none' : 'block';
     const edit = row.querySelector('.meta-edit');
     edit.style.display = editing ? 'flex' : 'none';
     if (editing) {
       const inp = row.querySelector('.meta-input');
-      if (inp && inp.focus) inp.focus();
+      if (inp && inp.focus && inp.type !== 'hidden') inp.focus();
     }
   }
 
@@ -632,10 +651,13 @@
       if (swatch) swatch.style.background = '#' + (hex || 'cccccc');
       valueEl.innerHTML = hex
         ? '#' + hex
-        : '<span class="text-dim">(vide)</span>';
+        : '<span class="patch-desc-empty">(vide)</span>';
     } else {
-      valueEl.textContent = value || '';
-      if (!value) valueEl.innerHTML = '<span class="text-dim">(vide)</span>';
+      if (!value) {
+        valueEl.innerHTML = '<span class="patch-desc-empty">(vide)</span>';
+      } else {
+        valueEl.textContent = value;
+      }
     }
   }
 
@@ -652,12 +674,32 @@
     const input = row.querySelector('.meta-input');
     const field = row.dataset.field;
 
-    // Preview temps reel du code hex pendant l'edition de la teinte.
-    if (field === 'tint_color' && input) {
-      const label = row.querySelector('.meta-color-label');
-      input.addEventListener('input', () => {
-        if (label) label.textContent = input.value.toLowerCase();
+    // Teinte : palette de presets (radios) + option "Personnalisé" qui
+    // affiche un <input type="color">. Le hidden.meta-input stocke la valeur
+    // hex finale (sans #) lue au save.
+    if (field === 'tint_color') {
+      const presetRadios = row.querySelectorAll('input[name^="tint_preset_"]');
+      const customRow = row.querySelector('.meta-color-custom');
+      const customPicker = row.querySelector('.meta-color-picker');
+      const customLabel = row.querySelector('.meta-color-label');
+      presetRadios.forEach(r => {
+        r.addEventListener('change', () => {
+          if (r.value === 'custom') {
+            if (customRow) customRow.style.display = 'flex';
+            if (customPicker) input.value = customPicker.value.replace('#', '').toLowerCase();
+          } else {
+            if (customRow) customRow.style.display = 'none';
+            input.value = r.value;
+          }
+        });
       });
+      if (customPicker) {
+        customPicker.addEventListener('input', () => {
+          const hex = customPicker.value.replace('#', '').toLowerCase();
+          input.value = hex;
+          if (customLabel) customLabel.textContent = '#' + hex;
+        });
+      }
     }
 
     editBtn.addEventListener('click', () => setMetaEditing(row, true));

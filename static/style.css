@@ -897,6 +897,29 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   font-style: italic;
 }
 
+/* Grille Métadonnées SCInsta : 2 colonnes compactes, Description pleine
+   largeur (prend beaucoup de texte). Chaque meta-row a son label au-dessus
+   d'une boîte délimitée (.meta-box) pour bien séparer visuellement les
+   champs — sinon tout baigne dans le même fond de la card. */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.meta-grid .meta-row[data-field="description"] { grid-column: 1 / -1; }
+.meta-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+.meta-label { font-weight: 500; font-size: 13px; }
+.meta-box { min-height: 38px; font-size: 13px; }
+@media (max-width: 720px) {
+  .meta-grid { grid-template-columns: 1fr; }
+}
+
 /* Overlay "patch en cours" : masqué par défaut, activé via .is-visible
    quand le formulaire de run est soumis. L'exécution est synchrone côté
    serveur (subprocess.run), donc la page reste bloquée — l'overlay donne
