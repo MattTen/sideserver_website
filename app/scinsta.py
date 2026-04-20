@@ -59,7 +59,7 @@ INSTAGRAM_BUNDLE_ID = "com.burbn.instagram"
 # Valeurs par defaut appliquees a la creation de l'App Instagram si aucune
 # metadonnee n'a ete saisie par l'admin via l'UI SCInsta. Une fois l'App
 # creee, ces defauts ne servent plus (la ligne App devient source de verite).
-_META_FIELDS = ("name", "developer_name", "subtitle", "description",
+_META_FIELDS = ("developer_name", "subtitle", "description",
                 "tint_color", "category")
 _META_DEFAULTS = {
     "name": "Instagram",
