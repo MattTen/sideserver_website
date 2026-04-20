@@ -76,13 +76,9 @@
 
 <div class="card mb-4" id="sci-meta-card">
   <h2>2. Métadonnées</h2>
-  <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    {% if state.app_exists %}
-    Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.
-    {% else %}
-    Champs pré-remplis à la création de l'app Instagram au prochain build. Tous obligatoires.
-    {% endif %}
-  </p>
+  {% if state.app_exists %}
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.</p>
+  {% endif %}
   {% set meta_fields = [
     ('developer_name', 'Développeur', 'input'),
     ('category', 'Catégorie', 'select'),
