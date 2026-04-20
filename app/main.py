@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -52,13 +53,30 @@ def _process_scinsta_result() -> None:
 
     Execute dans un thread via asyncio.to_thread : les Sessions SQLAlchemy
     n'aiment pas traverser les frontieres async.
+
+    Si integrate_build_result leve une exception (bug applicatif, contrainte
+    BDD, etc.), on bascule quand meme le status en "failed" pour debloquer
+    l'UI — sinon elle reste figee sur "build en cours" indefiniment alors
+    que le builder a termine depuis longtemps.
     """
     result = consume_build_result()
     if result is None:
         return
     db = SessionLocal()
     try:
-        err = integrate_build_result(db, result)
+        try:
+            err = integrate_build_result(db, result)
+        except Exception as e:
+            logger.exception("scinsta integration crashed")
+            db.rollback()
+            from .source_gen import set_setting
+            set_setting(db, "scinsta_last_build_at",
+                        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+            set_setting(db, "scinsta_last_build_status", "failed")
+            set_setting(db, "scinsta_last_build_error",
+                        f"Intégration échouée : {type(e).__name__}: {e}")
+            db.commit()
+            return
         if err:
             logger.error("scinsta integration failed: %s", err)
         else:
