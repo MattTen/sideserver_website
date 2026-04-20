@@ -680,11 +680,10 @@ def _ensure_instagram_app(db: Session, ipa_path: Path):
     """Retourne l'App Instagram en BDD, la creant depuis l'IPA si absente.
 
     Metadonnees appliquees a la creation :
-      1. Valeurs pending saisies par l'admin via l'UI SCInsta (settings
-         `scinsta_meta_*`), si non vides.
-      2. Sinon, defauts embarques (_META_DEFAULTS).
-      3. Le nom tombe par defaut sur celui lu dans l'Info.plist de l'IPA si
-         l'admin ne l'a pas override.
+      1. Le nom vient toujours du CFBundleDisplayName de l'IPA (non editable
+         dans l'UI SCInsta — champ figé).
+      2. Les autres champs : pending setting saisi par l'admin > defaut
+         embarqué (_META_DEFAULTS).
 
     Une fois l'App creee, les settings sont consommes (effaces) — la ligne
     App devient source de verite et les futures editions UI la modifient
@@ -708,11 +707,12 @@ def _ensure_instagram_app(db: Session, ipa_path: Path):
         (Config.ICONS_DIR / fname).write_bytes(info.icon_bytes)
         icon_path = fname
 
-    # Pour chaque champ : pending setting > nom extrait de l'IPA (name only) > defaut.
+    # Le nom n'est pas dans _META_FIELDS (non editable) : on le lit direct
+    # de l'Info.plist. Les autres champs : setting pending > defaut.
     pending = {f: get_setting(db, f"scinsta_meta_{f}", "") for f in _META_FIELDS}
     ipa_name = info.name if info and info.bundle_id == INSTAGRAM_BUNDLE_ID else ""
     values = {
-        "name": pending["name"] or ipa_name or _META_DEFAULTS["name"],
+        "name": ipa_name or _META_DEFAULTS["name"],
         "developer_name": pending["developer_name"] or _META_DEFAULTS["developer_name"],
         "subtitle": pending["subtitle"] or _META_DEFAULTS["subtitle"],
         "description": pending["description"] or _META_DEFAULTS["description"],
