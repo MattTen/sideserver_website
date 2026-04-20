@@ -53,8 +53,9 @@
 <div class="card mb-4">
   <h2>1. Upload de l'IPA Instagram</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    Téléchargez manuellement l'IPA décryptée depuis decrypt.day et déposez-la ici.
+    Téléchargez manuellement l'IPA Instagram depuis decrypt.day et déposez-la ici.
   </p>
+  <div id="sci-upload-msg" style="display:none; margin-bottom:10px;"></div>
 
   <label class="dropzone" id="sci-dropzone">
     <input type="file" id="sci-file-input" accept=".ipa">
@@ -66,23 +67,117 @@
   <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
     <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
       <span>
-        <strong>IPA prête<span id="sci-upload-version-wrap"{% if not state.upload_version %} style="display:none"{% endif %}> : <span id="sci-upload-version">{{ state.upload_version or '' }}</span></span></strong>
-        — une IPA Instagram est en attente de build.
+        <strong>IPA prête<span id="sci-upload-version-wrap"{% if not state.upload_version %} style="display:none"{% endif %}> : <span id="sci-upload-name">{{ state.upload_name or '' }}</span><span id="sci-upload-version"> {{ state.upload_version or '' }}</span></span></strong>
+        — une IPA est en attente de build.
       </span>
       <button type="button" class="btn btn-sm btn-ghost" id="sci-clear-upload">Supprimer</button>
     </div>
   </div>
 </div>
 
+<div class="card mb-4" id="sci-meta-card">
+  <h2>2. Métadonnées</h2>
+  {% if state.app_exists %}
+  <p class="text-muted" style="font-size: 13px; margin-top: 0;">Valeurs actuelles de l'app Instagram dans le store. Modifications appliquées directement à la fiche.</p>
+  {% endif %}
+  {% set meta_fields = [
+    ('developer_name', 'Développeur', 'input'),
+    ('category', 'Catégorie', 'select'),
+    ('subtitle', 'Sous-titre', 'input'),
+    ('tint_color', 'Teinte', 'color'),
+    ('description', 'Description', 'textarea'),
+  ] %}
+  <div class="meta-grid">
+    {% for key, label, kind in meta_fields %}
+    <div class="meta-row" data-field="{{ key }}">
+      <div class="meta-view">
+        <div class="meta-head">
+          <span class="meta-label">{{ label }}</span>
+          <button type="button" class="btn btn-sm btn-ghost meta-edit-btn">Modifier</button>
+        </div>
+        {% if kind == 'color' %}
+        <div class="patch-desc-view meta-box" style="display:flex; align-items:center; gap:8px; min-height:0;">
+          <span class="color-swatch meta-swatch" style="background:#{{ state.meta[key] or 'cccccc' }};"></span>
+          <code class="meta-value mono-sm">{% if state.meta[key] %}#{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</code>
+        </div>
+        {% else %}
+        <div class="patch-desc-view meta-box meta-value">{% if state.meta[key] %}{% if key == 'category' and state.meta[key]|lower == 'aucune' %}— Aucune —{% else %}{{ state.meta[key] }}{% endif %}{% else %}<span class="patch-desc-empty">(vide)</span>{% endif %}</div>
+        {% endif %}
+      </div>
+      <div class="meta-edit" style="display:none; flex-direction:column; gap:8px;">
+        <div class="meta-head">
+          <span class="meta-label">{{ label }}</span>
+        </div>
+        {% if kind == 'select' %}
+        <select class="input meta-input" style="width:100%;">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if (state.meta[key] or 'aucune')|lower == c|lower %}selected{% endif %}>{% if c|lower == 'aucune' %}— Aucune —{% else %}{{ c }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        {% elif kind == 'textarea' %}
+        <textarea class="textarea meta-input" rows="4" style="width:100%;">{{ state.meta[key] }}</textarea>
+        {% elif kind == 'color' %}
+        {% set cur = (state.meta[key] or '').lower() %}
+        <div class="tint-picker">
+          {% for tlabel, hex in tint_colors %}
+          <label class="tint-swatch" style="background:#{{ hex }};" title="{{ tlabel }}">
+            <input type="radio" name="tint_preset_{{ key }}" value="{{ hex }}" {% if cur == hex %}checked{% endif %}>
+          </label>
+          {% endfor %}
+          <label class="tint-swatch tint-swatch-custom" title="Personnalisé">
+            <input type="radio" name="tint_preset_{{ key }}" value="custom" {% if cur and cur not in tint_preset_values %}checked{% endif %}>
+          </label>
+        </div>
+        <input type="hidden" class="meta-input" value="{{ cur or 'cccccc' }}">
+        <div class="meta-color-custom row-gap" style="display:{% if cur and cur not in tint_preset_values %}flex{% else %}none{% endif %}; align-items:center;">
+          <input type="color" class="meta-color-picker" value="#{{ cur or 'cccccc' }}" style="width:40px; height:32px; padding:2px; border-radius:var(--radius); border:1px solid var(--border); cursor:pointer; background:none;">
+          <span class="text-muted mono-sm meta-color-label">#{{ cur or 'cccccc' }}</span>
+        </div>
+        {% else %}
+        <input type="text" class="input meta-input" value="{{ state.meta[key] }}" style="width:100%;" required>
+        {% endif %}
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="btn btn-sm btn-primary meta-save-btn">Enregistrer</button>
+          <button type="button" class="btn btn-sm btn-ghost meta-cancel-btn">Annuler</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card mb-4" id="sci-changelog-card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <h2 style="margin:0;">3. Note de version
+      {% if state.upload_ready and not state.changelog_is_override %}
+      <span class="badge" style="font-size:11px; margin-left:6px; vertical-align:middle;" id="sci-changelog-default-badge">défaut</span>
+      {% endif %}
+    </h2>
+    <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn"
+            {% if not state.upload_ready %}disabled style="opacity:.4; cursor:not-allowed;"{% endif %}>Modifier</button>
+  </div>
+  <div id="sci-changelog-view">
+    <div class="patch-desc-view meta-box">{% if state.upload_ready %}<span id="sci-changelog-text">{{ state.changelog }}</span>{% else %}<span id="sci-changelog-text" class="patch-desc-empty">Uploadez une IPA pour définir la note de version.</span>{% endif %}</div>
+  </div>
+  <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
+    <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button type="button" class="btn btn-sm btn-primary" id="sci-changelog-save">Enregistrer</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-cancel">Annuler</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-reset" title="Revenir au défaut auto">Réinitialiser</button>
+    </div>
+  </div>
+</div>
+
 <div class="card mb-4">
-  <h2>2. Patch optionnel</h2>
+  <h2>4. Patch (optionnel)</h2>
   <p class="text-muted" style="font-size: 13px; margin-top: 0;">
-    Script appliqué sur l'IPA après injection SCInsta. Laisse vide pour aucun patch.
+    Script de post-traitement appliqué sur l'IPA après l'injection SCInsta.
   </p>
   <div class="field">
     <label for="sci-patch-select">Patch à appliquer</label>
     <select id="sci-patch-select" class="input">
-      <option value="">— aucun —</option>
+      <option value="">— Aucun —</option>
       {% for p in patches %}
       <option value="{{ p.filename }}">{{ p.display_name }} ({{ p.filename }})</option>
       {% endfor %}
@@ -91,7 +186,7 @@
 </div>
 
 <div class="card mb-4">
-  <h2>3. Lancer le build</h2>
+  <h2>5. Lancer le build</h2>
   <div class="row-gap">
     <button class="btn btn-primary" type="button" id="sci-build-btn"
             {% if state.is_running or not state.upload_ready %}disabled{% endif %}>
@@ -113,6 +208,7 @@
     <span id="sci-build-patch-wrap"{% if not state.last_build_patch %} style="display:none"{% endif %}>
       · Patch appliqué : <code id="sci-build-patch">{{ state.last_build_patch or '' }}</code>
     </span>
+    <div id="sci-build-msg" class="alert" style="display:none; margin-top:10px; margin-bottom:0;"></div>
     <div id="sci-build-error-wrap" class="alert alert-error" style="display:{% if state.last_build_error %}flex{% else %}none{% endif %}; margin-top: 10px; align-items:flex-start; justify-content:space-between; gap:8px;">
       <span id="sci-build-error-msg">{{ state.last_build_error or '' }}</span>
       <button type="button" id="sci-build-error-close" title="Fermer" aria-label="Fermer"
@@ -151,6 +247,31 @@
   const uploadReady = document.getElementById('sci-upload-ready');
   const clearUploadBtn = document.getElementById('sci-clear-upload');
   const patchSelect = document.getElementById('sci-patch-select');
+  const buildMsgEl = document.getElementById('sci-build-msg');
+
+  const uploadMsgEl = document.getElementById('sci-upload-msg');
+  function setUploadMsg(text, kind) {
+    if (!text) { uploadMsgEl.style.display = 'none'; uploadMsgEl.textContent = ''; return; }
+    const s = BUILD_MSG_STYLES[kind || 'success'];
+    uploadMsgEl.style.cssText = `display:block; margin-bottom:12px; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    uploadMsgEl.textContent = text;
+  }
+
+  const BUILD_MSG_STYLES = {
+    success: { bg: 'rgba(126,179,138,0.12)', border: 'var(--success)', color: '#9dcfa7' },
+    warning: { bg: 'rgba(234,179,8,0.10)',   border: '#ca8a04',        color: '#fbbf24' },
+    error:   { bg: 'var(--danger-soft)',      border: 'var(--danger)',  color: '#e89d91' },
+  };
+  function setBuildMsg(text, kind) {
+    if (!text) {
+      buildMsgEl.style.display = 'none';
+      buildMsgEl.textContent = '';
+      return;
+    }
+    const s = BUILD_MSG_STYLES[kind || 'success'];
+    buildMsgEl.style.cssText = `display:block; margin-top:10px; margin-bottom:0; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    buildMsgEl.textContent = text;
+  }
 
   // Source editable : vue read-only <-> input + boutons Save/Cancel
   const sourceView = document.getElementById('sci-source-view');
@@ -164,7 +285,19 @@
   function setBanner(kind, msg) {
     // Le banner vit desormais dans la carte "Instagram (decrypt.day)" : on
     // garde une marge top reduite parce qu'il est inline dans le bloc.
-    banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : 'alert-info');
+    banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : kind === 'warning' ? 'alert-warning' : 'alert-info');
+    // warning-soft : jaune attenué pour les messages d'attente transitoires
+    // (ex: "Interrogation de decrypt.day…") — moins saillant qu'un résultat.
+    if (kind === 'warning-soft') {
+      banner.className = 'alert';
+      banner.style.background = 'rgba(234,179,8,0.05)';
+      banner.style.borderColor = 'rgba(202,138,4,0.3)';
+      banner.style.color = '#a07d10';
+    } else {
+      banner.style.background = '';
+      banner.style.borderColor = '';
+      banner.style.color = '';
+    }
     banner.textContent = msg;
     banner.style.display = msg ? 'block' : 'none';
   }
@@ -219,8 +352,10 @@
     uploadReady.style.display = state.upload_ready ? '' : 'none';
     const uvWrap = document.getElementById('sci-upload-version-wrap');
     const uvEl = document.getElementById('sci-upload-version');
+    const unEl = document.getElementById('sci-upload-name');
     if (state.upload_version) {
-      uvEl.textContent = state.upload_version;
+      if (unEl) unEl.textContent = state.upload_name || '';
+      uvEl.textContent = ' ' + state.upload_version;
       uvWrap.style.display = '';
     } else {
       uvWrap.style.display = 'none';
@@ -257,6 +392,10 @@
     } else {
       buildErrWrap.style.display = 'none';
     }
+
+    // Les sections Metadonnees + Note de version peuvent changer entre deux
+    // polls (ex: build termine -> App creee, ou settings consommes). Les
+    // helpers dediees sont appeles au besoin via renderAllMeta/renderChangelog.
   }
 
   // ── Source URL editable ──
@@ -299,7 +438,7 @@
   checkBtn.addEventListener('click', async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = 'Vérification…';
-    setBanner('', 'Interrogation de decrypt.day…');
+    setBanner('warning', 'Interrogation de decrypt.day…');
     try {
       const res = await fetch('/scinsta/check', { method: 'POST' });
       const state = await res.json();
@@ -358,14 +497,18 @@
     progressBar.style.width = '0%';
     try {
       await uploadIpa(file);
-      setBanner('ok', 'IPA téléversée (' + bytesToMb(file.size) + ').');
+      setUploadMsg('IPA téléversée (' + bytesToMb(file.size) + ').');
       dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
       dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
       // Refresh state pour activer le bouton Build
-      const r = await fetch('/scinsta/status'); render(await r.json());
+      const r = await fetch('/scinsta/status');
+      const s = await r.json();
+      render(s);
+      // Note de version "défaut" depend de upload_version : refresh apres upload.
+      renderChangelog(s);
     } catch (e) {
-      setBanner('err', 'Téléversement échoué : ' + e.message);
+      setUploadMsg('Téléversement échoué : ' + e.message, 'error');
       dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
       dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
@@ -390,8 +533,10 @@
   clearUploadBtn.addEventListener('click', async () => {
     await fetch('/scinsta/clear-upload', { method: 'POST' });
     const r = await fetch('/scinsta/status');
-    render(await r.json());
-    setBanner('', 'IPA en attente supprimée.');
+    const s = await r.json();
+    render(s);
+    renderChangelog(s);
+    setUploadMsg('IPA en attente supprimée.', 'error');
   });
 
   // ── Build ──
@@ -403,7 +548,7 @@
       const res = await fetch('/scinsta/build', { method: 'POST', body: fd });
       const data = await res.json();
       if (res.ok) {
-        setBanner('ok', data.message || 'Build lancé.');
+        setBuildMsg(data.message || 'Build lancé.');
         startPolling();
       } else {
         setBanner('err', data.message || 'Erreur : ' + res.status);
@@ -433,9 +578,9 @@
       const res = await fetch('/scinsta/cancel', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setBanner('', data.message || 'Annulation demandée.');
+        setBuildMsg('Annulation demandée.', 'warning');
       } else {
-        setBanner('err', data.message || 'Erreur : ' + res.status);
+        setBuildMsg(data.message || 'Erreur : ' + res.status, 'error');
       }
     } catch (e) {
       setBanner('err', 'Erreur réseau : ' + e.message);
@@ -493,18 +638,27 @@
         // Un dernier tick de log pour choper les dernieres lignes ecrites
         // apres que le status soit passe a success/failed.
         await pollLog();
+        // Apres build : l'App peut venir d'etre creee (App.row prend le relais
+        // des settings pending) et le changelog peut avoir change — on
+        // refresh les deux sections pour refleter la nouvelle realite.
+        renderAllMeta(state.meta || {});
+        renderChangelog(state);
+        setBuildMsg('');
         if (state.last_build_status === 'success') {
-          setBanner('ok', 'Build terminé — nouvelle version déployée.');
+          setBuildMsg('Build terminé — nouvelle version déployée.');
         } else if (state.last_build_status === 'failed') {
-          setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
+          // "Build annulé" s'affiche dans sci-build-error-wrap, pas de bannière.
+          if (state.last_build_error !== 'Build annulé') {
+            setBanner('err', 'Build échoué : ' + (state.last_build_error || 'erreur inconnue'));
+          }
         }
       }
     } catch (e) { /* ponctuel, on retente */ }
   }
   function startPolling() {
-    if (pollTimer) return;
-    // Reinit du log quand on relance un build : le builder tronque le
-    // fichier au demarrage, on efface l'ancien contenu cote UI aussi.
+    // Force-restart : nettoie un eventuel timer residuel (ex: apres cancel
+    // ou un build precedent qui n'aurait pas stoppe proprement).
+    stopPolling();
     logEl.textContent = '';
     logOffset = 0;
     pollTimer = setInterval(poll, 3000);
@@ -516,9 +670,237 @@
     if (logTimer) { clearInterval(logTimer); logTimer = null; }
   }
 
+  // ── Metadonnees editables (Nom, Developpeur, Categorie, Sous-titre, Description, Teinte)
+  // Chaque <div class="meta-row"> contient un .meta-view (read-only) et un
+  // .meta-edit (formulaire). On toggle display + on ecoute save/cancel sur
+  // chaque ligne. Le re-render apres save vient du state renvoye par le POST.
+  function setMetaEditing(row, editing) {
+    row.querySelector('.meta-view').style.display = editing ? '' : '';
+    row.querySelector('.meta-view').style.display = editing ? 'none' : 'block';
+    const edit = row.querySelector('.meta-edit');
+    edit.style.display = editing ? 'flex' : 'none';
+    if (editing) {
+      const inp = row.querySelector('.meta-input');
+      if (inp && inp.focus && inp.type !== 'hidden') inp.focus();
+    }
+  }
+
+  function renderMetaField(row, value) {
+    const field = row.dataset.field;
+    const valueEl = row.querySelector('.meta-value');
+    if (field === 'tint_color') {
+      const hex = (value || '').toLowerCase();
+      const swatch = row.querySelector('.meta-swatch');
+      if (swatch) swatch.style.background = '#' + (hex || 'cccccc');
+      valueEl.innerHTML = hex
+        ? '#' + hex
+        : '<span class="patch-desc-empty">(vide)</span>';
+    } else {
+      if (!value) {
+        valueEl.innerHTML = '<span class="patch-desc-empty">(vide)</span>';
+      } else if (field === 'category' && value.toLowerCase() === 'aucune') {
+        valueEl.textContent = '— Aucune —';
+      } else {
+        valueEl.textContent = value;
+      }
+    }
+  }
+
+  function renderAllMeta(meta) {
+    document.querySelectorAll('.meta-row').forEach(row => {
+      renderMetaField(row, meta[row.dataset.field]);
+    });
+  }
+
+  document.querySelectorAll('.meta-row').forEach(row => {
+    const editBtn = row.querySelector('.meta-edit-btn');
+    const saveBtn = row.querySelector('.meta-save-btn');
+    const cancelBtn = row.querySelector('.meta-cancel-btn');
+    const input = row.querySelector('.meta-input');
+    const field = row.dataset.field;
+
+    // Teinte : palette de presets (radios) + option "Personnalisé" qui
+    // affiche un <input type="color">. Le hidden.meta-input stocke la valeur
+    // hex finale (sans #) lue au save.
+    if (field === 'tint_color') {
+      const presetRadios = row.querySelectorAll('input[name^="tint_preset_"]');
+      const customRow = row.querySelector('.meta-color-custom');
+      const customPicker = row.querySelector('.meta-color-picker');
+      const customLabel = row.querySelector('.meta-color-label');
+      presetRadios.forEach(r => {
+        r.addEventListener('change', () => {
+          if (r.value === 'custom') {
+            if (customRow) customRow.style.display = 'flex';
+            if (customPicker) input.value = customPicker.value.replace('#', '').toLowerCase();
+          } else {
+            if (customRow) customRow.style.display = 'none';
+            input.value = r.value;
+          }
+        });
+      });
+      if (customPicker) {
+        customPicker.addEventListener('input', () => {
+          const hex = customPicker.value.replace('#', '').toLowerCase();
+          input.value = hex;
+          if (customLabel) customLabel.textContent = '#' + hex;
+        });
+      }
+    }
+
+    editBtn.addEventListener('click', () => {
+      // Avant d'ouvrir l'edition de la teinte, on aligne les radios sur la
+      // valeur courante (input.value contient l'hex sans #) : preset si elle
+      // est dans la palette, sinon "custom" (arc-en-ciel) + on affiche le
+      // color picker pre-rempli. Sans ce sync, les radios restent figes sur
+      // l'etat initial de la page meme apres un save.
+      if (field === 'tint_color') {
+        const cur = (input.value || '').replace('#', '').toLowerCase();
+        const presetRadios = row.querySelectorAll('input[name^="tint_preset_"]');
+        let matched = false;
+        presetRadios.forEach(r => {
+          if (r.value === cur) { r.checked = true; matched = true; }
+        });
+        const customRadio = row.querySelector('input[value="custom"]');
+        const customRow = row.querySelector('.meta-color-custom');
+        const customPicker = row.querySelector('.meta-color-picker');
+        const customLabel = row.querySelector('.meta-color-label');
+        if (!matched && cur) {
+          if (customRadio) customRadio.checked = true;
+          if (customRow) customRow.style.display = 'flex';
+          if (customPicker) customPicker.value = '#' + cur;
+          if (customLabel) customLabel.textContent = '#' + cur;
+        } else {
+          if (customRow) customRow.style.display = 'none';
+        }
+      }
+      setMetaEditing(row, true);
+    });
+    cancelBtn.addEventListener('click', () => setMetaEditing(row, false));
+
+    saveBtn.addEventListener('click', async () => {
+      let value = input.value;
+      if (field === 'tint_color') value = value.replace('#', '');
+      value = (value || '').trim();
+      if (!value) {
+        setBanner('err', 'Valeur requise.');
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append('value', value);
+        const res = await fetch('/scinsta/metadata/' + field, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setBanner('err', 'Erreur : ' + (data.detail || res.status));
+        } else {
+          const state = await res.json();
+          render(state);
+          renderAllMeta(state.meta || {});
+          setMetaEditing(row, false);
+        }
+      } catch (e) {
+        setBanner('err', 'Erreur réseau : ' + e.message);
+      }
+      saveBtn.disabled = false;
+    });
+  });
+
+  // ── Note de version (changelog override) ──
+  const cgView = document.getElementById('sci-changelog-view');
+  const cgEdit = document.getElementById('sci-changelog-edit');
+  const cgText = document.getElementById('sci-changelog-text');
+  const cgInput = document.getElementById('sci-changelog-input');
+  const cgEditBtn = document.getElementById('sci-changelog-edit-btn');
+  const cgSaveBtn = document.getElementById('sci-changelog-save');
+  const cgCancelBtn = document.getElementById('sci-changelog-cancel');
+  const cgResetBtn = document.getElementById('sci-changelog-reset');
+
+  function setChangelogEditing(editing) {
+    cgView.style.display = editing ? 'none' : 'flex';
+    cgEdit.style.display = editing ? 'flex' : 'none';
+    if (editing) {
+      cgInput.value = cgText.textContent || '';
+      cgInput.focus();
+    }
+  }
+
+  function renderChangelog(state) {
+    const locked = !state.upload_ready;
+    // Contenu : placeholder si pas d'IPA uploadee, sinon changelog reel.
+    if (locked) {
+      cgText.textContent = 'Uploadez une IPA pour définir la note de version.';
+      cgText.className = 'patch-desc-empty';
+    } else {
+      cgText.textContent = state.changelog || '';
+      cgText.className = '';
+    }
+    // Bouton Modifier : desactive sans IPA.
+    cgEditBtn.disabled = locked;
+    cgEditBtn.style.opacity = locked ? '.4' : '';
+    cgEditBtn.style.cursor = locked ? 'not-allowed' : '';
+    // Si on verrouille alors qu'on etait en mode edition, on ferme.
+    if (locked) setChangelogEditing(false);
+    // Badge "défaut" : visible seulement si IPA uploadee + pas d'override.
+    const badge = document.getElementById('sci-changelog-default-badge');
+    if (!locked && !state.changelog_is_override) {
+      if (!badge) {
+        const span = document.createElement('span');
+        span.id = 'sci-changelog-default-badge';
+        span.className = 'badge';
+        span.style.fontSize = '11px';
+        span.style.marginLeft = '6px';
+        span.style.verticalAlign = 'middle';
+        span.textContent = 'défaut';
+        document.querySelector('#sci-changelog-card h2').appendChild(span);
+      }
+    } else {
+      if (badge) badge.remove();
+    }
+  }
+
+  async function postChangelog(value) {
+    const fd = new FormData();
+    fd.append('value', value);
+    const res = await fetch('/scinsta/changelog', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setBanner('err', 'Erreur : ' + (data.detail || res.status));
+      return null;
+    }
+    return await res.json();
+  }
+
+  cgEditBtn.addEventListener('click', () => setChangelogEditing(true));
+  cgCancelBtn.addEventListener('click', () => setChangelogEditing(false));
+  cgSaveBtn.addEventListener('click', async () => {
+    cgSaveBtn.disabled = true;
+    const state = await postChangelog(cgInput.value);
+    if (state) {
+      render(state);
+      renderChangelog(state);
+      setChangelogEditing(false);
+      setBanner('ok', 'Note de version enregistrée.');
+    }
+    cgSaveBtn.disabled = false;
+  });
+  cgResetBtn.addEventListener('click', async () => {
+    cgResetBtn.disabled = true;
+    // Chaine vide -> le backend efface l'override et retombe sur le template.
+    const state = await postChangelog('');
+    if (state) {
+      render(state);
+      renderChangelog(state);
+      setChangelogEditing(false);
+      setBanner('', 'Note de version réinitialisée.');
+    }
+    cgResetBtn.disabled = false;
+  });
+
   // Etat initial (serialise par Jinja pour eviter un aller-retour au load)
   const initial = {{ state|tojson }};
   render(initial);
+  renderAllMeta(initial.meta || {});
   if (initial.is_running) {
     startPolling();
   } else {

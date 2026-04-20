@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from ..config import Config
 from ..db import get_db
 from ..source_gen import build_source
 
@@ -20,9 +21,16 @@ router = APIRouter()
 
 
 def _base_from_request(request: Request) -> str:
-    """URL publique dérivée de la requête : host + port effectivement
-    utilisés par le client. Garantit que toutes les URLs dans source.json
-    sont joignables depuis ce même client."""
+    """URL publique utilisée dans source.json + QR code.
+
+    `IPASTORE_BASE_URL` (env file) prime sur `request.base_url` pour que
+    source.json reste correct derrière un reverse proxy / Cloudflare Tunnel :
+    `request.base_url` reflète le host interne (ex: http://127.0.0.1:80)
+    alors que SideStore doit joindre l'URL publique (ex: https://store.mon-domaine).
+    Fallback sur la requête si la variable n'est pas définie (dev local).
+    """
+    if Config.DEFAULT_BASE_URL:
+        return Config.DEFAULT_BASE_URL.rstrip("/")
     return str(request.base_url).rstrip("/")
 
 
