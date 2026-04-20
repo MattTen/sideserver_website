@@ -522,7 +522,7 @@
     const s = await r.json();
     render(s);
     renderChangelog(s);
-    setBanner('', 'IPA en attente supprimée.');
+    setUploadMsg('IPA en attente supprimée.', 'error');
   });
 
   // ── Build ──
