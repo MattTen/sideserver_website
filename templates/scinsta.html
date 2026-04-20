@@ -438,7 +438,7 @@
   checkBtn.addEventListener('click', async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = 'Vérification…';
-    setBanner('warning-soft', 'Interrogation de decrypt.day…');
+    setBanner('warning', 'Interrogation de decrypt.day…');
     try {
       const res = await fetch('/scinsta/check', { method: 'POST' });
       const state = await res.json();
