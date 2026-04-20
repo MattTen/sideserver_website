@@ -67,8 +67,8 @@
   <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
     <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
       <span>
-        <strong>IPA prête<span id="sci-upload-version-wrap"{% if not state.upload_version %} style="display:none"{% endif %}> : <span id="sci-upload-version">{{ state.upload_version or '' }}</span></span></strong>
-        — une IPA Instagram est en attente de build.
+        <strong>IPA prête<span id="sci-upload-version-wrap"{% if not state.upload_version %} style="display:none"{% endif %}> : <span id="sci-upload-name">{{ state.upload_name or '' }}</span><span id="sci-upload-version"> {{ state.upload_version or '' }}</span></span></strong>
+        — une IPA est en attente de build.
       </span>
       <button type="button" class="btn btn-sm btn-ghost" id="sci-clear-upload">Supprimer</button>
     </div>
@@ -285,7 +285,7 @@
   function setBanner(kind, msg) {
     // Le banner vit desormais dans la carte "Instagram (decrypt.day)" : on
     // garde une marge top reduite parce qu'il est inline dans le bloc.
-    banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : 'alert-info');
+    banner.className = 'alert ' + (kind === 'ok' ? 'alert-success' : kind === 'err' ? 'alert-error' : kind === 'warning' ? 'alert-warning' : 'alert-info');
     banner.textContent = msg;
     banner.style.display = msg ? 'block' : 'none';
   }
@@ -340,8 +340,10 @@
     uploadReady.style.display = state.upload_ready ? '' : 'none';
     const uvWrap = document.getElementById('sci-upload-version-wrap');
     const uvEl = document.getElementById('sci-upload-version');
+    const unEl = document.getElementById('sci-upload-name');
     if (state.upload_version) {
-      uvEl.textContent = state.upload_version;
+      if (unEl) unEl.textContent = state.upload_name || '';
+      uvEl.textContent = ' ' + state.upload_version;
       uvWrap.style.display = '';
     } else {
       uvWrap.style.display = 'none';
@@ -424,7 +426,7 @@
   checkBtn.addEventListener('click', async () => {
     checkBtn.disabled = true;
     checkBtn.textContent = 'Vérification…';
-    setBanner('', 'Interrogation de decrypt.day…');
+    setBanner('warning', 'Interrogation de decrypt.day…');
     try {
       const res = await fetch('/scinsta/check', { method: 'POST' });
       const state = await res.json();
