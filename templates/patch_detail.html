@@ -34,7 +34,7 @@
 
         <!-- Vue édition (cachée par défaut) -->
         <div id="desc-edit" style="display:none;">
-          <textarea class="input" name="description" id="desc-textarea" rows="5" maxlength="1000" placeholder="À quoi sert ce patch, quelles apps il cible, effets secondaires…">{{ patch.description }}</textarea>
+          <textarea class="input" name="description" id="desc-textarea" rows="5" maxlength="1000" placeholder="Description du patch, applications ciblées, effets attendus…">{{ patch.description }}</textarea>
           <div style="display:flex; gap: 8px; margin-top: 8px;">
             <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
             <button type="button" class="btn btn-sm" onclick="cancelDescEdit()">Annuler</button>
@@ -53,7 +53,7 @@
     <h2>Exécuter le patch</h2>
     {% if apps %}
     <p class="text-muted mb-4" style="font-size: 12.5px;">
-      Sélectionne l'app + version à patcher. L'IPA sera écrasé en place et le hash mis à jour en BDD.
+      Sélectionnez l'application et la version à patcher. L'IPA sera modifié en place et le hash mis à jour en base de données.
     </p>
     <form method="post" action="/patches/{{ patch.filename }}/run" id="patch-run-form">
       <div class="field">
@@ -78,7 +78,7 @@
     {% else %}
     <div class="empty">
       <strong>Aucune version disponible</strong>
-      Upload un IPA depuis l'onglet Applications pour pouvoir le patcher.
+      Téléversez un IPA depuis l'onglet Applications pour pouvoir l'utiliser ici.
     </div>
     {% endif %}
   </div>
@@ -102,7 +102,7 @@
       </div>
     </div>
     <div class="patch-overlay-title">Patch en cours<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
-    <div class="patch-overlay-sub">Ne ferme pas cette page. Les gros IPAs peuvent prendre plusieurs minutes.</div>
+    <div class="patch-overlay-sub">Ne fermez pas cette page. Le traitement peut prendre plusieurs minutes selon la taille de l'IPA.</div>
   </div>
 </div>
 

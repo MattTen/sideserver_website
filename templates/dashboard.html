@@ -41,12 +41,12 @@
 <div class="two-col">
   <div class="card" id="upload">
     <h2>Déposer un IPA</h2>
-    <p class="text-muted mb-4" style="font-size: 12.5px;">Glisse un fichier <code>.ipa</code> ici. Les métadonnées (bundle ID, version, icône) sont extraites automatiquement.</p>
+    <p class="text-muted mb-4" style="font-size: 12.5px;">Déposez un fichier <code>.ipa</code>. Les métadonnées (bundle ID, version, icône) sont extraites automatiquement.</p>
     <form id="upload-form" method="post" action="/apps/upload" enctype="multipart/form-data">
       <label class="dropzone" id="dropzone">
         <input type="file" name="ipa" accept=".ipa" id="ipa-input" required>
-        <strong>Glisse un IPA</strong>
-        <div class="hint">ou clique pour choisir un fichier</div>
+        <strong>Déposer un IPA</strong>
+        <div class="hint">ou cliquer pour sélectionner un fichier</div>
         <div class="progress"><div class="progress-bar"></div></div>
       </label>
       <div class="mt-4 row-gap space-between">
@@ -76,7 +76,7 @@
       <img src="/qr.svg" alt="QR code source" class="source-qr">
     </div>
     <p class="text-muted mt-6" style="font-size: 12.5px;">
-      Dans <strong>SideStore</strong> : onglet Sources puis <code>+</code> et colle l'URL.
+      Dans <strong>SideStore</strong> : onglet Sources, appuyez sur <code>+</code> et collez l'URL.
     </p>
   </div>
 </div>
@@ -123,7 +123,7 @@
   {% else %}
   <div class="empty">
     <strong>Aucun IPA encore uploadé</strong>
-    Dépose ton premier IPA ci-dessus pour remplir ton magasin.
+    Téléversez votre premier IPA via la zone de dépôt ci-dessus.
   </div>
   {% endif %}
 </div>
