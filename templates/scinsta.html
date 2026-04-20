@@ -158,13 +158,20 @@
   <div id="sci-changelog-view">
     <div class="meta-head">
       <span class="meta-label">Note de version
-        {% if not state.changelog_is_override %}
+        {% if state.upload_ready and not state.changelog_is_override %}
         <span class="badge" style="margin-left:6px; font-size:11px;" id="sci-changelog-default-badge">défaut</span>
         {% endif %}
       </span>
-      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn">Modifier</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="sci-changelog-edit-btn"
+              {% if not state.upload_ready %}disabled style="opacity:.4; cursor:not-allowed;"{% endif %}>Modifier</button>
     </div>
-    <div class="patch-desc-view meta-box"><span id="sci-changelog-text">{{ state.changelog }}</span></div>
+    <div class="patch-desc-view meta-box">
+      {% if state.upload_ready %}
+      <span id="sci-changelog-text">{{ state.changelog }}</span>
+      {% else %}
+      <span id="sci-changelog-text" class="patch-desc-empty">Uploadez une IPA pour définir la note de version.</span>
+      {% endif %}
+    </div>
   </div>
   <div id="sci-changelog-edit" style="display:none; flex-direction:column; gap:8px;">
     <textarea id="sci-changelog-input" class="textarea" rows="3" style="width:100%;" placeholder="Instagram x.x.x + SCInsta"></textarea>
@@ -788,20 +795,35 @@
   }
 
   function renderChangelog(state) {
-    cgText.textContent = state.changelog || '';
-    // Badge "défaut" : affiche tant que l'admin n'a pas override.
+    const locked = !state.upload_ready;
+    // Contenu : placeholder si pas d'IPA uploadee, sinon changelog reel.
+    if (locked) {
+      cgText.textContent = 'Uploadez une IPA pour définir la note de version.';
+      cgText.className = 'patch-desc-empty';
+    } else {
+      cgText.textContent = state.changelog || '';
+      cgText.className = '';
+    }
+    // Bouton Modifier : desactive sans IPA.
+    cgEditBtn.disabled = locked;
+    cgEditBtn.style.opacity = locked ? '.4' : '';
+    cgEditBtn.style.cursor = locked ? 'not-allowed' : '';
+    // Si on verrouille alors qu'on etait en mode edition, on ferme.
+    if (locked) setChangelogEditing(false);
+    // Badge "défaut" : visible seulement si IPA uploadee + pas d'override.
     const badge = document.getElementById('sci-changelog-default-badge');
-    if (state.changelog_is_override) {
+    if (!locked && !state.changelog_is_override) {
+      if (!badge) {
+        const span = document.createElement('span');
+        span.id = 'sci-changelog-default-badge';
+        span.className = 'badge';
+        span.style.marginLeft = '6px';
+        span.style.fontSize = '11px';
+        span.textContent = 'défaut';
+        cgText.after(span);
+      }
+    } else {
       if (badge) badge.remove();
-    } else if (!badge) {
-      // Re-crée le badge si passage override -> defaut suite a un reset.
-      const span = document.createElement('span');
-      span.id = 'sci-changelog-default-badge';
-      span.className = 'badge';
-      span.style.marginLeft = '8px';
-      span.style.fontSize = '11px';
-      span.textContent = 'défaut';
-      cgText.after(span);
     }
   }
 
