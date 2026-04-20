@@ -105,7 +105,7 @@
           <code class="meta-value mono-sm">{% if state.meta[key] %}#{{ state.meta[key] }}{% else %}<span class="text-dim">(vide)</span>{% endif %}</code>
         </div>
         {% else %}
-        <div class="patch-desc-view meta-box meta-value">{% if state.meta[key] %}{{ state.meta[key] }}{% else %}<span class="patch-desc-empty">(vide)</span>{% endif %}</div>
+        <div class="patch-desc-view meta-box meta-value">{% if state.meta[key] %}{% if key == 'category' and state.meta[key]|lower == 'aucune' %}— Aucune —{% else %}{{ state.meta[key] }}{% endif %}{% else %}<span class="patch-desc-empty">(vide)</span>{% endif %}</div>
         {% endif %}
       </div>
       <div class="meta-edit" style="display:none; flex-direction:column; gap:8px;">
@@ -668,6 +668,8 @@
     } else {
       if (!value) {
         valueEl.innerHTML = '<span class="patch-desc-empty">(vide)</span>';
+      } else if (field === 'category' && value.toLowerCase() === 'aucune') {
+        valueEl.textContent = '— Aucune —';
       } else {
         valueEl.textContent = value;
       }
