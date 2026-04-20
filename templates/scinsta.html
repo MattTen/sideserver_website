@@ -185,7 +185,7 @@
     if (!latest) return { kind: '', text: 'non vérifié', title: 'Clique "Vérifier version"' };
     if (!deployed) return { kind: 'update', text: 'à intégrer', title: 'Jamais buildé' };
     if (deployed === latest) return { kind: 'ok', text: 'À jour', title: '' };
-    return { kind: 'danger', text: 'MAJ dispo', title: `Intégré ${deployed} → disponible ${latest}` };
+    return { kind: 'danger', text: 'Mise à jour disponible', title: `Intégré ${deployed} → disponible ${latest}` };
   }
 
   function render(state) {
