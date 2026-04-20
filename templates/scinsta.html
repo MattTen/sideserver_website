@@ -253,7 +253,7 @@
   function setUploadMsg(text, kind) {
     if (!text) { uploadMsgEl.style.display = 'none'; uploadMsgEl.textContent = ''; return; }
     const s = BUILD_MSG_STYLES[kind || 'success'];
-    uploadMsgEl.style.cssText = `display:block; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    uploadMsgEl.style.cssText = `display:block; margin-bottom:12px; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
     uploadMsgEl.textContent = text;
   }
 
