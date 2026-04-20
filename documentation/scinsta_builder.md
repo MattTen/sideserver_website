@@ -161,10 +161,12 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 `integrate_build_result(db, result)` dans `app/scinsta.py` :
 
 1. Crée l'App `com.burbn.instagram` **si absente uniquement** (tint `E1306C`, catégorie `social`, icône extraite de l'Info.plist de l'IPA). Si l'App existe déjà, ses métadonnées (`developer_name`, `description`, `subtitle`, icône…) sont **figées** et ne sont **pas** ré-écrites à chaque build — l'admin reste maître du contenu saisi dans l'onglet Applications.
-2. Insère la `Version` avec :
-   - `version = <IG version>` (ex: `425.0.0`)
-   - `build_version = <short_sha_scinsta>` (ex: `a1b2c3d`) — **indispensable** pour éviter le conflit `UNIQUE(app_id, version, build_version)` quand plusieurs builds de la même version IG sont produits avec des commits SCInsta différents.
+2. Insère (ou met à jour en place si déjà présente) la `Version` avec :
+   - `version = <IG version>` (ex: `425.0.0`) — lu depuis `CFBundleShortVersionString` de l'Info.plist.
+   - `build_version = <CFBundleVersion>` (ex: `933996394`) — lu depuis l'Info.plist de l'IPA final. **Doit** correspondre au `CFBundleVersion` réel ; sinon SideStore refuse l'install avec un mismatch "version trouvée dans l'IPA ≠ version du store". Le short SHA SCInsta n'est **plus** utilisé comme `build_version` (cassait l'install), il reste tracé dans le setting `scinsta_last_build_scinsta_sha`.
    - `changelog = "Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
+   - **Rebuilds du même CFBundleVersion** : la ligne Version existante est remplacée en place (nouveau `ipa_filename`, `size`, `sha256`, `uploaded_at` bumpé) et l'ancien IPA est supprimé du disque.
+   - **Purge des lignes obsolètes** : toutes les autres Versions pour la même App + `version` IG mais avec un `build_version` différent (ex : lignes historiques créées avec short SHA, ou upload vanille pré-SCInsta) sont supprimées, IPAs inclus — un seul IPA par `(app, version, CFBundleVersion)` reste en BDD.
 3. **Aucun article news automatique** — l'admin rédige manuellement depuis l'onglet News s'il veut annoncer le build (et déclencher la notif push via `notify=1`).
 4. Supprime `scinsta-upload-<env>.ipa` pour que l'UI n'affiche plus "upload en attente".
 
