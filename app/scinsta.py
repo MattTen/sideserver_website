@@ -317,14 +317,20 @@ def _build_default_changelog(ig_version: Optional[str]) -> str:
     return f"Instagram {ig_version or 'x.x.x'} + SCInsta"
 
 
+_AUTO_CHANGELOG_RE = re.compile(r"^Instagram \d+(?:\.\d+)* \+ SCInsta$")
+
+
 def read_changelog(db: Session, ig_version: Optional[str]) -> tuple[str, bool]:
     """Retourne (texte_affiche, is_override).
 
-    - Override setting non vide -> (override, True).
+    - Override non vide ET different du template auto -> (override, True).
+    - Override qui matche le template auto (ex: enregistrement par accident
+      de la valeur par defaut) -> recalcule avec ig_version courante, sinon
+      la note reste figee sur une version IG obsolete entre 2 builds.
     - Sinon -> (template par defaut avec version connue, False).
     """
     override = get_setting(db, "scinsta_meta_changelog", "")
-    if override:
+    if override and not _AUTO_CHANGELOG_RE.match(override):
         return override, True
     return _build_default_changelog(ig_version), False
 
