@@ -271,7 +271,7 @@ def main() -> None:
 
     if not UPLOAD_FILE.is_file():
         finish_failure(
-            "Aucune IPA Instagram uploadee",
+            "Aucune IPA Instagram uploadée",
             traceback="UPLOAD_FILE missing",
         )
         return
