@@ -421,9 +421,11 @@ def get_state(db: Session) -> ScinstaState:
     # l'UI (required vs. facultatif, hint "l'app n'existe pas encore").
     state.app_exists = _get_instagram_app(db) is not None
     state.meta = read_metadata(db)
-    # Pour la preview du changelog, on prend la derniere version connue
-    # (ig_latest decrypt.day en priorite, sinon ig_deployed).
-    preview_v = state.ig_latest or state.ig_deployed
+    # Preview de la Note de version : on utilise la version de l'IPA
+    # uploadee (celle qui sera effectivement buildee), pas la derniere
+    # scrappee sur decrypt.day. Fallback sur ig_deployed si aucun upload
+    # en attente, puis ig_latest en dernier recours.
+    preview_v = state.upload_version or state.ig_deployed or state.ig_latest
     state.changelog, state.changelog_is_override = read_changelog(db, preview_v)
     return state
 

@@ -469,7 +469,11 @@
       dzHint.textContent = 'ou cliquer pour sélectionner un fichier (.ipa)';
       progress.style.display = 'none';
       // Refresh state pour activer le bouton Build
-      const r = await fetch('/scinsta/status'); render(await r.json());
+      const r = await fetch('/scinsta/status');
+      const s = await r.json();
+      render(s);
+      // Note de version "défaut" depend de upload_version : refresh apres upload.
+      renderChangelog(s);
     } catch (e) {
       setBanner('err', 'Téléversement échoué : ' + e.message);
       dzTitle.textContent = 'Déposer l\'IPA Instagram ici';
@@ -496,7 +500,9 @@
   clearUploadBtn.addEventListener('click', async () => {
     await fetch('/scinsta/clear-upload', { method: 'POST' });
     const r = await fetch('/scinsta/status');
-    render(await r.json());
+    const s = await r.json();
+    render(s);
+    renderChangelog(s);
     setBanner('', 'IPA en attente supprimée.');
   });
 
