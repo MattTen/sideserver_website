@@ -4,20 +4,23 @@
 # direct soit via sudo :
 #
 #   # en root :
-#   curl -sSL https://mondomaine.com/bootstrap-dev.sh \
-#     | BASE_URL=http://<ip> bash
+#   curl -sSL https://mondomaine.com/bootstrap-dev.sh | bash
 #
 #   # via sudo (les env vars doivent etre passees a sudo, pas au shell
 #   # appelant, sinon elles sont purgees par secure_path) :
-#   curl -sSL https://mondomaine.com/bootstrap-dev.sh \
-#     | sudo BASE_URL=http://<ip> bash
+#   curl -sSL https://mondomaine.com/bootstrap-dev.sh | sudo bash
 #
-# Variables d'environnement :
-#   BASE_URL       (REQUIS) URL publique du serveur, ex http://192.168.0.210
-#   BRANCH         (optionnel) branche a cloner, defaut "dev"
-#   GITHUB_USER    (optionnel) user git pour le clone auth, defaut "MattTen"
-#   GITHUB_TOKEN   (optionnel) PAT GitHub si le repo est prive
-#   HOST_PORT      (optionnel) port HTTP hote, defaut 8080
+# Par defaut l'app derive son URL publique des headers HTTP (request.base_url
+# avec support X-Forwarded-* pour les reverse proxy), donc changer d'IP ou
+# passer sur un domaine ne demande PAS de re-bootstrap.
+#
+# Variables d'environnement (toutes optionnelles) :
+#   BASE_URL       URL publique hardcodee (ex http://192.168.0.210). Si absent,
+#                  l'app utilise request.base_url dynamiquement.
+#   BRANCH         branche a cloner, defaut "dev"
+#   GITHUB_USER    user git pour le clone auth, defaut "MattTen"
+#   GITHUB_TOKEN   PAT GitHub si le repo est prive
+#   HOST_PORT      port HTTP hote, defaut 8080
 #
 # Strictement identique a bootstrap-prod.sh, a la seule difference pres que tout
 # pointe sur la branche/env "dev" : sert UNIQUEMENT a valider le mecanisme du
@@ -39,7 +42,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-: "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.0.210)}"
+BASE_URL="${BASE_URL:-}"
 BRANCH="${BRANCH:-dev}"
 GITHUB_USER="${GITHUB_USER:-MattTen}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
@@ -137,13 +140,16 @@ chown -R "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}"
 echo "[bootstrap] Ecriture du fichier d'environnement..."
 # IPASTORE_DB_URL n'est PAS defini ici : la connexion BDD est saisie via
 # l'UI (/setup/database) et persistee dans /etc/ipastore/db.json.
-cat > /etc/ipastore/dev.env <<EOF
-IPASTORE_STORE_DIR=/srv/store
-IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev
-IPASTORE_BASE_URL=${BASE_URL}
-IPASTORE_ENV=dev
-IPASTORE_GITHUB_REPO=${GITHUB_REPO}
-EOF
+# Si BASE_URL n'est pas fourni, on omet IPASTORE_BASE_URL : l'app retombe
+# sur request.base_url (uvicorn lit X-Forwarded-* via --proxy-headers) et
+# l'admin peut acceder via n'importe quelle IP/domaine sans re-bootstrap.
+{
+  echo "IPASTORE_STORE_DIR=/srv/store"
+  echo "IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev"
+  [[ -n "${BASE_URL}" ]] && echo "IPASTORE_BASE_URL=${BASE_URL}"
+  echo "IPASTORE_ENV=dev"
+  echo "IPASTORE_GITHUB_REPO=${GITHUB_REPO}"
+} > /etc/ipastore/dev.env
 chmod 640 /etc/ipastore/dev.env
 
 echo "[bootstrap] Generation de la cle de session si absente..."
@@ -280,7 +286,11 @@ echo "[bootstrap] Build + start du conteneur..."
 
 echo
 echo "[bootstrap] Termine."
-echo "  URL admin      : ${BASE_URL}"
+if [[ -n "${BASE_URL}" ]]; then
+  echo "  URL admin      : ${BASE_URL}"
+else
+  echo "  URL admin      : http://<ip-de-cette-vm>:${HOST_PORT}"
+fi
 echo "  Premier acces  : /setup/database pour configurer la connexion MySQL/MariaDB"
 echo "  Puis           : /setup pour creer l'admin"
 echo
