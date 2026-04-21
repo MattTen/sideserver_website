@@ -11,7 +11,21 @@ Deux schémas séparés sur l'hôte (port 3306), chacun géré par son propre us
 
 Le conteneur se connecte via `host.docker.internal` (résout vers l'hôte depuis le réseau Docker bridge).
 
-Les tables sont créées automatiquement au démarrage du conteneur via `Base.metadata.create_all()` (SQLAlchemy). Il n'y a pas de migrations — les colonnes ajoutées doivent être créées manuellement sur la prod si la table existe déjà.
+Les tables sont créées automatiquement au démarrage du conteneur via `Base.metadata.create_all()` (SQLAlchemy).
+
+**Migrations additives automatiques** : à chaque démarrage, `init_db()` appelle `app/schema_migrate.py::apply_pending_migrations()` qui compare les modèles SQLAlchemy à la BDD live et applique les opérations strictement additives nécessaires (`ALTER TABLE … ADD COLUMN`, `CREATE INDEX`). Aucun `DROP`, aucun `MODIFY` — les divergences de type sur colonnes existantes sont laissées telles quelles.
+
+CLI manuelle (utile en dry-run ou hors rebuild) :
+
+```bash
+docker exec sidestore-website python -m app.schema_migrate --dry-run  # liste
+docker exec sidestore-website python -m app.schema_migrate            # applique
+# Ou via le script de gestion mono-env :
+website-management-mono db-migrate-check   # dry-run
+website-management-mono db-migrate         # interactif (dry-run + confirm + apply)
+```
+
+Pour les opérations destructives (DROP COLUMN, RENAME), ajouter le DDL dans `app/db.py::_legacy_migrate()`.
 
 ---
 

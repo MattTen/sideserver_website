@@ -400,7 +400,9 @@ bind-address = 0.0.0.0
 | `deploy/bootstrap.sh`                         | Setup initial VM (paquets, BDD, env files, systemd units) |
 | `deploy/systemd/ipastore-update@.path`        | Watcher de flag-file                          |
 | `deploy/systemd/ipastore-update@.service`     | Exécuteur d'update                            |
-| `tools/website-management.sh`                 | Script de gestion unique                      |
+| `tools/website-management.sh`                 | Script de gestion historique (prod+dev sur la même VM) |
+| `tools/website-management-mono.sh`            | Script de gestion mono-env (1 machine = 1 conteneur, dev local OU prod cloud) |
+| `app/schema_migrate.py`                       | Migration additive du schéma BDD (ALTER ADD, CREATE INDEX) — appliquée au boot et via `db-migrate` |
 | `app/config.py`                               | Vars d'env lues au boot                       |
 | `app/updates.py`                              | Logique check + flag-file                     |
 | `app/routes/updates.py`                       | Routes `/settings/updates/{check,apply}`      |
@@ -500,3 +502,84 @@ Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin 
 | `news[]`            | Actualités (nouveau menu)               | table `news` + fichiers dans `STORE_DIR/news/`   |
 
 Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalide le cache HTTP de SideStore à chaque upload — sans ça, le client garde l'ancienne image même après remplacement côté serveur.
+
+---
+
+## 14. Déploiement mono-environnement (1 machine = 1 conteneur)
+
+Architecture cible quand prod et dev tournent sur des **machines distinctes** (typiquement : dev local à la maison, prod dans le cloud) plutôt que cohabiter sur une seule VM :
+
+- Un seul conteneur par machine, nommé `sidestore-website` (pas de suffixe `-prod`/`-dev`).
+- Un seul clone : `/opt/sideserver-website` (branche `main` côté prod, `dev` côté dev).
+- Un seul store : `/srv/store/`.
+- Un seul fichier de version : `/etc/ipastore/version`.
+- Un seul script de gestion : `tools/website-management-mono.sh`.
+
+L'intérêt : les environnements sont strictement identiques (chemins, noms docker, volumes, paths systemd). Une mise à jour déclenchée depuis l'UI dev exerce **réellement** le code-path qui sera utilisé en prod, sans branchements env-spécifiques.
+
+### Différences vs `website-management.sh` historique
+
+| Élément | Script historique | Script mono-env |
+|---|---|---|
+| Conteneurs | `sidestore-website-prod` + `sidestore-website-dev` | `sidestore-website` unique |
+| Fichier env | `/etc/ipastore/{prod,dev}.env` | `/etc/ipastore/<env>.env` (généré par bootstrap) |
+| Sync prod↔dev (`sync`, `sync-to-prod`, `sync-schema-to-prod`) | présents | **supprimés** (machines disjointes, pas de cycle physique de promotion) |
+| Migration de schéma | externe, via `tools/schema-sync.py` (compare 2 BDD live via `mysql` CLI) | intégrée dans l'app via `app/schema_migrate.py` (compare modèles SQLAlchemy ↔ BDD) ; déclenchée auto au boot + manuellement via `db-migrate` |
+| Reset users | utilise `/etc/ipastore/.mysql.cnf` + `mysql` CLI | `docker exec sidestore-website python` (lit `db.json` via l'app) — plus besoin de `.mysql.cnf` |
+| Commandes | `prod-*` / `dev-*` | sans préfixe (`start`, `stop`, `update`, `update-dev`, `pull`…) |
+
+### Commandes principales
+
+| Commande | Action |
+|---|---|
+| `start` / `stop` / `restart` / `logs` | Gestion docker compose |
+| `status` | Conteneur + version |
+| `update` | Déploie la dernière release GitHub (mode prod) |
+| `update-dev` | `git pull origin dev` + rebuild (mode dev rolling) |
+| `pull` | URGENCE : pull direct de `main` + rebuild (bypass release) |
+| `check` | `current=…/latest=…/update_available=0|1` machine-readable |
+| `db-migrate` | Dry-run + confirmation + apply des migrations additives |
+| `db-migrate-check` | Dry-run pur (sortie brute, sans interaction) |
+| `reset-users` | Purge users + crée un admin (via conteneur, sans `.mysql.cnf`) |
+| `scinsta-build` / `scinsta-cancel` | Pipeline SCInsta — conteneur builder nommé `scinsta-builder` |
+| `self-update` | Pull du script depuis `/opt/sideserver-tools` |
+
+### Migration de schéma BDD — `app/schema_migrate.py`
+
+Module appelé automatiquement à chaque `init_db()` (donc à chaque (re)démarrage du conteneur) et exposé en CLI via `python -m app.schema_migrate`.
+
+**Strictement additif** :
+- `CREATE TABLE` pour les tables manquantes (délégué à `metadata.create_all()`)
+- `ALTER TABLE … ADD COLUMN` pour les colonnes manquantes (avec gestion `NOT NULL` + default raisonnable selon le type SQL)
+- `CREATE [UNIQUE] INDEX` pour les indexes nommés manquants
+
+**Jamais** :
+- Pas de `DROP TABLE`/`DROP COLUMN`/`DROP INDEX`
+- Pas de `MODIFY COLUMN` (les divergences de type/nullability sont laissées telles quelles — visibles uniquement à la lecture du modèle vs `inspect()`)
+- Pas de `RENAME` (un rename = `ADD` du nouveau + nettoyage manuel de l'ancien)
+
+Conséquence : une release qui ajoute une table ou une colonne est appliquée automatiquement au prochain démarrage. Une release qui **supprime** ou **change le type** d'une colonne nécessite une migration manuelle (typiquement, ajouter le DDL dans `app/db.py::_legacy_migrate()`).
+
+**CLI** :
+
+```bash
+python -m app.schema_migrate              # applique
+python -m app.schema_migrate --dry-run    # liste sans appliquer
+python -m app.schema_migrate -v           # logs DEBUG
+```
+
+Côté script de gestion :
+
+```bash
+website-management-mono db-migrate-check  # dry-run rapide
+website-management-mono db-migrate        # interactif : dry-run → confirmation → apply
+```
+
+### Flux de promotion entre machines
+
+Pas de sync physique BDD/store dev → prod (les deux machines sont disjointes, sans réseau partagé). Le cycle de promotion passe par git :
+
+1. Développement sur la machine dev (branche `dev`, rolling via `update-dev`)
+2. Validation dev OK → merge `dev` → `main` → push
+3. Tag GitHub release (ex `v1.4.0`) → CI publie la release
+4. Sur la machine prod : `update` détecte la release et déploie ; `init_db()` applique automatiquement les nouvelles tables/colonnes via `schema_migrate.py`
