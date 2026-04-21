@@ -109,20 +109,23 @@ chown 1000:1000 /etc/ipastore/.git-credentials
 chmod 600 /etc/ipastore/.git-credentials
 
 echo "[bootstrap] Clone du repo (branche ${BRANCH}) dans ${TARGET_DIR}..."
+# safe.directory=* : au re-run le dir est chowne APP_USER mais git tourne
+# en root ici -> sans cette config, git refuse avec "dubious ownership".
+GIT_SAFE=(-c "safe.directory=${TARGET_DIR}")
 if [[ ! -d "${TARGET_DIR}/.git" ]]; then
   rm -rf "${TARGET_DIR}"
-  git -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+  git "${GIT_SAFE[@]}" -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
     clone -b "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${TARGET_DIR}"
 else
-  git -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+  git "${GIT_SAFE[@]}" -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
     -C "${TARGET_DIR}" fetch origin "${BRANCH}"
-  git -C "${TARGET_DIR}" checkout --force "${BRANCH}"
-  git -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
+  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force "${BRANCH}"
+  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
 fi
 
 # Sparse-checkout : la doc et CLAUDE.md ne sont pas necessaires sur le serveur.
-git -C "${TARGET_DIR}" sparse-checkout init --no-cone 2>/dev/null || true
-git -C "${TARGET_DIR}" sparse-checkout set '/*' '!documentation' '!CLAUDE.md' 2>/dev/null || true
+git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" sparse-checkout init --no-cone 2>/dev/null || true
+git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" sparse-checkout set '/*' '!documentation' '!CLAUDE.md' 2>/dev/null || true
 chown -R "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}"
 
 echo "[bootstrap] Ecriture du fichier d'environnement..."
