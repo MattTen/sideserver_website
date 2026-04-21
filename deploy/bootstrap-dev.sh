@@ -1,32 +1,49 @@
 #!/usr/bin/env bash
-# bootstrap-dev.sh : prépare une VM Debian/Ubuntu vierge pour héberger UNIQUEMENT le conteneur dev.
-# À exécuter UNE FOIS en root sur la VM.
+# bootstrap-dev.sh : deploie UNIQUEMENT le conteneur dev de zero sur une VM
+# Debian/Ubuntu vierge. Concu pour etre lance via curl | bash :
 #
-# Strictement identique à bootstrap-prod.sh, à la seule différence près que tout
-# pointe sur la branche/env "dev" : sert UNIQUEMENT à valider le mécanisme du
-# nouveau bootstrap-prod sur une VM vierge tant que la prod n'a pas migré.
+#   curl -sSL https://mondomaine.com/bootstrap-dev.sh \
+#     | GITHUB_TOKEN=ghp_xxx BASE_URL=http://<ip> bash
+#
+# Variables d'environnement :
+#   BASE_URL       (REQUIS) URL publique du serveur, ex http://192.168.0.210
+#   GITHUB_TOKEN   (REQUIS) PAT fine-grained avec Contents:read sur le repo prive
+#   BRANCH         (optionnel) branche a cloner, defaut "dev"
+#   GITHUB_USER    (optionnel) user git pour le clone auth, defaut "MattTen"
+#   HOST_PORT      (optionnel) port HTTP hote, defaut 8080
+#
+# Strictement identique a bootstrap-prod.sh, a la seule difference pres que tout
+# pointe sur la branche/env "dev" : sert UNIQUEMENT a valider le mecanisme du
+# nouveau bootstrap-prod sur une VM vierge tant que la prod n'a pas migre.
 #
 # La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
-# à la première connexion via /setup/database — ce script ne crée plus de BDD
-# ni d'utilisateur MySQL. L'admin doit préparer son schéma de son côté.
+# a la premiere connexion via /setup/database -- ce script ne cree pas de BDD
+# ni d'utilisateur MySQL. L'admin doit preparer son serveur BDD de son cote.
 
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Ce script doit être lancé en root." >&2
+  echo "Ce script doit etre lance en root." >&2
   exit 1
 fi
 
-: "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.1.100)}"
+: "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.0.210)}"
+: "${GITHUB_TOKEN:?Exporter GITHUB_TOKEN (PAT fine-grained, Contents:read)}"
+BRANCH="${BRANCH:-dev}"
+GITHUB_USER="${GITHUB_USER:-MattTen}"
+HOST_PORT="${HOST_PORT:-8080}"
+GITHUB_REPO="MattTen/sideserver_website"
+TARGET_DIR="/opt/sideserver-dev"
 
-echo "[bootstrap] Installation des paquets..."
+echo "[bootstrap] Installation des paquets systeme..."
+export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl gnupg rsync git
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[bootstrap] Installation de Docker..."
   # Le repo Docker differe selon l'OS (linux/debian vs linux/ubuntu).
-  # On detecte via /etc/os-release (ID=debian|ubuntu), fallback debian.
+  # Detection via /etc/os-release ID avec fallback debian.
   DOCKER_OS="$(. /etc/os-release && echo "$ID")"
   [[ "$DOCKER_OS" == "ubuntu" || "$DOCKER_OS" == "debian" ]] || DOCKER_OS="debian"
   install -m 0755 -d /etc/apt/keyrings
@@ -41,37 +58,74 @@ https://download.docker.com/linux/${DOCKER_OS} $(. /etc/os-release && echo "$VER
   systemctl enable --now docker
 fi
 
-echo "[bootstrap] Création des répertoires..."
+# Le conteneur tourne en uid 1000 (user 'ipastore' interne). Les units systemd
+# qui exposent le script de management doivent tourner sous le user local qui
+# a uid 1000 (pour acceder a docker et ecrire dans /etc/ipastore). On detecte
+# ce user automatiquement ; si uid 1000 n'existe pas, on cree "ipastore".
+APP_USER="$(getent passwd 1000 | cut -d: -f1 || true)"
+if [[ -z "$APP_USER" ]]; then
+  useradd -m -u 1000 -s /bin/bash ipastore
+  APP_USER="ipastore"
+fi
+APP_GROUP="$(getent group $(id -g "$APP_USER") | cut -d: -f1)"
+echo "[bootstrap] User applicatif (uid 1000) : ${APP_USER}:${APP_GROUP}"
+
+# Ajoute le user au groupe docker si pas deja dedans (necessaire pour que les
+# units systemd ExecStart=website-management puissent piloter docker sans sudo).
+if ! id -nG "$APP_USER" | tr ' ' '\n' | grep -qx docker; then
+  usermod -aG docker "$APP_USER"
+fi
+
+echo "[bootstrap] Creation des repertoires..."
 mkdir -p /srv/store-dev/{ipas,icons,screenshots}
 mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
-# Le conteneur monte /srv/store-dev sur /srv/store et y cree news/, ipas/,
-# icons/... en uid 1000. Sans chown explicite ici, les dirs restent root:root
-# et le mkdir du conteneur echoue (PermissionError sur /srv/store/news).
+# Le conteneur monte /srv/store-dev sur /srv/store et cree news/, ipas/,
+# icons/... en uid 1000. Sans chown explicite, les dirs restent root:root
+# et le mkdir du conteneur echoue (PermissionError).
 chown -R 1000:1000 /srv/store-dev
-# Le conteneur tourne en uid 1000 (user 'ipastore' interne) : il doit pouvoir
-# lire /etc/ipastore (secret_key, db.json, flags) et y ecrire (db.json, flags
-# de build). On chown explicitement en 1000:1000 au lieu de s'appuyer sur
-# l'uid du login user (sur Ubuntu 22.04 vierge par ex., le user 'sideserver'
-# a uid 1000 mais le dossier reste root:root sinon, et le conteneur ne peut
-# pas l'ouvrir -> PermissionError sur secret_key.* au boot).
+# Idem pour /etc/ipastore : il doit etre accessible en uid 1000 pour lire
+# secret_key.*, db.json et ecrire les flags.
 chown 1000:1000 /etc/ipastore
 chmod 750 /etc/ipastore
 
-echo "[bootstrap] Écriture du fichier d'environnement..."
-# IPASTORE_DB_URL n'est plus défini ici : la connexion BDD est saisie via
-# l'UI (/setup/database) et persistée dans /etc/ipastore/db.json.
+echo "[bootstrap] Ecriture des credentials git (PAT)..."
+cat > /etc/ipastore/.git-credentials <<EOF
+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com
+EOF
+chown 1000:1000 /etc/ipastore/.git-credentials
+chmod 600 /etc/ipastore/.git-credentials
+
+echo "[bootstrap] Clone du repo (branche ${BRANCH}) dans ${TARGET_DIR}..."
+if [[ ! -d "${TARGET_DIR}/.git" ]]; then
+  rm -rf "${TARGET_DIR}"
+  git -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+    clone -b "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${TARGET_DIR}"
+else
+  git -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+    -C "${TARGET_DIR}" fetch origin "${BRANCH}"
+  git -C "${TARGET_DIR}" checkout --force "${BRANCH}"
+  git -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
+fi
+
+# Sparse-checkout : la doc et CLAUDE.md ne sont pas necessaires sur le serveur.
+git -C "${TARGET_DIR}" sparse-checkout init --no-cone 2>/dev/null || true
+git -C "${TARGET_DIR}" sparse-checkout set '/*' '!documentation' '!CLAUDE.md' 2>/dev/null || true
+chown -R "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}"
+
+echo "[bootstrap] Ecriture du fichier d'environnement..."
+# IPASTORE_DB_URL n'est PAS defini ici : la connexion BDD est saisie via
+# l'UI (/setup/database) et persistee dans /etc/ipastore/db.json.
 cat > /etc/ipastore/dev.env <<EOF
 IPASTORE_STORE_DIR=/srv/store
 IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev
 IPASTORE_BASE_URL=${BASE_URL}
 IPASTORE_ENV=dev
-IPASTORE_GITHUB_REPO=MattTen/sideserver_website
+IPASTORE_GITHUB_REPO=${GITHUB_REPO}
 EOF
 chmod 640 /etc/ipastore/dev.env
 
-echo "[bootstrap] Génération de la clé de session si absente..."
-# Le conteneur tourne en uid 1000 (user 'ipastore') — la clé doit lui appartenir.
+echo "[bootstrap] Generation de la cle de session si absente..."
 f=/etc/ipastore/secret_key.dev
 if [[ ! -f "$f" ]]; then
   head -c 64 /dev/urandom > "$f"
@@ -84,35 +138,130 @@ f="/etc/ipastore/dev.version"
 [[ -f "$f" ]] || : > "$f"
 chmod 644 "$f"
 
-echo "[bootstrap] Installation des unités systemd (path + service templatisés)..."
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)/systemd"
-if [[ -d "$SRC_DIR" ]]; then
-  install -m 644 "$SRC_DIR/ipastore-update@.path"            /etc/systemd/system/ipastore-update@.path
-  install -m 644 "$SRC_DIR/ipastore-update@.service"         /etc/systemd/system/ipastore-update@.service
-  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.path"     /etc/systemd/system/ipastore-scinsta-build@.path
-  install -m 644 "$SRC_DIR/ipastore-scinsta-build@.service"  /etc/systemd/system/ipastore-scinsta-build@.service
-  install -m 644 "$SRC_DIR/ipastore-scinsta-cancel@.path"    /etc/systemd/system/ipastore-scinsta-cancel@.path
-  install -m 644 "$SRC_DIR/ipastore-scinsta-cancel@.service" /etc/systemd/system/ipastore-scinsta-cancel@.service
-  systemctl daemon-reload
-  systemctl enable --now \
-    ipastore-update@dev.path \
-    ipastore-scinsta-build@dev.path \
-    ipastore-scinsta-cancel@dev.path
-  echo "  units activées :"
-  echo "    ipastore-update@dev.path"
-  echo "    ipastore-scinsta-build@dev.path"
-  echo "    ipastore-scinsta-cancel@dev.path"
-else
-  echo "  /!\\ $SRC_DIR absent — unités systemd non installées."
-  echo "      (normal si tu lances bootstrap-dev.sh depuis un clone sparse qui exclut deploy/)"
+echo "[bootstrap] Installation des units systemd (path + service templatises)..."
+# Les units sont embarquees dans ce script pour que curl | bash fonctionne
+# sans dependance a un clone local. User/Group substitues par ${APP_USER}
+# detecte plus haut (altuser historique ou user uid 1000 existant).
+
+cat > /etc/systemd/system/ipastore-update@.path <<EOF
+[Unit]
+Description=Watch /etc/ipastore/update-requested-%i flag (triggers update of %i container)
+
+[Path]
+PathExists=/etc/ipastore/update-requested-%i
+Unit=ipastore-update@%i.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/ipastore-update@.service <<EOF
+[Unit]
+Description=Apply update to %i environment (triggered by flag file)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_GROUP}
+# On enleve TOUT DE SUITE le flag pour eviter les re-triggers en boucle.
+ExecStartPre=/bin/rm -f /etc/ipastore/update-requested-%i
+ExecStart=/usr/local/bin/website-management %i-update
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600
+EOF
+
+cat > /etc/systemd/system/ipastore-scinsta-build@.path <<EOF
+[Unit]
+Description=Watch /etc/ipastore/scinsta-build-requested-%i flag
+
+[Path]
+PathExists=/etc/ipastore/scinsta-build-requested-%i
+Unit=ipastore-scinsta-build@%i.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/ipastore-scinsta-build@.service <<EOF
+[Unit]
+Description=Build SCInsta IPA (Instagram + SCInsta main clone) pour %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_GROUP}
+# Le flag est lu PUIS supprime par build.py (read_flag_payload) : ne PAS le
+# supprimer ici sinon le payload JSON est perdu avant lecture.
+ExecStart=/usr/local/bin/website-management %i-scinsta-build
+StandardOutput=journal
+StandardError=journal
+# Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min selon la VM.
+TimeoutStartSec=1800
+EOF
+
+cat > /etc/systemd/system/ipastore-scinsta-cancel@.path <<EOF
+[Unit]
+Description=Watch /etc/ipastore/scinsta-build-cancel-%i flag (abort running build)
+
+[Path]
+PathExists=/etc/ipastore/scinsta-build-cancel-%i
+Unit=ipastore-scinsta-cancel@%i.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/ipastore-scinsta-cancel@.service <<EOF
+[Unit]
+Description=Abort a running SCInsta build for %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_GROUP}
+ExecStart=/usr/local/bin/website-management %i-scinsta-cancel
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30
+EOF
+
+systemctl daemon-reload
+systemctl enable --now \
+  ipastore-update@dev.path \
+  ipastore-scinsta-build@dev.path \
+  ipastore-scinsta-cancel@dev.path
+
+echo "[bootstrap] Symlink website-management..."
+if [[ -f "${TARGET_DIR}/tools/website-management.sh" ]]; then
+  ln -sf "${TARGET_DIR}/tools/website-management.sh" /usr/local/bin/website-management
+  chmod +x "${TARGET_DIR}/tools/website-management.sh"
 fi
 
-echo "[bootstrap] Terminé."
+echo "[bootstrap] Ecriture du .env docker-compose..."
+cat > "${TARGET_DIR}/.env" <<EOF
+CONTAINER_NAME=sidestore-website-dev
+HOST_PORT=${HOST_PORT}
+ENV_FILE=/etc/ipastore/dev.env
+STORE_PATH=/srv/store-dev
+IMAGE_TAG=dev
+EOF
+chown "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}/.env"
+
+echo "[bootstrap] Build + start du conteneur..."
+( cd "${TARGET_DIR}" && docker compose up -d --build )
+
 echo
-echo "Étapes suivantes :"
-echo "  1. git clone -b dev https://github.com/MattTen/sideserver_website.git /opt/sideserver-dev"
-echo "  2. Créer /opt/sideserver-dev/.env (CONTAINER_NAME, HOST_PORT=8080, ENV_FILE=/etc/ipastore/dev.env, STORE_PATH=/srv/store-dev)"
-echo "  3. cd /opt/sideserver-dev && docker compose up -d --build"
+echo "[bootstrap] Termine."
+echo "  URL admin      : ${BASE_URL}"
+echo "  Premier acces  : /setup/database pour configurer la connexion MySQL/MariaDB"
+echo "  Puis           : /setup pour creer l'admin"
 echo
-echo "Le script ./website-management.sh (dans le clone) gère l'environnement dev."
-echo "Utilise ./website-management.sh sans argument pour le menu interactif."
+echo "Management CLI   : /usr/local/bin/website-management"
+echo "  (sans argument = menu interactif)"
