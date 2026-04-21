@@ -2,9 +2,9 @@
 # bootstrap.sh : prépare une VM Debian vierge pour héberger les deux conteneurs.
 # À exécuter UNE FOIS en root sur la VM.
 #
-# Prérequis : MariaDB déjà installé et root@localhost configuré.
-# Variables : DB_PASS_PROD et DB_PASS_DEV doivent être exportées avant l'exécution.
-#             (Ces mots de passe seront aussi écrits dans /etc/ipastore/{prod,dev}.env.)
+# La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
+# à la première connexion via /setup/database — ce script ne crée plus de BDD
+# ni d'utilisateur MySQL. L'admin doit préparer ses schémas de son côté.
 
 set -euo pipefail
 
@@ -13,13 +13,11 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-: "${DB_PASS_PROD:?Exporter DB_PASS_PROD (mot de passe MariaDB pour l'user ipastore-prod)}"
-: "${DB_PASS_DEV:?Exporter DB_PASS_DEV (mot de passe MariaDB pour l'user ipastore-dev)}"
 : "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.1.100)}"
 
 echo "[bootstrap] Installation des paquets..."
 apt-get update
-apt-get install -y ca-certificates curl gnupg rsync git mariadb-client
+apt-get install -y ca-certificates curl gnupg rsync git
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[bootstrap] Installation de Docker..."
@@ -42,31 +40,10 @@ mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
 chmod 750 /etc/ipastore
 
-echo "[bootstrap] Création des bases de données..."
-mysql -u root <<SQL
-CREATE DATABASE IF NOT EXISTS \`ipastore-prod\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS \`ipastore-dev\`  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-CREATE USER IF NOT EXISTS 'ipastore-prod'@'%' IDENTIFIED BY '${DB_PASS_PROD}';
-CREATE USER IF NOT EXISTS 'ipastore-dev'@'%'  IDENTIFIED BY '${DB_PASS_DEV}';
-ALTER USER 'ipastore-prod'@'%' IDENTIFIED BY '${DB_PASS_PROD}';
-ALTER USER 'ipastore-dev'@'%'  IDENTIFIED BY '${DB_PASS_DEV}';
-
-GRANT ALL PRIVILEGES ON \`ipastore-prod\`.* TO 'ipastore-prod'@'%';
-GRANT ALL PRIVILEGES ON \`ipastore-dev\`.*  TO 'ipastore-dev'@'%';
-FLUSH PRIVILEGES;
-SQL
-
-echo "[bootstrap] Vérification du bind MariaDB (bind-address)..."
-if grep -Rq "^bind-address\s*=\s*127\.0\.0\.1" /etc/mysql/ 2>/dev/null; then
-  echo "  /!\\ MariaDB écoute sur 127.0.0.1 uniquement."
-  echo "      Les conteneurs y accèdent via host.docker.internal -> passe bind-address à 0.0.0.0"
-  echo "      (ou utilise network_mode: host). Édite /etc/mysql/mariadb.conf.d/50-server.cnf."
-fi
-
 echo "[bootstrap] Écriture des fichiers d'environnement..."
+# IPASTORE_DB_URL n'est plus défini ici : la connexion BDD est saisie via
+# l'UI (/setup/database) et persistée dans /etc/ipastore/db.json.
 cat > /etc/ipastore/prod.env <<EOF
-IPASTORE_DB_URL=mysql+pymysql://ipastore-prod:${DB_PASS_PROD}@host.docker.internal:3306/ipastore-prod?charset=utf8mb4
 IPASTORE_STORE_DIR=/srv/store
 IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.prod
 IPASTORE_BASE_URL=${BASE_URL}
@@ -76,7 +53,6 @@ EOF
 chmod 640 /etc/ipastore/prod.env
 
 cat > /etc/ipastore/dev.env <<EOF
-IPASTORE_DB_URL=mysql+pymysql://ipastore-dev:${DB_PASS_DEV}@host.docker.internal:3306/ipastore-dev?charset=utf8mb4
 IPASTORE_STORE_DIR=/srv/store
 IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev
 IPASTORE_BASE_URL=${BASE_URL}

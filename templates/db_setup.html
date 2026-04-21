@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Configuration BDD - IPA Store{% endblock %}
+{% block anon %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-mark">ip</div>
+      <div>
+        <div class="brand-name">IPA Store</div>
+        <span class="brand-sub">Configuration base de données</span>
+      </div>
+    </div>
+    <h1>Connexion à la base de données</h1>
+    <p class="sub">Saisis les identifiants d'une base MySQL/MariaDB existante. Une connexion test sera effectuée avant d'enregistrer.</p>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="post" action="/setup/database" autocomplete="off">
+      <div class="field">
+        <label for="host">Hôte</label>
+        <input class="input" id="host" name="host" value="{{ values.host }}" placeholder="host.docker.internal" required autofocus>
+      </div>
+      <div class="field">
+        <label for="port">Port</label>
+        <input class="input" id="port" name="port" value="{{ values.port }}" required>
+      </div>
+      <div class="field">
+        <label for="database">Nom de la base</label>
+        <input class="input" id="database" name="database" value="{{ values.database }}" placeholder="ipastore-prod" required>
+      </div>
+      <div class="field">
+        <label for="user">Utilisateur</label>
+        <input class="input" id="user" name="user" value="{{ values.user }}" required>
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input class="input" id="password" name="password" type="password" required>
+      </div>
+      <button class="btn btn-primary" type="submit">Tester et enregistrer</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

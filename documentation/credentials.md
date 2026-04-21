@@ -46,10 +46,10 @@ Trois users MySQL distincts, chacun avec un rôle précis.
 | Port | `3306` |
 | Base de données | `ipastore-prod` |
 | Droits | `ALL PRIVILEGES ON ipastore-prod.*` |
-| Où trouver le mot de passe | `/etc/ipastore/prod.env` → variable `IPASTORE_DB_URL` |
+| Où trouver le mot de passe | `/etc/ipastore/db.json` (champ `password`) |
 | Utilisé par | conteneur `sidestore-website-prod` |
 
-Le mot de passe est généré aléatoirement à l'installation (`deploy/bootstrap.sh`) et injecté dans la connection string de `IPASTORE_DB_URL`. Il n'est stocké qu'à un seul endroit : ce fichier.
+Le mot de passe est **choisi par l'admin** à la première connexion via l'UI (`/setup/database`) : il saisit host, port, user, mot de passe et nom de base. Les valeurs sont persistées dans `/etc/ipastore/db.json` (mode 600, owner uid 1000). Il n'est stocké qu'à un seul endroit : ce fichier.
 
 ### 2b. `ipastore-dev` — application dev
 
@@ -60,10 +60,10 @@ Le mot de passe est généré aléatoirement à l'installation (`deploy/bootstra
 | Port | `3306` |
 | Base de données | `ipastore-dev` |
 | Droits | `ALL PRIVILEGES ON ipastore-dev.*` |
-| Où trouver le mot de passe | `/etc/ipastore/dev.env` → variable `IPASTORE_DB_URL` |
+| Où trouver le mot de passe | `/etc/ipastore/db.json` (champ `password`, côté dev) |
 | Utilisé par | conteneur `sidestore-website-dev` |
 
-Même principe que prod — mot de passe généré à l'install, stocké uniquement dans `dev.env`.
+Même principe que prod : mot de passe choisi par l'admin via `/setup/database` sur l'UI dev, stocké dans le `db.json` du conteneur dev.
 
 ### 2c. `ipastore-mgmt` — script de management
 

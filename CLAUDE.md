@@ -197,8 +197,9 @@ Tous dans `/etc/ipastore/` (altuser:altuser 750, monté en volume dans les conte
 | Fichier | Contenu |
 |---|---|
 | `.git-credentials` | PAT GitHub fine-grained (Contents read-only) pour lire les releases |
-| `.mysql.cnf` | Credentials MySQL du user `ipastore-mgmt` (utilisé par le script) |
-| `prod.env` / `dev.env` | DB_URL + `STORE_DIR=/srv/store-{prod\|dev}` + variables d'environnement des conteneurs — c'est ce qui isole les données (IPAs, icônes, BDD) entre les deux environnements avec le même code |
+| `.mysql.cnf` | Credentials MySQL du user `ipastore-mgmt` (utilisé par le script pour sync/reset-users) |
+| `prod.env` / `dev.env` | `STORE_DIR=/srv/store-{prod\|dev}` + `IPASTORE_ENV` + `IPASTORE_BASE_URL` — variables d'environnement des conteneurs qui isolent les données entre prod et dev avec le même code. **Ne contient plus la connexion BDD**. |
+| `db.json` | Config BDD (host/port/user/password/database) saisie via `/setup/database` au premier démarrage. Mode 600, owner uid 1000. |
 | `secret_key.prod` / `secret_key.dev` | Clé HMAC de signature des cookies (64 octets) |
 | `prod.version` / `dev.version` | Version actuellement déployée |
 

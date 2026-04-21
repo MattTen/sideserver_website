@@ -67,10 +67,11 @@ Répertoire 750 owned par altuser. Monté en volume dans chaque conteneur (à `/
 
 | Fichier                         | Owner         | Mode  | Rôle                                              |
 |---------------------------------|---------------|-------|---------------------------------------------------|
-| `prod.env` / `dev.env`          | altuser       | 640   | Variables pour le conteneur (`IPASTORE_DB_URL`, `IPASTORE_ENV`, …) |
+| `prod.env` / `dev.env`          | altuser       | 640   | Variables pour le conteneur (`IPASTORE_ENV`, `IPASTORE_BASE_URL`, `IPASTORE_STORE_DIR`, …). La connexion BDD n'y est PAS — voir `db.json`. |
+| `db.json`                       | uid 1000      | 600   | Config BDD (host, port, user, password, database) saisie via `/setup/database` au premier démarrage. |
 | `secret_key.prod` / `.dev`      | uid 1000      | 600   | Clé de signature cookies (lue par le conteneur)    |
 | `prod.version` / `dev.version`  | altuser       | 644   | Version déployée (écrite par le script, lue par l'UI) |
-| `.mysql.cnf`                    | altuser (root-safe) | 600 | `[client] user=root password=…` pour mysqldump   |
+| `.mysql.cnf`                    | altuser (root-safe) | 600 | `[client] user=root password=…` pour mysqldump (utilisé par `sync`) |
 | `.git-credentials`              | altuser       | 600   | Token GitHub pour pull privés                      |
 | `update-requested-prod` / `-dev`| (ipastore uid 1000 depuis conteneur) | 644 | Flag transitoire : présence = demande de maj |
 
@@ -91,14 +92,13 @@ Toutes les vars sont injectées via `env_file: /etc/ipastore/{prod,dev}.env` dan
 
 | Variable                 | Exemple prod                          | Rôle                                  |
 |--------------------------|---------------------------------------|---------------------------------------|
-| `IPASTORE_DB_URL`        | `mysql+pymysql://ipastore-prod:…@host.docker.internal:3306/ipastore-prod?charset=utf8mb4` | Connexion MariaDB |
 | `IPASTORE_STORE_DIR`     | `/srv/store`                          | Racine binaires (monté depuis `/srv/store-prod`) |
 | `IPASTORE_SECRET_FILE`   | `/etc/ipastore/secret_key.prod`       | Clé cookies (lue au boot)             |
 | `IPASTORE_BASE_URL`      | `http://<IP_SERVEUR>`                 | URL publique que SideStore utilise pour télécharger IPAs/icônes. C'est l'adresse que l'utilisateur entre dans SideStore pour ajouter la source — le feed `source.json` y intègre toutes les URLs absolues (ex: `http://<IP>/ipas/app.ipa`). Obligatoire derrière reverse proxy / Cloudflare Tunnel : `request.base_url` pointerait sinon sur le host interne (ex: `http://127.0.0.1:80`). `IPASTORE_BASE_URL` prime sur `request.base_url` quand la variable est définie, fallback sur la requête sinon (dev local). |
 | `IPASTORE_ENV`           | `prod` ou `dev`                       | Identifie l'environnement du conteneur (utilisé par le module updates) |
 | `IPASTORE_GITHUB_REPO`   | `MattTen/sideserver_website`          | Repo consulté pour les releases       |
 
-**Les credentials BDD ne transitent jamais par GitHub.** Ils sont créés par `deploy/bootstrap.sh` à partir des variables `DB_PASS_PROD` / `DB_PASS_DEV` exportées localement avant l'exécution.
+**Connexion BDD** : elle n'est plus transmise par variable d'environnement. L'admin la saisit via l'UI (`/setup/database`) au premier démarrage — host, port, user, mot de passe, nom de base. La config est persistée dans `/etc/ipastore/db.json` (mode 600). Les credentials ne transitent donc jamais par GitHub ni par les fichiers `.env`. Fallback historique : si `IPASTORE_DB_URL` est défini dans l'env, il est utilisé tant que `db.json` n'existe pas (rétro-compat).
 
 Le compose lui-même lit un `.env` local à chaque clone (`/opt/sideserver-prod/.env`, `/opt/sideserver-dev/.env`) :
 

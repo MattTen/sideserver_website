@@ -100,12 +100,13 @@ Les conteneurs lisent leur config depuis `/etc/ipastore/prod.env` et `/etc/ipast
 
 | Variable | Rôle |
 |---|---|
-| `IPASTORE_DB_URL` | Connection string MariaDB complète |
 | `IPASTORE_BASE_URL` | URL publique du serveur (entrée dans SideStore) |
 | `IPASTORE_STORE_DIR` | Racine des binaires (`/srv/store-prod` ou `/srv/store-dev`) |
 | `IPASTORE_SECRET_FILE` | Chemin vers la clé de signature des cookies |
 | `IPASTORE_ENV` | `prod` ou `dev` |
 | `IPASTORE_GITHUB_REPO` | Repo pour les releases (`MattTen/sideserver_website`) |
+
+La connexion BDD (host/user/mdp/nom de base) n'est **plus** fournie en env var : elle est saisie via l'UI au premier démarrage (`/setup/database`) puis persistée dans `/etc/ipastore/db.json` (mode 600).
 
 Voir [documentation/server.md](documentation/server.md) pour les détails complets.
 
