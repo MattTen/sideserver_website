@@ -18,6 +18,11 @@
 
 set -euo pipefail
 
+# Sur Debian, `su -c` n'ajoute pas /usr/sbin au PATH, donc usermod/useradd
+# sont introuvables. On force un PATH complet pour couvrir tous les cas
+# (curl | bash piped, su -c, login shells, etc.).
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
+
 if [[ $EUID -ne 0 ]]; then
   echo "Ce script doit etre lance en root." >&2
   exit 1
