@@ -24,8 +24,10 @@ def _required(name: str) -> str:
 
 class Config:
     # ── Base de données ──────────────────────────────────────────────────────
-    # Connection string complète injectée par l'env file (ex: mysql+pymysql://...).
-    DB_URL = _required("IPASTORE_DB_URL")
+    # La connection string n'est plus exigée au boot : elle est résolue
+    # dynamiquement par app.db_config.resolve_db_url() (db.json → env var).
+    # Le conteneur doit pouvoir démarrer même avant la config BDD pour afficher
+    # la page /setup/database.
 
     # ── Système de fichiers du magasin ───────────────────────────────────────
     # STORE_DIR est monté depuis l'hôte (/srv/store-prod ou /srv/store-dev)
