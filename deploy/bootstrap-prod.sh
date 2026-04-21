@@ -5,18 +5,18 @@
 #
 #   # en root :
 #   curl -sSL https://mondomaine.com/bootstrap-prod.sh \
-#     | GITHUB_TOKEN=ghp_xxx BASE_URL=http://<ip> bash
+#     | BASE_URL=http://<ip> bash
 #
 #   # via sudo (les env vars doivent etre passees a sudo, pas au shell
 #   # appelant, sinon elles sont purgees par secure_path) :
 #   curl -sSL https://mondomaine.com/bootstrap-prod.sh \
-#     | sudo GITHUB_TOKEN=ghp_xxx BASE_URL=http://<ip> bash
+#     | sudo BASE_URL=http://<ip> bash
 #
 # Variables d'environnement :
 #   BASE_URL       (REQUIS) URL publique du serveur, ex http://192.168.0.202
-#   GITHUB_TOKEN   (REQUIS) PAT fine-grained avec Contents:read sur le repo prive
 #   BRANCH         (optionnel) branche a cloner, defaut "main"
 #   GITHUB_USER    (optionnel) user git pour le clone auth, defaut "MattTen"
+#   GITHUB_TOKEN   (optionnel) PAT GitHub si le repo est prive
 #   HOST_PORT      (optionnel) port HTTP hote, defaut 80
 #
 # La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
@@ -36,9 +36,9 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 : "${BASE_URL:?Exporter BASE_URL (ex: http://192.168.0.202)}"
-: "${GITHUB_TOKEN:?Exporter GITHUB_TOKEN (PAT fine-grained, Contents:read)}"
 BRANCH="${BRANCH:-main}"
 GITHUB_USER="${GITHUB_USER:-MattTen}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 HOST_PORT="${HOST_PORT:-80}"
 GITHUB_REPO="MattTen/sideserver_website"
 TARGET_DIR="/opt/sideserver-prod"
@@ -97,12 +97,18 @@ chown -R 1000:1000 /srv/store-prod
 chown 1000:1000 /etc/ipastore
 chmod 750 /etc/ipastore
 
-echo "[bootstrap] Ecriture des credentials git (PAT)..."
-cat > /etc/ipastore/.git-credentials <<EOF
+echo "[bootstrap] Configuration des credentials git..."
+# Si GITHUB_TOKEN fourni (repo prive), on stocke le PAT pour le clone.
+if [[ -n "${GITHUB_TOKEN}" ]]; then
+  cat > /etc/ipastore/.git-credentials <<EOF
 https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com
 EOF
-chown 1000:1000 /etc/ipastore/.git-credentials
-chmod 600 /etc/ipastore/.git-credentials
+  chown 1000:1000 /etc/ipastore/.git-credentials
+  chmod 600 /etc/ipastore/.git-credentials
+  GIT_CRED=(-c "credential.helper=store --file /etc/ipastore/.git-credentials")
+else
+  GIT_CRED=()
+fi
 
 echo "[bootstrap] Clone du repo (branche ${BRANCH}) dans ${TARGET_DIR}..."
 # safe.directory=* : au re-run le dir est chowne APP_USER mais git tourne
@@ -110,10 +116,10 @@ echo "[bootstrap] Clone du repo (branche ${BRANCH}) dans ${TARGET_DIR}..."
 GIT_SAFE=(-c "safe.directory=${TARGET_DIR}")
 if [[ ! -d "${TARGET_DIR}/.git" ]]; then
   rm -rf "${TARGET_DIR}"
-  git "${GIT_SAFE[@]}" -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+  git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" \
     clone -b "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${TARGET_DIR}"
 else
-  git "${GIT_SAFE[@]}" -c "credential.helper=store --file /etc/ipastore/.git-credentials" \
+  git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" \
     -C "${TARGET_DIR}" fetch origin "${BRANCH}"
   git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force "${BRANCH}"
   git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
