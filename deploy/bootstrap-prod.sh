@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # bootstrap-prod.sh : deploie UNIQUEMENT le conteneur prod de zero sur une VM
-# Debian/Ubuntu vierge. Concu pour etre lance via curl | bash :
+# Debian/Ubuntu vierge. Concu pour etre lance via curl | bash, soit en root
+# direct soit via sudo :
 #
+#   # en root :
 #   curl -sSL https://mondomaine.com/bootstrap-prod.sh \
 #     | GITHUB_TOKEN=ghp_xxx BASE_URL=http://<ip> bash
+#
+#   # via sudo (les env vars doivent etre passees a sudo, pas au shell
+#   # appelant, sinon elles sont purgees par secure_path) :
+#   curl -sSL https://mondomaine.com/bootstrap-prod.sh \
+#     | sudo GITHUB_TOKEN=ghp_xxx BASE_URL=http://<ip> bash
 #
 # Variables d'environnement :
 #   BASE_URL       (REQUIS) URL publique du serveur, ex http://192.168.0.202
