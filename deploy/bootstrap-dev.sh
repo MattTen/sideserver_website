@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# bootstrap-dev.sh : deploie UNIQUEMENT le conteneur dev de zero sur une VM
-# Debian/Ubuntu vierge. Concu pour etre lance via curl | bash, soit en root
-# direct soit via sudo :
+# bootstrap-dev.sh : copie CONFORME de bootstrap-prod.sh, seule difference
+# le code est clone depuis la branche "dev" au lieu de "main". Toute la
+# config infra (paths, port, container name, env var, systemd units) est
+# strictement identique a la prod : la VM de dev doit se comporter comme
+# une prod a part entiere, simplement elle tourne le code non-release.
+# Concu pour etre lance via curl | bash, soit en root direct soit via sudo :
 #
 #   # en root :
 #   curl -sSL https://mondomaine.com/bootstrap-dev.sh | bash
@@ -20,11 +23,7 @@
 #   BRANCH         branche a cloner, defaut "dev"
 #   GITHUB_USER    user git pour le clone auth, defaut "MattTen"
 #   GITHUB_TOKEN   PAT GitHub si le repo est prive
-#   HOST_PORT      port HTTP hote, defaut 8080
-#
-# Strictement identique a bootstrap-prod.sh, a la seule difference pres que tout
-# pointe sur la branche/env "dev" : sert UNIQUEMENT a valider le mecanisme du
-# nouveau bootstrap-prod sur une VM vierge tant que la prod n'a pas migre.
+#   HOST_PORT      port HTTP hote, defaut 80
 #
 # La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
 # a la premiere connexion via /setup/database -- ce script ne cree pas de BDD
@@ -46,9 +45,9 @@ BASE_URL="${BASE_URL:-}"
 BRANCH="${BRANCH:-dev}"
 GITHUB_USER="${GITHUB_USER:-MattTen}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-HOST_PORT="${HOST_PORT:-8080}"
+HOST_PORT="${HOST_PORT:-80}"
 GITHUB_REPO="MattTen/sideserver_website"
-TARGET_DIR="/opt/sideserver-dev"
+TARGET_DIR="/opt/sideserver-prod"
 
 echo "[bootstrap] Installation des paquets systeme..."
 export DEBIAN_FRONTEND=noninteractive
@@ -92,13 +91,13 @@ if ! id -nG "$APP_USER" | tr ' ' '\n' | grep -qx docker; then
 fi
 
 echo "[bootstrap] Creation des repertoires..."
-mkdir -p /srv/store-dev/{ipas,icons,screenshots}
+mkdir -p /srv/store-prod/{ipas,icons,screenshots}
 mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
-# Le conteneur monte /srv/store-dev sur /srv/store et cree news/, ipas/,
+# Le conteneur monte /srv/store-prod sur /srv/store et cree news/, ipas/,
 # icons/... en uid 1000. Sans chown explicite, les dirs restent root:root
 # et le mkdir du conteneur echoue (PermissionError).
-chown -R 1000:1000 /srv/store-dev
+chown -R 1000:1000 /srv/store-prod
 # Idem pour /etc/ipastore : il doit etre accessible en uid 1000 pour lire
 # secret_key.*, db.json et ecrire les flags.
 chown 1000:1000 /etc/ipastore
@@ -145,15 +144,15 @@ echo "[bootstrap] Ecriture du fichier d'environnement..."
 # l'admin peut acceder via n'importe quelle IP/domaine sans re-bootstrap.
 {
   echo "IPASTORE_STORE_DIR=/srv/store"
-  echo "IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.dev"
+  echo "IPASTORE_SECRET_FILE=/etc/ipastore/secret_key.prod"
   [[ -n "${BASE_URL}" ]] && echo "IPASTORE_BASE_URL=${BASE_URL}"
-  echo "IPASTORE_ENV=dev"
+  echo "IPASTORE_ENV=prod"
   echo "IPASTORE_GITHUB_REPO=${GITHUB_REPO}"
-} > /etc/ipastore/dev.env
-chmod 640 /etc/ipastore/dev.env
+} > /etc/ipastore/prod.env
+chmod 640 /etc/ipastore/prod.env
 
 echo "[bootstrap] Generation de la cle de session si absente..."
-f=/etc/ipastore/secret_key.dev
+f=/etc/ipastore/secret_key.prod
 if [[ ! -f "$f" ]]; then
   head -c 64 /dev/urandom > "$f"
 fi
@@ -161,7 +160,7 @@ chown 1000:1000 "$f"
 chmod 600 "$f"
 
 echo "[bootstrap] Fichier version (placeholder)..."
-f="/etc/ipastore/dev.version"
+f="/etc/ipastore/prod.version"
 [[ -f "$f" ]] || : > "$f"
 chmod 644 "$f"
 
@@ -261,9 +260,9 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now \
-  ipastore-update@dev.path \
-  ipastore-scinsta-build@dev.path \
-  ipastore-scinsta-cancel@dev.path
+  ipastore-update@prod.path \
+  ipastore-scinsta-build@prod.path \
+  ipastore-scinsta-cancel@prod.path
 
 echo "[bootstrap] Symlink website-management..."
 if [[ -f "${TARGET_DIR}/tools/website-management.sh" ]]; then
@@ -273,11 +272,11 @@ fi
 
 echo "[bootstrap] Ecriture du .env docker-compose..."
 cat > "${TARGET_DIR}/.env" <<EOF
-CONTAINER_NAME=sidestore-website-dev
+CONTAINER_NAME=sidestore-website-prod
 HOST_PORT=${HOST_PORT}
-ENV_FILE=/etc/ipastore/dev.env
-STORE_PATH=/srv/store-dev
-IMAGE_TAG=dev
+ENV_FILE=/etc/ipastore/prod.env
+STORE_PATH=/srv/store-prod
+IMAGE_TAG=prod
 EOF
 chown "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}/.env"
 
