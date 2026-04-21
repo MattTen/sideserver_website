@@ -33,4 +33,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8000/source.json >/dev/null || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# --proxy-headers + --forwarded-allow-ips=* : fait confiance a X-Forwarded-*
+# pour que request.base_url reflete l'URL publique (scheme + host) meme
+# derriere un reverse proxy / Cloudflare Tunnel. Sans ca, source.json sort
+# des liens vers http://127.0.0.1:8000 et SideStore ne peut rien telecharger.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips=*"]
