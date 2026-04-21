@@ -94,17 +94,24 @@ def get_db():
 
 
 def init_db() -> None:
-    """Crée toutes les tables déclarées dans les modèles si elles n'existent pas (idempotent)."""
+    """Crée les tables manquantes ET applique les migrations additives.
+
+    Appelé au boot du conteneur (après update / rebuild) : tout changement
+    de schéma poussé dans une nouvelle version est rattrapé automatiquement
+    sans intervention manuelle. Voir app/schema_migrate.py pour la logique.
+    """
     from . import models  # noqa: F401 — import nécessaire pour enregistrer les modèles auprès de Base
-    Base.metadata.create_all(get_engine())
-    _migrate()
+    from .schema_migrate import apply_pending_migrations
+    apply_pending_migrations(get_engine(), Base.metadata)
+    _legacy_migrate()
 
 
-def _migrate() -> None:
-    """Migrations de schéma légères entre versions (ALTER TABLE idempotents).
+def _legacy_migrate() -> None:
+    """Migrations de schéma destructives héritées (DROP COLUMN).
 
-    create_all ne modifie pas les tables existantes — ce bloc prend le relais
-    pour les colonnes ajoutées ou renommées après le déploiement initial.
+    Le mécanisme générique ne fait que de l'additif. Pour les opérations
+    DROP / RENAME historiques (qu'on ne veut pas réintroduire dans les modèles),
+    on garde ce bloc bien identifié.
     """
     from sqlalchemy import inspect, text
 
@@ -115,12 +122,6 @@ def _migrate() -> None:
 
     cols = {c["name"] for c in inspector.get_columns("news")}
     with engine.connect() as conn:
-        # bg_preset remplace tint_color + url (introduit en v1.x).
-        if "bg_preset" not in cols:
-            conn.execute(text(
-                "ALTER TABLE news ADD COLUMN bg_preset VARCHAR(64) NOT NULL DEFAULT ''"
-            ))
-            conn.commit()
         for old in ("tint_color", "url"):
             if old in cols:
                 conn.execute(text(f"ALTER TABLE news DROP COLUMN {old}"))
