@@ -45,6 +45,17 @@ echo "[bootstrap] Création des répertoires..."
 mkdir -p /srv/store-dev/{ipas,icons,screenshots}
 mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
+# Le conteneur monte /srv/store-dev sur /srv/store et y cree news/, ipas/,
+# icons/... en uid 1000. Sans chown explicite ici, les dirs restent root:root
+# et le mkdir du conteneur echoue (PermissionError sur /srv/store/news).
+chown -R 1000:1000 /srv/store-dev
+# Le conteneur tourne en uid 1000 (user 'ipastore' interne) : il doit pouvoir
+# lire /etc/ipastore (secret_key, db.json, flags) et y ecrire (db.json, flags
+# de build). On chown explicitement en 1000:1000 au lieu de s'appuyer sur
+# l'uid du login user (sur Ubuntu 22.04 vierge par ex., le user 'sideserver'
+# a uid 1000 mais le dossier reste root:root sinon, et le conteneur ne peut
+# pas l'ouvrir -> PermissionError sur secret_key.* au boot).
+chown 1000:1000 /etc/ipastore
 chmod 750 /etc/ipastore
 
 echo "[bootstrap] Écriture du fichier d'environnement..."
