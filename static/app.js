@@ -81,6 +81,7 @@
     const banner = document.getElementById('upd-banner');
     const checkBtn = document.getElementById('upd-check-btn');
     const applyBtn = document.getElementById('upd-apply-btn');
+    const restartBtn = document.getElementById('upd-restart-btn');
 
     function showBanner(kind, msg) {
       banner.style.display = 'block';
@@ -158,8 +159,35 @@
       }
     }
 
+    async function restartNow() {
+      if (!confirm('Redémarrer le conteneur maintenant ? L\'interface sera indisponible quelques secondes.')) return;
+      restartBtn.disabled = true;
+      const prev = restartBtn.textContent;
+      restartBtn.textContent = 'Redémarrage...';
+      try {
+        const r = await fetch('/settings/updates/restart', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const j = await r.json();
+        if (j.ok) {
+          showBanner('success', j.message || 'Redémarrage lancé.');
+          setTimeout(() => { window.location.reload(); }, 8000);
+        } else {
+          showBanner('error', j.message || 'Erreur inconnue');
+          restartBtn.disabled = false;
+          restartBtn.textContent = prev;
+        }
+      } catch (e) {
+        // Une erreur reseau est attendue : le serveur quitte avant/pendant la reponse.
+        showBanner('success', 'Redémarrage en cours...');
+        setTimeout(() => { window.location.reload(); }, 8000);
+      }
+    }
+
     checkBtn.addEventListener('click', checkNow);
     applyBtn.addEventListener('click', applyNow);
+    if (restartBtn) restartBtn.addEventListener('click', restartNow);
     checkNow();
   }
 
