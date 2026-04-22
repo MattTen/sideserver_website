@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
-# bootstrap-dev.sh : copie CONFORME de bootstrap-prod.sh, seule difference
-# le code est clone depuis la branche "dev" au lieu de "main". Toute la
-# config infra (paths, port, container name, env var, systemd units) est
-# strictement identique a la prod : la VM de dev doit se comporter comme
-# une prod a part entiere, simplement elle tourne le code non-release.
-# Concu pour etre lance via curl | bash, soit en root direct soit via sudo :
+# bootstrap.sh : deploie la prod (derniere release GitHub) de zero sur une VM
+# Debian/Ubuntu vierge. Un SEUL bootstrap, mono-env :
 #
-#   # en root :
-#   curl -sSL https://mondomaine.com/bootstrap-dev.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
 #
-#   # via sudo (les env vars doivent etre passees a sudo, pas au shell
-#   # appelant, sinon elles sont purgees par secure_path) :
-#   curl -sSL https://mondomaine.com/bootstrap-dev.sh | sudo bash
+# Apres le bootstrap, passer en env dev se fait via le script de management :
+#   website-management switch-dev    # bascule sur la branche dev (rolling)
+#   website-management switch-prod   # revient sur la derniere release
+#
+# Le script clone main, fetch les tags, puis checkout le DERNIER TAG de release
+# (HEAD detache). Si aucune release n'existe, reste sur main avec un warning.
 #
 # Par defaut l'app derive son URL publique des headers HTTP (request.base_url
 # avec support X-Forwarded-* pour les reverse proxy), donc changer d'IP ou
 # passer sur un domaine ne demande PAS de re-bootstrap.
 #
 # Variables d'environnement (toutes optionnelles) :
-#   BASE_URL       URL publique hardcodee (ex http://192.168.0.210). Si absent,
+#   BASE_URL       URL publique hardcodee (ex http://192.168.0.202). Si absent,
 #                  l'app utilise request.base_url dynamiquement.
-#   BRANCH         branche a cloner, defaut "dev"
 #   GITHUB_USER    user git pour le clone auth, defaut "MattTen"
 #   GITHUB_TOKEN   PAT GitHub si le repo est prive
 #   HOST_PORT      port HTTP hote, defaut 80
@@ -42,7 +39,6 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 BASE_URL="${BASE_URL:-}"
-BRANCH="${BRANCH:-dev}"
 GITHUB_USER="${GITHUB_USER:-MattTen}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 HOST_PORT="${HOST_PORT:-80}"
@@ -116,19 +112,43 @@ else
   GIT_CRED=()
 fi
 
-echo "[bootstrap] Clone du repo (branche ${BRANCH}) dans ${TARGET_DIR}..."
+echo "[bootstrap] Clone du repo dans ${TARGET_DIR}..."
 # safe.directory=* : au re-run le dir est chowne APP_USER mais git tourne
 # en root ici -> sans cette config, git refuse avec "dubious ownership".
 GIT_SAFE=(-c "safe.directory=${TARGET_DIR}")
 if [[ ! -d "${TARGET_DIR}/.git" ]]; then
   rm -rf "${TARGET_DIR}"
   git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" \
-    clone -b "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${TARGET_DIR}"
+    clone "https://github.com/${GITHUB_REPO}.git" "${TARGET_DIR}"
 else
   git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" \
-    -C "${TARGET_DIR}" fetch origin "${BRANCH}"
-  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force "${BRANCH}"
-  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
+    -C "${TARGET_DIR}" fetch origin
+fi
+
+# On doit avoir tous les tags pour pouvoir checkout la derniere release.
+git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" -C "${TARGET_DIR}" fetch --tags --prune origin
+
+# Recupere le tag de la derniere release via l'API GitHub.
+echo "[bootstrap] Recuperation de la derniere release..."
+API_CURL=(-fsSL -H 'Accept: application/vnd.github+json')
+[[ -n "${GITHUB_TOKEN}" ]] && API_CURL+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+LATEST_TAG="$(
+  curl "${API_CURL[@]}" "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
+    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+    | head -n1 \
+    | sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/' \
+    || true
+)"
+
+if [[ -n "${LATEST_TAG}" ]]; then
+  echo "[bootstrap] Checkout release ${LATEST_TAG} (HEAD detache)"
+  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force "${LATEST_TAG}"
+  DEPLOYED_VERSION="${LATEST_TAG}"
+else
+  echo "[bootstrap] WARNING : aucune release publiee -- fallback sur la branche main"
+  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force main
+  git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" reset --hard origin/main
+  DEPLOYED_VERSION="rolling-main-$(git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" rev-parse --short HEAD)"
 fi
 
 # Sparse-checkout : la doc et CLAUDE.md ne sont pas necessaires sur le serveur.
@@ -159,15 +179,15 @@ fi
 chown 1000:1000 "$f"
 chmod 600 "$f"
 
-echo "[bootstrap] Fichier version (placeholder)..."
+echo "[bootstrap] Ecriture du fichier version (${DEPLOYED_VERSION})..."
 f="/etc/ipastore/prod.version"
-[[ -f "$f" ]] || : > "$f"
+printf '%s\n' "${DEPLOYED_VERSION}" > "$f"
 chmod 644 "$f"
 
 echo "[bootstrap] Installation des units systemd (path + service templatises)..."
 # Les units sont embarquees dans ce script pour que curl | bash fonctionne
 # sans dependance a un clone local. User/Group substitues par ${APP_USER}
-# detecte plus haut (altuser historique ou user uid 1000 existant).
+# detecte plus haut (user uid 1000 existant).
 
 cat > /etc/systemd/system/ipastore-update@.path <<EOF
 [Unit]
@@ -285,16 +305,20 @@ echo "[bootstrap] Build + start du conteneur..."
 
 echo
 echo "[bootstrap] Termine."
+echo "  Version deployee : ${DEPLOYED_VERSION}"
 if [[ -n "${BASE_URL}" ]]; then
-  echo "  URL admin      : ${BASE_URL}"
+  echo "  URL admin        : ${BASE_URL}"
 else
-  echo "  URL admin      : http://<ip-de-cette-vm>:${HOST_PORT}"
+  echo "  URL admin        : http://<ip-de-cette-vm>:${HOST_PORT}"
 fi
-echo "  Premier acces  : /setup/database pour configurer la connexion MySQL/MariaDB"
-echo "  Puis           : /setup pour creer l'admin"
+echo "  Premier acces    : /setup/database pour configurer la connexion MySQL/MariaDB"
+echo "  Puis             : /setup pour creer l'admin"
 echo
-echo "Management CLI   : /usr/local/bin/website-management"
+echo "Management CLI    : /usr/local/bin/website-management"
 echo "  (sans argument = menu interactif)"
+echo "  switch-dev      : bascule en env dev (branche dev, rolling)"
+echo "  switch-prod     : revient en prod (derniere release)"
+echo "  update          : dispatch auto selon env courant"
 echo
 echo "Note : ${APP_USER} a ete ajoute au groupe docker, mais les sessions SSH"
 echo "       ouvertes AVANT le bootstrap n'ont pas ce groupe. Reconnecte-toi"
