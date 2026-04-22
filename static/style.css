@@ -571,7 +571,14 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
   color: var(--text-dim);
   margin-bottom: 10px;
 }
-.appearance-icon-wrap { display: flex; align-items: center; }
+.appearance-icon-wrap { display: flex; align-items: center; cursor: pointer; }
+.appearance-icon-wrap:hover .appearance-icon,
+.appearance-icon-wrap.drag-over .appearance-icon {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
 .appearance-icon {
   width: 96px; height: 96px;
   border-radius: 22px;
