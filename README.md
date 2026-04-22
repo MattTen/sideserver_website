@@ -32,20 +32,18 @@ Publier une release prod :
 
 ## Déploiement initial
 
-Les scripts bootstrap sont auto-suffisants (`curl | bash`) : ils installent Docker, clonent le repo, configurent systemd, et démarrent le conteneur.
-
-### VM de prod (cloud)
+Un **seul** script bootstrap auto-suffisant (`curl | bash`) : il installe Docker, clone le repo, checkout la **dernière release GitHub** (HEAD détaché), configure systemd et démarre le conteneur.
 
 ```bash
 # En root ou via sudo. Tout est auto : Docker, clone, systemd, conteneur.
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap-prod.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
 ```
 
-### VM de dev (maison)
+La VM démarre toujours en **env prod**. Pour basculer en dev après coup (ou revenir en prod), on utilise le script de management :
 
 ```bash
-# Identique a bootstrap-prod.sh (paths, ports, systemd...) mais clone la branche dev.
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/dev/deploy/bootstrap-dev.sh | sudo bash
+website-management switch-dev    # passe sur la branche dev (rolling, pas de release)
+website-management switch-prod   # revient sur la derniere release (= update prod)
 ```
 
 ### Variables optionnelles (env vars à passer à `sudo bash`)
@@ -53,7 +51,6 @@ curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/dev/deplo
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `BASE_URL` | *(vide)* | URL publique forcée. Si absent, l'app dérive l'URL depuis les headers HTTP (`X-Forwarded-*` via `--proxy-headers`) — c'est **recommandé** : changer d'IP ou ajouter un domaine ne nécessite pas de re-bootstrap. |
-| `BRANCH` | `main` (prod) / `dev` (dev) | Branche à cloner. |
 | `GITHUB_USER` | `MattTen` | Utilisateur Git pour l'auth du clone. |
 | `GITHUB_TOKEN` | *(vide)* | PAT GitHub seulement si le repo est privé. Le repo actuel étant public, laisser vide. |
 | `HOST_PORT` | `80` | Port HTTP hôte. |
@@ -61,7 +58,7 @@ curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/dev/deplo
 Exemple avec URL forcée :
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap-prod.sh \
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh \
   | sudo BASE_URL=https://store.mon-domaine.com bash
 ```
 
@@ -96,8 +93,12 @@ website-management start / stop / restart / logs / status
 # Code
 website-management update           # prod : release-based / dev : rolling (auto-detect branche)
 website-management check            # machine-readable : current / latest / update_available
-website-management pull             # force pull HEAD de la branche courante (hotfix)
+website-management pull             # force pull HEAD de la branche courante (dev uniquement)
 website-management self-update      # pull ce script (git pull de /opt/sideserver-prod)
+
+# Bascule d'environnement
+website-management switch-dev       # passe la VM en env dev (branche dev, rolling)
+website-management switch-prod      # revient en env prod (checkout derniere release)
 
 # Admin
 website-management reset-users      # supprime tous les admins + en crée un nouveau (prompt login/mdp)
@@ -133,7 +134,7 @@ app/              # code Python (FastAPI)
 templates/        # Jinja2
 static/           # CSS + JS
 patch/            # scripts de patch IPA (fix_ipa.py, etc.)
-deploy/           # bootstrap-prod.sh + bootstrap-dev.sh (curl | bash auto-suffisants)
+deploy/           # bootstrap.sh unique (curl | bash auto-suffisant, clone + release)
 tools/            # website-management.sh + scinsta-builder/
 documentation/    # doc serveur + credentials (exclu du déploiement serveur via sparse-checkout)
 Dockerfile

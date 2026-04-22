@@ -3,7 +3,8 @@
 #   /opt/sideserver-prod/.env -> CONTAINER_NAME=sidestore-website-prod,
 #                                HOST_PORT=80, ENV_FILE=/etc/ipastore/prod.env,
 #                                STORE_PATH=/srv/store-prod
-# Le bootstrap-dev utilise les memes valeurs -- seule la branche Git differe.
+# La bascule dev <-> prod se fait uniquement via le ref git checkoute
+# (switch-dev / switch-prod dans website-management) : meme .env, meme conteneur.
 
 services:
   ipastore:
