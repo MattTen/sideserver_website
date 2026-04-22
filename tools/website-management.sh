@@ -113,6 +113,23 @@ write_version_file() {
   chmod 644 "$VERSION_FILE" || true
 }
 
+# Met a jour IMAGE_TAG dans le .env de docker-compose pour que l'image
+# resultante soit taggee avec la version deployee (ex ipastore:v0.2.0.1
+# ou ipastore:rolling-dev-234eff6) plutot qu'un tag generique. A appeler
+# AVANT `docker compose up -d --build`. Sanitization minimale : Docker
+# accepte [a-zA-Z0-9_.-] dans les tags, donc les versions semver et nos
+# `rolling-<branche>-<sha>` passent telles quelles.
+set_image_tag() {
+  local tag="$1"
+  local env_file="$APP_DIR/.env"
+  [[ -f "$env_file" ]] || { warn "$env_file absent, IMAGE_TAG non mis a jour"; return 0; }
+  if grep -q '^IMAGE_TAG=' "$env_file"; then
+    sed -i -E "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" "$env_file"
+  else
+    printf 'IMAGE_TAG=%s\n' "$tag" >> "$env_file"
+  fi
+}
+
 # ────── Commandes conteneur ──────
 
 cmd_start() {
@@ -181,11 +198,13 @@ cmd_pull_rolling() {
   info "Pull rolling branche '$branch' dans $APP_DIR"
   (cd "$APP_DIR" \
     && git_auth fetch origin "$branch" \
-    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
   local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
-  write_version_file "rolling-${branch}-${sha}"
-  ok "Mis a jour : rolling-${branch}-${sha}"
+  local tag="rolling-${branch}-${sha}"
+  set_image_tag "$tag"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  write_version_file "$tag"
+  ok "Mis a jour : $tag"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
   post_deploy_schema_sync
 }
@@ -198,11 +217,13 @@ cmd_pull_branch() {
   (cd "$APP_DIR" \
     && git_auth fetch origin "$branch" \
     && git "${GIT_SAFE[@]}" checkout --force "$branch" \
-    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
   local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
-  write_version_file "rolling-${branch}-${sha}"
-  ok "Deploye : rolling-${branch}-${sha}"
+  local tag="rolling-${branch}-${sha}"
+  set_image_tag "$tag"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  write_version_file "$tag"
+  ok "Deploye : $tag"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
   post_deploy_schema_sync
 }
@@ -246,8 +267,9 @@ cmd_choose_release() {
   info "Checkout $target + rebuild"
   (cd "$APP_DIR" \
     && git_auth fetch --tags --prune origin \
-    && git "${GIT_SAFE[@]}" checkout --force "$target" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" checkout --force "$target")
+  set_image_tag "$target"
+  (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$target"
   ok "Deploye : $target"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
@@ -363,8 +385,9 @@ cmd_update_release() {
   info "Checkout $latest + rebuild du conteneur"
   (cd "$APP_DIR" \
     && git_auth fetch --tags --prune origin \
-    && git "${GIT_SAFE[@]}" checkout --force "$latest" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" checkout --force "$latest")
+  set_image_tag "$latest"
+  (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$latest"
   ok "Deploye : $latest"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
