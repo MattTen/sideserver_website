@@ -75,7 +75,6 @@
   // Update management (settings page)
   const updCard = document.getElementById('updates-card');
   if (updCard) {
-    const envEl = document.getElementById('upd-env');
     const curEl = document.getElementById('upd-current');
     const latEl = document.getElementById('upd-latest');
     const chkEl = document.getElementById('upd-checked');
@@ -99,17 +98,11 @@
     }
 
     function render(s) {
-      envEl.textContent = s.env || '—';
       curEl.textContent = s.current || '<aucune>';
-      latEl.textContent = s.latest || (s.rolling ? '(rolling)' : '<non disponible>');
+      latEl.textContent = s.latest || '<non disponible>';
       chkEl.textContent = fmtTs(s.checked_at);
       if (s.error) {
         showBanner('error', 'Erreur : ' + s.error);
-        applyBtn.disabled = true;
-        return;
-      }
-      if (s.rolling) {
-        showBanner('info', 'Environnement dev (rolling) — pas de release. Mets à jour en CLI avec `website-management update`.');
         applyBtn.disabled = true;
         return;
       }

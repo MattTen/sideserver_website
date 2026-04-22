@@ -32,11 +32,6 @@ def updates_check(user: User = Depends(require_user)):
 @router.post("/apply")
 def updates_apply(user: User = Depends(require_user)):
     status = get_status(refresh=True)
-    if status.rolling:
-        return JSONResponse(
-            {"ok": False, "reason": "dev-is-rolling", "message": "Dev est rolling — utilise `website-management update` en CLI."},
-            status_code=400,
-        )
     if not status.update_available:
         return JSONResponse(
             {"ok": False, "reason": "no-update", "status": status.to_dict()},

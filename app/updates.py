@@ -3,11 +3,12 @@
 Flow:
 - `get_status()` reads local version file + polls GitHub `/releases/latest`, returns dict.
 - `request_update()` writes a flag file that a systemd path unit on the host watches;
-  when the file appears, the host runs `website-management.sh {env}-update` and removes it.
+  when the file appears, the host runs `website-management.sh prod-update` and removes it.
 - A background task calls `get_status()` every 6h to refresh the cache and log the result.
 
-Prod is release-based. Dev is rolling (no releases published) so its status always
-reports update_available=False — the UI button stays greyed.
+L'UI est mono-env : elle ignore la branche reellement checkoutee et expose
+toujours le meme flow (current vs latest release GitHub). La bascule
+dev/main se fait via le script de management (pull-dev/pull-main).
 """
 from __future__ import annotations
 
@@ -102,21 +103,17 @@ def fetch_latest_release() -> Optional[str]:
 
 @dataclass
 class UpdateStatus:
-    env: str
     current: Optional[str]
     latest: Optional[str]
     update_available: bool
-    rolling: bool  # True for dev (always no updates via release flow)
     checked_at: float = field(default_factory=time.time)
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
-            "env": self.env,
             "current": self.current,
             "latest": self.latest,
             "update_available": self.update_available,
-            "rolling": self.rolling,
             "checked_at": self.checked_at,
             "error": self.error,
         }
@@ -129,32 +126,19 @@ _cache: Optional[UpdateStatus] = None
 
 def _compute_status() -> UpdateStatus:
     current = read_current_version()
-    is_dev = Config.ENV_NAME == "dev"
-    if is_dev:
-        return UpdateStatus(
-            env="dev",
-            current=current,
-            latest=None,
-            update_available=False,
-            rolling=True,
-        )
     latest = fetch_latest_release()
     if latest is None:
         return UpdateStatus(
-            env="prod",
             current=current,
             latest=None,
             update_available=False,
-            rolling=False,
             error="no-release-or-api-error",
         )
     available = version_gt(latest, current or "")
     return UpdateStatus(
-        env="prod",
         current=current,
         latest=latest,
         update_available=available,
-        rolling=False,
     )
 
 

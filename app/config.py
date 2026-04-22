@@ -54,9 +54,10 @@ class Config:
     SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 jours en secondes
 
     # ── Système de mise à jour ───────────────────────────────────────────────
-    # ENV_NAME détermine le comportement du module updates :
-    #   "prod" → vérifie les releases GitHub, bouton MAJ actif
-    #   "dev"  → rolling, bouton MAJ toujours grisé
+    # Mono-env : ENV_NAME vaut toujours "prod" et sert uniquement de suffixe
+    # pour les fichiers /etc/ipastore/*.{env,version} et les flags I/O
+    # (update-requested-prod, scinsta-build-requested-prod, etc.). Ne pilote
+    # plus aucun comportement : le module updates est toujours release-based.
     ENV_NAME = os.environ.get("IPASTORE_ENV", "prod")
     GITHUB_REPO = os.environ.get("IPASTORE_GITHUB_REPO", "MattTen/sideserver_website")
 

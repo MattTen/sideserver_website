@@ -104,6 +104,16 @@ def test_connection(cfg: DbConfig) -> tuple[bool, str]:
         engine.dispose()
         return True, "Connexion OK"
     except SQLAlchemyError as e:
-        return False, f"{type(e).__name__}: {e}"
+        # SQLAlchemy enrobe l'erreur DBAPI (pymysql) avec un wrapper verbeux
+        # ("(pymysql.err.OperationalError) (1045, '...') (Background on...)").
+        # On veut juste le message brut du serveur MySQL/MariaDB cote UI :
+        #   ERROR 1045 (28000): Access denied for user 'x'@'y' (using password: YES)
+        orig = getattr(e, "orig", None)
+        if orig is not None and getattr(orig, "args", None):
+            args = orig.args
+            if len(args) >= 2 and isinstance(args[0], int):
+                return False, f"ERROR {args[0]}: {args[1]}"
+            return False, str(orig)
+        return False, str(e)
     except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+        return False, str(e)

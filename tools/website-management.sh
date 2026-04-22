@@ -113,6 +113,23 @@ write_version_file() {
   chmod 644 "$VERSION_FILE" || true
 }
 
+# Met a jour IMAGE_TAG dans le .env de docker-compose pour que l'image
+# resultante soit taggee avec la version deployee (ex ipastore:v0.2.0.1
+# ou ipastore:rolling-dev-234eff6) plutot qu'un tag generique. A appeler
+# AVANT `docker compose up -d --build`. Sanitization minimale : Docker
+# accepte [a-zA-Z0-9_.-] dans les tags, donc les versions semver et nos
+# `rolling-<branche>-<sha>` passent telles quelles.
+set_image_tag() {
+  local tag="$1"
+  local env_file="$APP_DIR/.env"
+  [[ -f "$env_file" ]] || { warn "$env_file absent, IMAGE_TAG non mis a jour"; return 0; }
+  if grep -q '^IMAGE_TAG=' "$env_file"; then
+    sed -i -E "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" "$env_file"
+  else
+    printf 'IMAGE_TAG=%s\n' "$tag" >> "$env_file"
+  fi
+}
+
 # ────── Commandes conteneur ──────
 
 cmd_start() {
@@ -149,24 +166,201 @@ cmd_status() {
 
 # ────── Mise a jour ──────
 
+# Apres un rebuild, attend que le conteneur soit pret (docker exec OK) puis
+# lance le schema-update. Non-fatal : si le sync schema rate, le deploiement
+# reste considere comme reussi (on warn juste). Appele systematiquement par
+# toutes les commandes de deploiement (release, pull-dev/main, rolling) pour
+# que l'ajout d'une colonne dans models.py soit applique automatiquement
+# apres une MAJ declenchee depuis l'UI.
+post_deploy_schema_sync() {
+  info "Attente du conteneur pour appliquer le schema-update..."
+  local i
+  for i in {1..30}; do
+    if docker exec "$CONTAINER_NAME" python -c "import app.models" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if ! cmd_schema_update; then
+    warn "schema-update a echoue (deploiement OK quand meme, a verifier manuellement)"
+  fi
+}
+
 # Rolling : pull HEAD de la branche courante + rebuild. Utilise pour :
 #   - dev : workflow normal (HEAD de dev)
 #   - prod hotfix : bascule sur main (pas depuis HEAD detache) puis pull
 cmd_pull_rolling() {
   local branch; branch="$(current_branch)"
   if [[ "$branch" == "HEAD" ]]; then
-    err "HEAD detache (release). Utilise 'switch-dev' ou 'pull' apres avoir checkout une branche."
+    err "HEAD detache (release). Utilise 'pull-dev'/'pull-main' pour checkout une branche."
     return 1
   fi
   info "Pull rolling branche '$branch' dans $APP_DIR"
   (cd "$APP_DIR" \
     && git_auth fetch origin "$branch" \
-    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
   local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
-  write_version_file "rolling-${branch}-${sha}"
-  ok "Mis a jour : rolling-${branch}-${sha}"
+  local tag="rolling-${branch}-${sha}"
+  set_image_tag "$tag"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  write_version_file "$tag"
+  ok "Mis a jour : $tag"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
+}
+
+# pull-branch : checkout force + reset hard sur origin/<branche> + rebuild.
+# Remplace l'ancien switch-dev/switch-prod en explicitant la cible.
+cmd_pull_branch() {
+  local branch="$1"
+  info "Pull + checkout branche '$branch' dans $APP_DIR"
+  (cd "$APP_DIR" \
+    && git_auth fetch origin "$branch" \
+    && git "${GIT_SAFE[@]}" checkout --force "$branch" \
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
+  local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
+  local tag="rolling-${branch}-${sha}"
+  set_image_tag "$tag"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  write_version_file "$tag"
+  ok "Deploye : $tag"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
+}
+
+# Liste les N dernieres releases GitHub et permet d'en choisir une a checkout.
+cmd_choose_release() {
+  local -a curl_args=(-fsSL -H 'Accept: application/vnd.github+json')
+  local token; token="$(github_token)"
+  [[ -n "$token" ]] && curl_args+=(-H "Authorization: Bearer $token")
+
+  info "Recuperation des releases depuis github.com/${GITHUB_REPO}"
+  local json
+  json="$(curl "${curl_args[@]}" \
+    "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=15" 2>/dev/null || true)"
+  [[ -n "$json" ]] || { err "API GitHub inaccessible"; return 1; }
+
+  # Parse les tag_name via grep (pas de dep jq). Ordre API = plus recent d'abord.
+  local -a tags=()
+  while IFS= read -r tag; do
+    tags+=("$tag")
+  done < <(printf '%s' "$json" \
+    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
+    | sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/')
+
+  [[ ${#tags[@]} -gt 0 ]] || { err "Aucune release trouvee sur ce repo"; return 1; }
+
+  echo
+  printf "  ${C_BOLD}Releases disponibles${C_RESET} (plus recente en haut) :\n"
+  local i=1
+  for tag in "${tags[@]}"; do
+    printf "    %2d) %s\n" "$i" "$tag"
+    ((i++))
+  done
+  echo
+  read -r -p "  Choix (numero, vide pour annuler) : " choice
+  [[ -n "$choice" ]] || { info "Annule"; return 0; }
+  [[ "$choice" =~ ^[0-9]+$ ]] || { err "Choix invalide"; return 1; }
+  (( choice >= 1 && choice <= ${#tags[@]} )) || { err "Hors de la plage"; return 1; }
+
+  local target="${tags[$((choice-1))]}"
+  info "Checkout $target + rebuild"
+  (cd "$APP_DIR" \
+    && git_auth fetch --tags --prune origin \
+    && git "${GIT_SAFE[@]}" checkout --force "$target")
+  set_image_tag "$target"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  write_version_file "$target"
+  ok "Deploye : $target"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
+}
+
+# self-update-dev : recupere uniquement ce script depuis la branche dev,
+# sans toucher au reste du clone (pas de rebuild conteneur). Utile pour
+# tester une nouvelle version du script sans bousculer le code applicatif.
+cmd_self_update_dev() {
+  info "Fetch origin dev + checkout tools/website-management.sh uniquement"
+  (cd "$APP_DIR" \
+    && git_auth fetch origin dev \
+    && git "${GIT_SAFE[@]}" checkout "origin/dev" -- tools/website-management.sh)
+  chmod +x "$APP_DIR/tools/website-management.sh" || true
+  ok "Script de management mis a jour depuis origin/dev (reste du clone inchange)"
+}
+
+# schema-update : aligne la BDD sur Base.metadata (app/models.py) via
+# docker exec dans le conteneur. Ne fait QUE de l'additif :
+#   - CREATE TABLE pour les tables absentes
+#   - ALTER TABLE ADD COLUMN pour les colonnes absentes
+# Ne modifie PAS les colonnes existantes (type/nullability), ne supprime
+# rien. Les changements destructifs restent a appliquer manuellement.
+cmd_schema_update() {
+  if ! docker ps --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+    err "Conteneur $CONTAINER_NAME non demarre. Lance-le d'abord."
+    return 1
+  fi
+
+  info "Comparaison Base.metadata (app/models.py) vs BDD configuree"
+  local py_script='
+import sys
+from sqlalchemy import inspect, text
+from sqlalchemy.schema import CreateColumn
+
+import app.models  # noqa: F401  force limport de tous les modeles
+from app.db import Base, get_engine
+from app.db_config import is_configured
+
+if not is_configured():
+    print("BDD non configuree (ouvre /setup/database dabord)", file=sys.stderr)
+    sys.exit(1)
+
+engine = get_engine()
+insp = inspect(engine)
+existing = set(insp.get_table_names())
+
+missing_tables = [t for t in Base.metadata.sorted_tables if t.name not in existing]
+missing_columns = []
+for table in Base.metadata.sorted_tables:
+    if table.name not in existing:
+        continue
+    db_cols = {c["name"] for c in insp.get_columns(table.name)}
+    for col in table.columns:
+        if col.name not in db_cols:
+            missing_columns.append((table, col))
+
+if not missing_tables and not missing_columns:
+    print("Schema deja a jour -- aucune action.")
+    sys.exit(0)
+
+print("Plan :")
+for t in missing_tables:
+    print(f"  + CREATE TABLE {t.name}")
+for t, c in missing_columns:
+    print(f"  + ALTER TABLE {t.name} ADD COLUMN {c.name}")
+
+if missing_tables:
+    Base.metadata.create_all(engine, tables=missing_tables)
+    print(f"OK: {len(missing_tables)} table(s) creee(s)")
+
+rc = 0
+for table, col in missing_columns:
+    ddl = str(CreateColumn(col).compile(dialect=engine.dialect))
+    sql = f"ALTER TABLE `{table.name}` ADD COLUMN {ddl}"
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(sql))
+        print(f"OK: {table.name}.{col.name} ajoutee")
+    except Exception as e:
+        print(f"ERREUR: {table.name}.{col.name} -- {e}", file=sys.stderr)
+        rc = 2
+sys.exit(rc)
+'
+  if docker exec -i "$CONTAINER_NAME" python -c "$py_script"; then
+    ok "Synchronisation schema terminee"
+  else
+    err "Synchronisation schema echouee (voir erreurs ci-dessus)"
+    return 1
+  fi
 }
 
 # Release-based : checkout du tag de la derniere release GitHub. Utilise
@@ -191,11 +385,13 @@ cmd_update_release() {
   info "Checkout $latest + rebuild du conteneur"
   (cd "$APP_DIR" \
     && git_auth fetch --tags --prune origin \
-    && git "${GIT_SAFE[@]}" checkout --force "$latest" \
-    && docker compose up -d --build)
+    && git "${GIT_SAFE[@]}" checkout --force "$latest")
+  set_image_tag "$latest"
+  (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$latest"
   ok "Deploye : $latest"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
 }
 
 # update : dispatcher selon le mode (branche).
@@ -206,43 +402,6 @@ cmd_update() {
     prod) cmd_update_release ;;
     dev)  cmd_pull_rolling ;;
   esac
-}
-
-# switch-dev : passe la VM en env dev. Checkout de la branche dev, reset
-# hard sur origin/dev, rebuild du conteneur. Idempotent si deja en dev.
-# Ne PAS creer de nouveau conteneur/volume : meme compose, meme image tag.
-cmd_switch_dev() {
-  info "Bascule env dev (branche dev, rolling)"
-  (cd "$APP_DIR" \
-    && git_auth fetch origin dev \
-    && git "${GIT_SAFE[@]}" checkout --force dev \
-    && git "${GIT_SAFE[@]}" reset --hard origin/dev \
-    && docker compose up -d --build)
-  local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
-  write_version_file "rolling-dev-${sha}"
-  ok "Deploye en env dev : rolling-dev-${sha}"
-  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
-}
-
-# switch-prod : revient en env prod = checkout du dernier tag de release.
-# Force le rebasculement meme si on est deja sur main (cas : dev -> prod).
-# Idempotent si deja sur le bon tag.
-cmd_switch_prod() {
-  info "Bascule env prod (derniere release GitHub)"
-  local latest
-  latest="$(latest_release_tag || true)"
-  if [[ -z "$latest" ]]; then
-    err "Aucune release publiee sur github.com/${GITHUB_REPO} (ou API inaccessible)"
-    return 1
-  fi
-  info "Checkout $latest + rebuild"
-  (cd "$APP_DIR" \
-    && git_auth fetch --tags --prune origin \
-    && git "${GIT_SAFE[@]}" checkout --force "$latest" \
-    && docker compose up -d --build)
-  write_version_file "$latest"
-  ok "Deploye en env prod : $latest"
-  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
 }
 
 # Sortie machine-readable pour l'UI admin.
@@ -434,17 +593,25 @@ $(printf "${C_BOLD}CONTENEUR${C_RESET}")
   status              Conteneur + version + branche
 
 $(printf "${C_BOLD}MISE A JOUR DU CODE${C_RESET}")
-  update              Dispatcher : release-based si env=prod, rolling si env=dev
+  update              Checkout de la derniere release GitHub + rebuild
+  choose-release      Liste les 15 dernieres releases et permet d'en choisir une
+  pull-dev            Checkout + pull origin/dev + rebuild
+  pull-main           Checkout + pull origin/main + rebuild
+  self-update-dev     Recupere uniquement ce script depuis origin/dev (pas de rebuild)
   check               Machine-readable : current / latest / update_available
   pull                Force pull HEAD de la branche courante (dev uniquement)
   self-update         Pull ce script (git pull / re-checkout de APP_DIR)
 
-$(printf "${C_BOLD}BASCULE D'ENVIRONNEMENT${C_RESET}")
-  switch-dev          Passe la VM en env dev (branche dev, rolling)
-  switch-prod         Revient en env prod (checkout derniere release)
+$(printf "${C_BOLD}BASCULE D'ENVIRONNEMENT (alias retro-compat)${C_RESET}")
+  switch-dev          Alias de pull-dev
+  switch-prod         Alias de update (derniere release)
 
 $(printf "${C_BOLD}ADMIN${C_RESET}")
   reset-users         Supprime tous les admins et en cree un nouveau
+
+$(printf "${C_BOLD}DB${C_RESET}")
+  schema-update       Aligne la BDD sur app/models.py (CREATE TABLE + ADD COLUMN
+                      additif uniquement, pas de modif/suppression)
 
 $(printf "${C_BOLD}SCINSTA BUILDER${C_RESET}")
   scinsta-build       Lance le pipeline SCInsta + Instagram
@@ -487,18 +654,17 @@ menu() {
     printf "     3) Restart                4) Logs\n"
     printf "\n"
     printf "  ${C_BOLD}CODE${C_RESET}\n"
-    if [[ "$env" == "prod" ]]; then
-      printf "     5) Update (derniere release GitHub)\n"
-      printf "     6) Switch-dev (bascule sur la branche dev)\n"
-    else
-      printf "     5) Update (git pull branche %s)\n" "$branch"
-      printf "     6) Switch-prod (retour sur la derniere release)\n"
-    fi
-    printf "     7) Check update (machine-readable)\n"
-    printf "     8) Self-update (pull ce script)\n"
+    printf "     5) Update (derniere release GitHub)\n"
+    printf "     6) Choose a release\n"
+    printf "     7) Pull dev branch\n"
+    printf "     8) Pull main branch\n"
+    printf "     9) Self-update for dev (script seul)\n"
     printf "\n"
     printf "  ${C_BOLD}ADMIN${C_RESET}\n"
-    printf "     9) Reset utilisateurs\n"
+    printf "    10) Reset utilisateurs\n"
+    printf "\n"
+    printf "  ${C_BOLD}DB${C_RESET}\n"
+    printf "    11) Update schema (Tables & Keys)\n"
     printf "\n"
     printf "     s) Status                 h) Aide CLI\n"
     printf "     q) Quitter\n\n"
@@ -508,11 +674,13 @@ menu() {
        2) cmd_stop ;;
        3) cmd_restart ;;
        4) cmd_logs ;;
-       5) cmd_update ;;
-       6) if [[ "$env" == "prod" ]]; then cmd_switch_dev; else cmd_switch_prod; fi ;;
-       7) cmd_check_update ;;
-       8) cmd_self_update ;;
-       9) cmd_reset_users ;;
+       5) cmd_update_release ;;
+       6) cmd_choose_release ;;
+       7) cmd_pull_branch dev ;;
+       8) cmd_pull_branch main ;;
+       9) cmd_self_update_dev ;;
+      10) cmd_reset_users ;;
+      11) cmd_schema_update ;;
       s|S) cmd_status ;;
       h|H) usage ;;
       q|Q|exit|quit) exit 0 ;;
@@ -532,13 +700,18 @@ case "${1:-}" in
   restart)             cmd_restart ;;
   logs)                cmd_logs ;;
   status)              cmd_status ;;
-  update)              cmd_update ;;
+  update)              cmd_update_release ;;
+  choose-release)      cmd_choose_release ;;
+  pull-dev)            cmd_pull_branch dev ;;
+  pull-main)           cmd_pull_branch main ;;
+  self-update-dev)     cmd_self_update_dev ;;
   pull)                cmd_pull_rolling ;;
   check)               cmd_check_update ;;
   self-update)         cmd_self_update ;;
-  switch-dev)          cmd_switch_dev ;;
-  switch-prod)         cmd_switch_prod ;;
+  switch-dev)          cmd_pull_branch dev ;;
+  switch-prod)         cmd_update_release ;;
   reset-users)         cmd_reset_users ;;
+  schema-update)       cmd_schema_update ;;
   scinsta-build)       cmd_scinsta_build "$(env_from_branch)" ;;
   scinsta-cancel)      cmd_scinsta_cancel "$(env_from_branch)" ;;
   # Aliases systemd : ipastore-update@prod.service appelle "prod-update".
