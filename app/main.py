@@ -52,9 +52,8 @@ async def _update_check_loop() -> None:
         try:
             status = await asyncio.to_thread(get_status, True)
             logger.info(
-                "update-check env=%s current=%s latest=%s available=%s rolling=%s",
-                status.env, status.current, status.latest,
-                status.update_available, status.rolling,
+                "update-check current=%s latest=%s available=%s",
+                status.current, status.latest, status.update_available,
             )
         except Exception:
             logger.exception("update-check failed")
