@@ -8,7 +8,13 @@
 
 services:
   ipastore:
-    build: .
+    build:
+      context: .
+      args:
+        # UID/GID de l'user host `ipastore` (ecrit par le bootstrap dans .env).
+        # Sans ces args, le Dockerfile retombe sur 1000 pour les builds manuels.
+        IPASTORE_UID: ${IPASTORE_UID:-1000}
+        IPASTORE_GID: ${IPASTORE_GID:-1000}
     image: ipastore:${IMAGE_TAG:-local}
     container_name: ${CONTAINER_NAME:?CONTAINER_NAME manquant dans .env}
     restart: unless-stopped
