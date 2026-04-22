@@ -149,6 +149,26 @@ cmd_status() {
 
 # ────── Mise a jour ──────
 
+# Apres un rebuild, attend que le conteneur soit pret (docker exec OK) puis
+# lance le schema-update. Non-fatal : si le sync schema rate, le deploiement
+# reste considere comme reussi (on warn juste). Appele systematiquement par
+# toutes les commandes de deploiement (release, pull-dev/main, rolling) pour
+# que l'ajout d'une colonne dans models.py soit applique automatiquement
+# apres une MAJ declenchee depuis l'UI.
+post_deploy_schema_sync() {
+  info "Attente du conteneur pour appliquer le schema-update..."
+  local i
+  for i in {1..30}; do
+    if docker exec "$CONTAINER_NAME" python -c "import app.models" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if ! cmd_schema_update; then
+    warn "schema-update a echoue (deploiement OK quand meme, a verifier manuellement)"
+  fi
+}
+
 # Rolling : pull HEAD de la branche courante + rebuild. Utilise pour :
 #   - dev : workflow normal (HEAD de dev)
 #   - prod hotfix : bascule sur main (pas depuis HEAD detache) puis pull
@@ -167,6 +187,7 @@ cmd_pull_rolling() {
   write_version_file "rolling-${branch}-${sha}"
   ok "Mis a jour : rolling-${branch}-${sha}"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
 }
 
 # pull-branch : checkout force + reset hard sur origin/<branche> + rebuild.
@@ -183,6 +204,7 @@ cmd_pull_branch() {
   write_version_file "rolling-${branch}-${sha}"
   ok "Deploye : rolling-${branch}-${sha}"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
 }
 
 # Liste les N dernieres releases GitHub et permet d'en choisir une a checkout.
@@ -229,6 +251,7 @@ cmd_choose_release() {
   write_version_file "$target"
   ok "Deploye : $target"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
 }
 
 # self-update-dev : recupere uniquement ce script depuis la branche dev,
@@ -345,6 +368,7 @@ cmd_update_release() {
   write_version_file "$latest"
   ok "Deploye : $latest"
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+  post_deploy_schema_sync
 }
 
 # update : dispatcher selon le mode (branche).
