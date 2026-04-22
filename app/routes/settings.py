@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -155,7 +155,7 @@ def settings_indexing(
     db: Session = Depends(get_db),
 ):
     set_indexing_disabled(db, disable_indexing == "1")
-    return RedirectResponse("/settings", status_code=303)
+    return Response(status_code=204)
 
 
 @router.post("/settings/header/remove")

@@ -72,6 +72,20 @@
     });
   }
 
+  // Indexing toggle (settings page)
+  const indexingToggle = document.getElementById('toggle-indexing');
+  if (indexingToggle) {
+    indexingToggle.addEventListener('change', async () => {
+      const fd = new FormData();
+      fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
+      try {
+        await fetch('/settings/indexing', { method: 'POST', body: fd, credentials: 'same-origin' });
+      } catch (_) {
+        indexingToggle.checked = !indexingToggle.checked;
+      }
+    });
+  }
+
   // Update management (settings page)
   const updCard = document.getElementById('updates-card');
   if (updCard) {
