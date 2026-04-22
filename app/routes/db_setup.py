@@ -65,7 +65,7 @@ def db_setup_submit(
     if not ok:
         return templates.TemplateResponse(
             request, "db_setup.html",
-            {"error": f"Connexion impossible : {msg}", "values": values},
+            {"error": msg, "values": values},
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
