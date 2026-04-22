@@ -77,10 +77,11 @@ fi
 
 # Le conteneur tourne en uid de l'user interne `ipastore`. Pour matcher les
 # permissions host <-> conteneur sur les volumes montes (/etc/ipastore,
-# /srv/store), on cree TOUJOURS un user+groupe host dedie `ipastore` avec
-# uid/gid 1000 si libres, sinon un uid/gid libre (auto). Ces valeurs sont
-# ensuite passees au build Docker via build-args pour que l'user interne
-# du conteneur ait les memes uid/gid que l'user host.
+# /srv/store), on cree un user+groupe SYSTEME dedie `ipastore` (uid/gid
+# dans la plage system, pas de /home, shell nologin). Les uid/gid reels
+# sont ensuite passes au build Docker via build-args pour que l'user
+# interne du conteneur ait les memes uid/gid que l'user host -- pas
+# besoin de cibler un uid fixe (ex 1000).
 #
 # Important : on ne TOUCHE PAS a l'user qui lance sudo bash ($SUDO_USER).
 # S'il veut utiliser docker directement, il l'ajoute lui-meme au groupe
@@ -89,24 +90,14 @@ APP_USER="ipastore"
 APP_GROUP="ipastore"
 
 if ! getent group ipastore >/dev/null; then
-  if ! getent group 1000 >/dev/null; then
-    groupadd -g 1000 ipastore
-  else
-    groupadd ipastore
-  fi
+  groupadd -r ipastore
 fi
 
 if ! id -u ipastore >/dev/null 2>&1; then
-  if ! getent passwd 1000 >/dev/null; then
-    useradd -m -u 1000 -g ipastore -s /bin/bash ipastore
-  else
-    # uid 1000 pris par un autre user (ex: ubuntu cloud). On cree ipastore
-    # avec un uid libre ; le conteneur sera buildé avec ce meme uid pour
-    # garder les permissions alignees sur les volumes montes.
-    useradd -m -g ipastore -s /bin/bash ipastore
-    echo "[bootstrap] WARNING : uid 1000 deja pris par '$(getent passwd 1000 | cut -d: -f1)',"
-    echo "[bootstrap]           ipastore cree avec uid $(id -u ipastore)."
-  fi
+  # -r : user systeme (uid dans la plage system, pas de fichier a la racine home)
+  # -M : pas de creation de /home/ipastore (pas besoin, c'est un user d'infra)
+  # -s /usr/sbin/nologin : interdit l'ouverture de session interactive
+  useradd -r -M -g ipastore -s /usr/sbin/nologin ipastore
 fi
 
 IPASTORE_UID="$(id -u ipastore)"
