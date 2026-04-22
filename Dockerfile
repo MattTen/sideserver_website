@@ -22,7 +22,16 @@ COPY static ./static
 # devient selectionnable depuis l'onglet Patch de l'UI.
 COPY patch ./patch
 
-RUN groupadd -r ipastore && useradd -r -g ipastore -u 1000 ipastore \
+# UID/GID de l'user interne du conteneur. Le bootstrap passe les valeurs
+# reelles de l'user host `ipastore` via build-args dans docker-compose.yml,
+# pour que les fichiers ecrits dans les volumes montes (/etc/ipastore,
+# /srv/store) matchent les permissions host. Defaut 1000 pour les builds
+# locaux/manuels.
+ARG IPASTORE_UID=1000
+ARG IPASTORE_GID=1000
+
+RUN groupadd -r -g ${IPASTORE_GID} ipastore \
+ && useradd -r -g ipastore -u ${IPASTORE_UID} ipastore \
  && mkdir -p /srv/store /etc/ipastore \
  && chown -R ipastore:ipastore /opt/ipastore /srv/store /etc/ipastore
 
