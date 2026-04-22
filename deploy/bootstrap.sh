@@ -203,6 +203,11 @@ echo "[bootstrap] Ecriture du fichier d'environnement..."
   echo "IPASTORE_ENV=prod"
   echo "IPASTORE_GITHUB_REPO=${GITHUB_REPO}"
 } > /etc/ipastore/prod.env
+# chown ipastore : les units systemd tournent en user `ipastore` et
+# docker-compose doit pouvoir lire ce fichier (env_file) pour le passer au
+# conteneur. Sans chown, le fichier reste root:root et docker-compose
+# echoue avec "open /etc/ipastore/prod.env: permission denied".
+chown "${IPASTORE_UID}:${IPASTORE_GID}" /etc/ipastore/prod.env
 chmod 640 /etc/ipastore/prod.env
 
 echo "[bootstrap] Generation de la cle de session si absente..."
@@ -216,6 +221,10 @@ chmod 600 "$f"
 echo "[bootstrap] Ecriture du fichier version (${DEPLOYED_VERSION})..."
 f="/etc/ipastore/prod.version"
 printf '%s\n' "${DEPLOYED_VERSION}" > "$f"
+# chown ipastore : website-management tourne en user `ipastore` et doit
+# pouvoir ecrire ce fichier pour mettre a jour la version deployee apres
+# chaque update/pull.
+chown "${IPASTORE_UID}:${IPASTORE_GID}" "$f"
 chmod 644 "$f"
 
 echo "[bootstrap] Installation des units systemd (path + service templatises)..."
