@@ -75,11 +75,18 @@
   // Indexing toggle (settings page)
   const indexingToggle = document.getElementById('toggle-indexing');
   if (indexingToggle) {
+    const okIcon = document.getElementById('toggle-indexing-ok');
+    let okTimer = null;
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
       try {
-        await fetch('/settings/indexing', { method: 'POST', body: fd, credentials: 'same-origin' });
+        const r = await fetch('/settings/indexing', { method: 'POST', body: fd, credentials: 'same-origin' });
+        if (r.ok && okIcon) {
+          okIcon.classList.add('show');
+          clearTimeout(okTimer);
+          okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+        }
       } catch (_) {
         indexingToggle.checked = !indexingToggle.checked;
       }
