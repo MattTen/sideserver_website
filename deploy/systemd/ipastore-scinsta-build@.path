@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch /etc/ipastore/scinsta-build-requested-%i flag
-
-[Path]
-PathExists=/etc/ipastore/scinsta-build-requested-%i
-Unit=ipastore-scinsta-build@%i.service
-
-[Install]
-WantedBy=multi-user.target

@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch /etc/ipastore/scinsta-build-cancel-%i flag (abort running build)
-
-[Path]
-PathExists=/etc/ipastore/scinsta-build-cancel-%i
-Unit=ipastore-scinsta-cancel@%i.service
-
-[Install]
-WantedBy=multi-user.target

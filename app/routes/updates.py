@@ -2,8 +2,11 @@
 
 GET  /check  → interroge l'API GitHub et retourne le statut en JSON.
 POST /apply  → écrit le fichier-drapeau dans /etc/ipastore/ ; le path unit
-               systemd ipastore-update@{env}.path sur l'hôte le détecte et
-               déclenche website-management {env}-update puis supprime le fichier.
+               systemd ipastore-update@prod.path sur l'hôte le détecte et
+               déclenche website-management prod-update puis supprime le fichier.
+               (Modele mono-env : l'instance systemd est toujours "prod",
+               le script de management detecte le vrai mode via la branche
+               git checkoutee.)
 """
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ def updates_apply(user: User = Depends(require_user)):
     status = get_status(refresh=True)
     if status.rolling:
         return JSONResponse(
-            {"ok": False, "reason": "dev-is-rolling", "message": "Dev est rolling — utilise `dev-update` en CLI."},
+            {"ok": False, "reason": "dev-is-rolling", "message": "Dev est rolling — utilise `website-management update` en CLI."},
             status_code=400,
         )
     if not status.update_available:

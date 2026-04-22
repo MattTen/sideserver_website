@@ -30,8 +30,8 @@ class Config:
     # la page /setup/database.
 
     # ── Système de fichiers du magasin ───────────────────────────────────────
-    # STORE_DIR est monté depuis l'hôte (/srv/store-prod ou /srv/store-dev)
-    # via le volume Docker, ce qui permet la persistance entre rebuilds.
+    # STORE_DIR est monté depuis l'hôte (/srv/store-prod) via le volume
+    # Docker, ce qui permet la persistance entre rebuilds.
     STORE_DIR = Path(os.environ.get("IPASTORE_STORE_DIR", "/srv/store"))
     IPAS_DIR = STORE_DIR / "ipas"
     ICONS_DIR = STORE_DIR / "icons"
