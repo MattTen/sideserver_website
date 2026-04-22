@@ -72,6 +72,54 @@
     });
   }
 
+  // Formulaires async (OK vert si succes, boite rouge avec X sinon/timeout 2s)
+  document.querySelectorAll('form[data-async-form]').forEach(form => {
+    const okIcon = form.querySelector('[data-async-ok]');
+    const errBox = form.querySelector('[data-async-err]');
+    const errMsg = form.querySelector('[data-async-err-msg]');
+    const errClose = form.querySelector('[data-async-err-close]');
+    const resetOnSuccess = form.hasAttribute('data-reset-on-success');
+    const defaultErr = errMsg ? errMsg.textContent : 'Une erreur est survenue.';
+    let okTimer = null;
+    function showOk() {
+      if (errBox) errBox.style.display = 'none';
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function showErr(msg) {
+      if (okIcon) okIcon.classList.remove('show');
+      if (!errBox) return;
+      if (errMsg) errMsg.textContent = msg || defaultErr;
+      errBox.style.display = 'flex';
+    }
+    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      try {
+        const r = await fetch(form.action, {
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+        });
+        clearTimeout(timeout);
+        if (r.ok) {
+          if (resetOnSuccess) form.reset();
+          showOk();
+        } else {
+          let msg = null;
+          try { const j = await r.json(); msg = j.error || j.message; } catch (_) {}
+          showErr(msg);
+        }
+      } catch (_) {
+        clearTimeout(timeout);
+        showErr(null);
+      }
+    });
+  });
+
   // Indexing toggle (settings page)
   const indexingToggle = document.getElementById('toggle-indexing');
   if (indexingToggle) {
