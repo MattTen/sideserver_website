@@ -51,17 +51,20 @@ Les units systemd sont nommées `ipastore-update@prod.{path,service}` (instance 
 
 ## Bootstrap & déploiement
 
-Les scripts `deploy/bootstrap-{prod,dev}.sh` sont auto-suffisants : `curl | sudo bash` installe Docker, clone le repo, écrit les units systemd (embedded en heredoc), écrit `/etc/ipastore/{prod.env,secret_key}`, et démarre le conteneur.
+Un **seul** script `deploy/bootstrap.sh` auto-suffisant : `curl | sudo bash` installe Docker, clone le repo sur `main`, checkout le **dernier tag de release** (HEAD détaché), écrit les units systemd (embedded en heredoc), écrit `/etc/ipastore/{prod.env,secret_key.prod,prod.version}`, et démarre le conteneur. Si aucune release n'existe, fallback sur `main` avec version `rolling-main-<sha>`.
 
 ```bash
-# Prod
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap-prod.sh | sudo bash
-
-# Dev
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/dev/deploy/bootstrap-dev.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
 ```
 
-Vars optionnelles : `BASE_URL` (si absent, l'app dérive via `--proxy-headers`), `BRANCH`, `GITHUB_USER`, `GITHUB_TOKEN` (seulement si repo privé), `HOST_PORT` (défaut `80`).
+Vars optionnelles : `BASE_URL` (si absent, l'app dérive via `--proxy-headers`), `GITHUB_USER`, `GITHUB_TOKEN` (seulement si repo privé), `HOST_PORT` (défaut `80`).
+
+La VM démarre toujours en **env prod** (dernière release). Pour basculer après coup :
+
+```bash
+website-management switch-dev    # bascule sur la branche dev (rolling)
+website-management switch-prod   # revient sur la derniere release
+```
 
 Après bootstrap : l'UI redirige automatiquement vers `/setup/database` pour saisir la connexion BDD puis `/setup` pour créer le compte admin.
 
@@ -110,8 +113,7 @@ tools/
   scinsta-builder/        # Conteneur one-shot pour builder SCInsta (systemd)
 
 deploy/
-  bootstrap-prod.sh       # Bootstrap VM prod (clone main, units systemd embedded)
-  bootstrap-dev.sh        # Bootstrap VM dev (clone dev, identique sinon)
+  bootstrap.sh            # Bootstrap unique (clone main + checkout derniere release, units systemd embedded)
 
 documentation/            # Doc technique (exclu du serveur via sparse-checkout)
   server.md               # Architecture, déploiement, features
@@ -144,14 +146,18 @@ requirements.txt
 
 ## Script de management (`website-management`)
 
-Auto-détection du mode via `git rev-parse --abbrev-ref HEAD` dans `/opt/sideserver-prod` : branche `main` = mode prod (release), autre = mode dev (rolling).
+Auto-détection du mode via `git rev-parse --abbrev-ref HEAD` dans `/opt/sideserver-prod` :
+- `main` ou `HEAD` (détaché sur un tag de release) = mode **prod** (release-based)
+- `dev` = mode **dev** (rolling sur HEAD de la branche)
 
 | Commande | Action |
 |---|---|
 | `update` | Prod : checkout dernière release si > current / Dev : `git pull` branche courante |
 | `check` | Affiche current/latest/update_available (machine-readable) |
-| `pull` | Force `git pull` HEAD de la branche courante (hotfix) |
-| `self-update` | `git pull` du repo depuis `/opt/sideserver-prod` |
+| `pull` | Force `git pull` HEAD de la branche courante (dev uniquement — refuse sur HEAD détaché) |
+| `self-update` | `git pull` du repo (dev) ou re-checkout de la dernière release (prod) |
+| `switch-dev` | Bascule la VM en env dev : checkout branche `dev` + reset hard + rebuild |
+| `switch-prod` | Revient en env prod : checkout dernière release + rebuild |
 | `reset-users` | Supprime tous les admins + crée un nouveau (via `docker exec`) |
 | `status` | État du conteneur + version déployée |
 | `start/stop/restart/logs` | Gestion du conteneur |

@@ -3,13 +3,12 @@
 #
 # Modele mono-env : une VM = un seul environnement (prod OU dev), distingue
 # uniquement par la branche checkoutee dans /opt/sideserver-prod :
-#   main -> prod (release-based, redeploiement sur tag)
-#   dev  -> dev  (rolling, redeploiement sur HEAD de la branche)
+#   main / HEAD detache (tag release) -> prod (release-based)
+#   dev                                -> dev  (rolling sur HEAD de la branche)
 # Les chemins, nom de conteneur, fichier .env, units systemd restent
-# identiques dans les deux cas (bootstrap-dev est une copie conforme de
-# bootstrap-prod, seule la branche change). Un meme script sert donc les
-# deux usages, et decide du comportement d'update en lisant la branche
-# courante du clone.
+# identiques dans les deux cas. Un SEUL bootstrap existe (deploy/bootstrap.sh)
+# qui deploie toujours la derniere release ; la bascule dev/prod apres coup
+# se fait via `switch-dev` / `switch-prod` qui changent juste le ref checkout.
 #
 # Sans argument : menu interactif.
 # Avec argument : execution d'une commande unique (voir --help).
@@ -70,11 +69,14 @@ current_branch() {
   git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown
 }
 
-# Env logique deduit de la branche : main -> prod, autre -> dev.
+# Env logique deduit de la branche courante du clone.
+#   main             -> prod (cas rare : fallback sans release)
+#   HEAD (detache)   -> prod (cas normal : checkout sur un tag de release)
+#   dev              -> dev  (rolling)
 env_from_branch() {
   case "$(current_branch)" in
-    main) echo prod ;;
-    *)    echo dev ;;
+    main|HEAD) echo prod ;;
+    *)         echo dev ;;
   esac
 }
 
@@ -149,9 +151,13 @@ cmd_status() {
 
 # Rolling : pull HEAD de la branche courante + rebuild. Utilise pour :
 #   - dev : workflow normal (HEAD de dev)
-#   - prod : hotfix d'urgence (bypass release)
+#   - prod hotfix : bascule sur main (pas depuis HEAD detache) puis pull
 cmd_pull_rolling() {
   local branch; branch="$(current_branch)"
+  if [[ "$branch" == "HEAD" ]]; then
+    err "HEAD detache (release). Utilise 'switch-dev' ou 'pull' apres avoir checkout une branche."
+    return 1
+  fi
   info "Pull rolling branche '$branch' dans $APP_DIR"
   (cd "$APP_DIR" \
     && git_auth fetch origin "$branch" \
@@ -193,13 +199,50 @@ cmd_update_release() {
 }
 
 # update : dispatcher selon le mode (branche).
-#   main -> release-based (latest tag)
-#   dev  -> rolling (HEAD de la branche)
+#   prod (main ou HEAD detache sur un tag) -> release-based (latest tag)
+#   dev                                    -> rolling (HEAD de la branche)
 cmd_update() {
   case "$(env_from_branch)" in
     prod) cmd_update_release ;;
     dev)  cmd_pull_rolling ;;
   esac
+}
+
+# switch-dev : passe la VM en env dev. Checkout de la branche dev, reset
+# hard sur origin/dev, rebuild du conteneur. Idempotent si deja en dev.
+# Ne PAS creer de nouveau conteneur/volume : meme compose, meme image tag.
+cmd_switch_dev() {
+  info "Bascule env dev (branche dev, rolling)"
+  (cd "$APP_DIR" \
+    && git_auth fetch origin dev \
+    && git "${GIT_SAFE[@]}" checkout --force dev \
+    && git "${GIT_SAFE[@]}" reset --hard origin/dev \
+    && docker compose up -d --build)
+  local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
+  write_version_file "rolling-dev-${sha}"
+  ok "Deploye en env dev : rolling-dev-${sha}"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+}
+
+# switch-prod : revient en env prod = checkout du dernier tag de release.
+# Force le rebasculement meme si on est deja sur main (cas : dev -> prod).
+# Idempotent si deja sur le bon tag.
+cmd_switch_prod() {
+  info "Bascule env prod (derniere release GitHub)"
+  local latest
+  latest="$(latest_release_tag || true)"
+  if [[ -z "$latest" ]]; then
+    err "Aucune release publiee sur github.com/${GITHUB_REPO} (ou API inaccessible)"
+    return 1
+  fi
+  info "Checkout $latest + rebuild"
+  (cd "$APP_DIR" \
+    && git_auth fetch --tags --prune origin \
+    && git "${GIT_SAFE[@]}" checkout --force "$latest" \
+    && docker compose up -d --build)
+  write_version_file "$latest"
+  ok "Deploye en env prod : $latest"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
 }
 
 # Sortie machine-readable pour l'UI admin.
@@ -234,12 +277,24 @@ cmd_check_update() {
 
 # self-update : mono-env, plus de clone tools separe. On pull simplement
 # la branche courante du clone applicatif — ce script en fait partie.
+# Sur HEAD detache (prod sur tag), on passe par `switch-prod` qui refera
+# un checkout propre sur la derniere release plutot que de tenter un pull.
 cmd_self_update() {
   local branch; branch="$(current_branch)"
-  info "Pull self-update (branche $branch) dans $APP_DIR"
-  (cd "$APP_DIR" \
-    && git_auth fetch origin "$branch" \
-    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
+  if [[ "$branch" == "HEAD" ]]; then
+    info "HEAD detache -> bascule sur la derniere release (equivalent switch-prod --no-rebuild)"
+    local latest
+    latest="$(latest_release_tag || true)"
+    [[ -z "$latest" ]] && { err "Aucune release disponible"; return 1; }
+    (cd "$APP_DIR" \
+      && git_auth fetch --tags --prune origin \
+      && git "${GIT_SAFE[@]}" checkout --force "$latest")
+  else
+    info "Pull self-update (branche $branch) dans $APP_DIR"
+    (cd "$APP_DIR" \
+      && git_auth fetch origin "$branch" \
+      && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
+  fi
   ok "Script a jour : $(git "${GIT_SAFE[@]}" -C "$APP_DIR" log -1 --format='%h %s')"
 }
 
@@ -379,10 +434,14 @@ $(printf "${C_BOLD}CONTENEUR${C_RESET}")
   status              Conteneur + version + branche
 
 $(printf "${C_BOLD}MISE A JOUR DU CODE${C_RESET}")
-  update              Dispatcher : release-based si branche main, rolling sinon
+  update              Dispatcher : release-based si env=prod, rolling si env=dev
   check               Machine-readable : current / latest / update_available
-  pull                Force pull HEAD de la branche courante (hotfix)
-  self-update         Pull ce script (git pull de APP_DIR)
+  pull                Force pull HEAD de la branche courante (dev uniquement)
+  self-update         Pull ce script (git pull / re-checkout de APP_DIR)
+
+$(printf "${C_BOLD}BASCULE D'ENVIRONNEMENT${C_RESET}")
+  switch-dev          Passe la VM en env dev (branche dev, rolling)
+  switch-prod         Revient en env prod (checkout derniere release)
 
 $(printf "${C_BOLD}ADMIN${C_RESET}")
   reset-users         Supprime tous les admins et en cree un nouveau
@@ -430,10 +489,10 @@ menu() {
     printf "  ${C_BOLD}CODE${C_RESET}\n"
     if [[ "$env" == "prod" ]]; then
       printf "     5) Update (derniere release GitHub)\n"
-      printf "     6) Pull d'urgence (force main direct)\n"
+      printf "     6) Switch-dev (bascule sur la branche dev)\n"
     else
       printf "     5) Update (git pull branche %s)\n" "$branch"
-      printf "     6) Pull force (equivalent a Update en mode dev)\n"
+      printf "     6) Switch-prod (retour sur la derniere release)\n"
     fi
     printf "     7) Check update (machine-readable)\n"
     printf "     8) Self-update (pull ce script)\n"
@@ -450,7 +509,7 @@ menu() {
        3) cmd_restart ;;
        4) cmd_logs ;;
        5) cmd_update ;;
-       6) cmd_pull_rolling ;;
+       6) if [[ "$env" == "prod" ]]; then cmd_switch_dev; else cmd_switch_prod; fi ;;
        7) cmd_check_update ;;
        8) cmd_self_update ;;
        9) cmd_reset_users ;;
@@ -477,6 +536,8 @@ case "${1:-}" in
   pull)                cmd_pull_rolling ;;
   check)               cmd_check_update ;;
   self-update)         cmd_self_update ;;
+  switch-dev)          cmd_switch_dev ;;
+  switch-prod)         cmd_switch_prod ;;
   reset-users)         cmd_reset_users ;;
   scinsta-build)       cmd_scinsta_build "$(env_from_branch)" ;;
   scinsta-cancel)      cmd_scinsta_cancel "$(env_from_branch)" ;;

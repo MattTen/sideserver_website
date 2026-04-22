@@ -7,11 +7,11 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 ## 1. Vue d'ensemble
 
 - **Repo** : `github.com/MattTen/sideserver_website` (public)
-- **Modèle mono-environnement** : **1 VM = 1 environnement**. Dev et prod vivent sur des machines séparées, pas côte-à-côte.
-  - VM **dev** (home lab) : clone `dev`, mode rolling
-  - VM **prod** (cloud) : clone `main` (checkout du tag de release), mode release-based
+- **Modèle mono-environnement** : **1 VM = 1 environnement**. Dev et prod vivent sur des machines séparées, pas côte-à-côte. Un **seul** bootstrap (`deploy/bootstrap.sh`) qui déploie toujours la dernière release ; la bascule dev/prod après coup se fait via le script de management (`switch-dev` / `switch-prod`).
+  - VM **prod** (cloud) : HEAD détaché sur le tag de release, mode release-based
+  - VM **dev** (home lab) : branche `dev` checkoutée, mode rolling
 - **Stack** : FastAPI + Uvicorn dans Docker, MySQL/MariaDB externe (sur la même VM ou distant)
-- Les deux VM utilisent des **paths strictement identiques** — seule la branche git diffère.
+- Les deux VM utilisent des **paths strictement identiques** — seul le ref git checkouté diffère.
 
 ```
 ┌────────────── VM (dev OU prod) ─────────────────────────────┐
@@ -26,7 +26,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 │  Filesystem                                                  │
 │   /srv/store-prod/{ipas,icons,screenshots,news}              │
 │   /etc/ipastore/{prod.env, db.json, secret_key, prod.version}│
-│   /opt/sideserver-prod  (git clone, branche selon VM)        │
+│   /opt/sideserver-prod  (git clone ; ref selon env courant)  │
 │                                                              │
 │  systemd                                                     │
 │   ipastore-update@prod.path         watches update-requested-prod  │
@@ -35,7 +35,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Le conteneur s'appelle toujours `sidestore-website-prod` et le store `/srv/store-prod` quel que soit l'environnement réel : le mode prod vs dev est détecté **dynamiquement par le script de management** via `git rev-parse --abbrev-ref HEAD` (branche `main` = prod, autre = dev).
+Le conteneur s'appelle toujours `sidestore-website-prod` et le store `/srv/store-prod` quel que soit l'environnement réel : le mode prod vs dev est détecté **dynamiquement par le script de management** via `git rev-parse --abbrev-ref HEAD` (branche `main` ou `HEAD` détaché sur un tag = prod ; `dev` = dev).
 
 ---
 
@@ -121,10 +121,12 @@ website-management --help           # aide
 | Commande | Action |
 |---|---|
 | `start` / `stop` / `restart` / `logs` / `status` | Gestion du conteneur (docker compose) |
-| `update` | Prod (branche `main`) : checkout dernière release si > current, rebuild. No-op si déjà à jour. Écrit `/etc/ipastore/prod.version`. / Dev (autre branche) : `git pull` + rebuild. |
+| `update` | Prod (HEAD détaché sur tag ou branche `main`) : checkout dernière release si > current, rebuild. No-op si déjà à jour. Écrit `/etc/ipastore/prod.version`. / Dev (branche `dev`) : `git pull` + rebuild. |
 | `check` | `current=…/latest=…/update_available=0|1` (machine-readable). En dev : toujours `update_available=0` (rolling). |
-| `pull` | URGENCE : `git pull` HEAD de la branche courante + rebuild (hotfix, bypass release). |
-| `self-update` | `git pull` dans `/opt/sideserver-prod` puis resymlink si le script a changé. |
+| `pull` | `git pull` HEAD de la branche courante + rebuild (dev uniquement — refuse sur HEAD détaché). |
+| `self-update` | `git pull` dans `/opt/sideserver-prod` (dev) ou re-checkout de la dernière release (prod). |
+| `switch-dev` | Bascule la VM en env dev : `git checkout dev` + `git reset --hard origin/dev` + rebuild. Écrit `rolling-dev-<sha>` dans `prod.version`. |
+| `switch-prod` | Revient en env prod : `git checkout <latest-release-tag>` + rebuild. Équivalent à `update` forcé depuis une autre branche. |
 | `reset-users` | Supprime tous les admins + prompt création d'un nouveau (via `docker exec`, pas de client mysql sur l'hôte requis). |
 
 ### Aliases systemd (ne pas utiliser en CLI)
@@ -135,9 +137,9 @@ Les units systemd sont nommées avec instance `prod` pour des raisons historique
 
 ## 5. Mécanisme de mise à jour
 
-### Mode prod (branche `main`)
+### Mode prod (HEAD détaché sur un tag de release)
 
-La VM prod n'avance qu'à chaque release GitHub publiée. Chaque release porte un tag (`v1.0.0`, potentiellement `v14.26.35.2664.32` — format libre de dotted-numeric, avec un `v` optionnel).
+La VM prod n'avance qu'à chaque release GitHub publiée. Chaque release porte un tag (`v1.0.0`, potentiellement `v14.26.35.2664.32` — format libre de dotted-numeric, avec un `v` optionnel). Le bootstrap initial et chaque `update` font un `git checkout --force <tag>` → HEAD détaché.
 
 Trois sources de vérité :
 1. GitHub Releases (source du "dernière version disponible")
@@ -146,7 +148,7 @@ Trois sources de vérité :
 
 Comparaison via `sort -V` (bash) ou tuple d'entiers (Python) : `v1.9 < v1.10`, `v1.0.0 < v1.0.1`. Le `v` initial est strippé avant comparaison.
 
-### Mode dev (toute autre branche)
+### Mode dev (branche `dev`)
 
 Rolling : pas de check de version. `update` fait `git pull` + rebuild. `/etc/ipastore/prod.version` contient `rolling-<sha court>`. `/settings/updates/check` côté dev renvoie toujours `rolling=true, update_available=false` → le bouton "Appliquer" reste grisé dans l'UI.
 
@@ -206,7 +208,7 @@ Il met à jour le cache in-memory (`_cache` dans `app/updates.py`) et logge. L'U
 
 ## 6. Unités systemd
 
-Toutes les units sont **embedded en heredoc dans les bootstraps** (`deploy/bootstrap-{prod,dev}.sh`) — elles ne sont plus stockées dans `deploy/systemd/` dans le repo. Instance toujours `prod` (mono-env).
+Toutes les units sont **embedded en heredoc dans le bootstrap** (`deploy/bootstrap.sh`) — elles ne sont plus stockées dans `deploy/systemd/` dans le repo. Instance toujours `prod` (mono-env).
 
 ### `ipastore-update@.path` / `.service`
 
@@ -274,6 +276,16 @@ git push origin dev
 
 # Sur la VM dev
 website-management update    # rolling, git pull + rebuild
+```
+
+### Bascule rapide prod ↔ dev (mono-env, même VM)
+
+```bash
+# Basculer une VM prod en env dev (branche dev, rolling)
+website-management switch-dev
+
+# Revenir en prod (dernière release)
+website-management switch-prod
 ```
 
 ### Rollback à une release précédente (sur la VM prod)
@@ -346,8 +358,8 @@ bind-address = 0.0.0.0
 |-----------------------------------------------|-----------------------------------------------|
 | `Dockerfile`                                  | Image Python 3.13-slim, uid 1000              |
 | `docker-compose.yml`                          | Service paramétré via `.env` local            |
-| `deploy/bootstrap-prod.sh` / `bootstrap-dev.sh` | Setup initial VM auto-suffisant (curl \| sudo bash). Units systemd embedded en heredoc. |
-| `tools/website-management.sh`                 | Script de gestion mono-env (détection via `git rev-parse --abbrev-ref HEAD`) |
+| `deploy/bootstrap.sh`                         | Setup initial VM auto-suffisant (curl \| sudo bash) — clone + checkout dernière release + units systemd embedded en heredoc. |
+| `tools/website-management.sh`                 | Script de gestion mono-env (détection via `git rev-parse --abbrev-ref HEAD`, commandes `switch-dev` / `switch-prod`) |
 | `tools/schema-sync.py`                        | Tool standalone — plan SQL additif pour aligner 2 schémas BDD |
 | `app/config.py`                               | Vars d'env lues au boot                       |
 | `app/updates.py`                              | Logique check + flag-file                     |
@@ -365,7 +377,7 @@ bind-address = 0.0.0.0
 | `templates/scinsta.html`                      | UI de l'onglet SCInsta                          |
 | `tools/scinsta-builder/Dockerfile`            | Image Theos + cyan + ipapatch + lief (builder one-shot) |
 | `tools/scinsta-builder/build.py`              | Pipeline : clone SCInsta main → `build.sh sideload` → patch optionnel → store |
-| `deploy/bootstrap-prod.sh` / `bootstrap-dev.sh` | Bootstrap auto-suffisant (`curl \| sudo bash`) — installe Docker, clone, écrit les units systemd embedded, démarre le conteneur |
+| `deploy/bootstrap.sh`                         | Bootstrap unique auto-suffisant (`curl \| sudo bash`) — installe Docker, clone, checkout dernière release, écrit les units systemd embedded, démarre le conteneur |
 
 ---
 
