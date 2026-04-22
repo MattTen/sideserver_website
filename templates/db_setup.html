@@ -13,7 +13,7 @@
     <h1>Connexion à la base de données</h1>
     <p class="sub">Saisis les identifiants d'une base MySQL/MariaDB existante. Une connexion test sera effectuée avant d'enregistrer.</p>
     {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
-    <form method="post" action="/setup/database" autocomplete="off">
+    <form id="db-setup-form" method="post" action="/setup/database" autocomplete="off">
       <div class="field">
         <label for="host">Hôte</label>
         <input class="input" id="host" name="host" value="{{ values.host }}" placeholder="host.docker.internal" required autofocus>
@@ -38,4 +38,49 @@
     </form>
   </div>
 </div>
+
+{# Reutilise l'overlay "patch en cours" : meme markup, seul le texte +
+   l'icone (database au lieu de wrench) changent. Le POST /setup/database
+   bloque le temps du test de connexion + init_db (creation des tables),
+   ce qui peut prendre plusieurs secondes -- sans ce feedback, l'admin
+   voit une page gelee et risque de recliquer. #}
+<div id="db-overlay" class="patch-overlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="patch-overlay-card">
+    <div class="patch-spinner" aria-hidden="true">
+      <div class="patch-spinner-halo"></div>
+      <div class="patch-spinner-ring"></div>
+      <div class="patch-spinner-ring-inner"></div>
+      <div class="patch-spinner-icon">
+        {% include "_icons/database.svg" ignore missing %}
+      </div>
+    </div>
+    <div class="patch-overlay-title"><span id="db-overlay-phase">Test de la connexion</span><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+    <div class="patch-overlay-sub">Ne fermez pas cette page. Connexion au serveur, vérification des droits puis création des tables.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('db-setup-form');
+  var overlay = document.getElementById('db-overlay');
+  var phase = document.getElementById('db-overlay-phase');
+  if (!form || !overlay || !phase) return;
+  // Phases cosmetiques : le POST est atomique, donc on ne connait pas
+  // le moment exact des transitions. Le cycle donne juste un feedback
+  // progressif pour que l'admin sache que la page travaille toujours.
+  var steps = [
+    { at: 0,    text: 'Test de la connexion' },
+    { at: 3500, text: 'Initialisation des tables' },
+    { at: 8000, text: 'Finalisation' }
+  ];
+  var timers = [];
+  form.addEventListener('submit', function () {
+    overlay.classList.add('is-visible');
+    overlay.setAttribute('aria-hidden', 'false');
+    steps.forEach(function (s) {
+      timers.push(setTimeout(function () { phase.textContent = s.text; }, s.at));
+    });
+  });
+})();
+</script>
 {% endblock %}
