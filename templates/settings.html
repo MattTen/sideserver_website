@@ -20,21 +20,23 @@
   <div class="appearance-grid">
     <div class="appearance-block">
       <div class="appearance-label">Icône du store</div>
-      <div class="appearance-icon-wrap">
-        {% if store_icon_file %}
-        <img src="/icons/{{ store_icon_file }}" class="appearance-icon" alt="Icône du store">
-        {% else %}
-        <div class="appearance-icon appearance-icon-empty">—</div>
-        {% endif %}
-      </div>
-      <form method="post" action="/settings/icon" enctype="multipart/form-data" class="row-gap mt-4">
-        <label class="btn btn-sm" style="cursor:pointer;">
-          <input type="file" name="icon" accept="image/*" onchange="this.form.submit()" style="display:none;">
-          {{ 'Remplacer' if store_icon_file else 'Téléverser' }}
-        </label>
-        {% if store_icon_file %}
-        <button form="remove-icon-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
-        {% endif %}
+      <form id="icon-form" method="post" action="/settings/icon" enctype="multipart/form-data">
+        <div class="appearance-icon-wrap" id="icon-dropzone">
+          {% if store_icon_file %}
+          <img src="/icons/{{ store_icon_file }}" class="appearance-icon" alt="Icône du store">
+          {% else %}
+          <div class="appearance-icon appearance-icon-empty">—</div>
+          {% endif %}
+        </div>
+        <div class="row-gap mt-4">
+          <label class="btn btn-sm" style="cursor:pointer;">
+            <input type="file" name="icon" id="icon-input" accept="image/*" onchange="this.form.submit()" style="display:none;">
+            {{ 'Remplacer' if store_icon_file else 'Téléverser' }}
+          </label>
+          {% if store_icon_file %}
+          <button form="remove-icon-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+          {% endif %}
+        </div>
       </form>
       {% if store_icon_file %}
       <form id="remove-icon-form" method="post" action="/settings/icon/remove"></form>
@@ -188,9 +190,9 @@ function storeTintCustom(hexWithHash) {
   document.getElementById('store-tint-label').textContent = '#' + val;
 }
 
-(function() {
-  const zone = document.getElementById('header-dropzone');
-  const input = document.getElementById('header-input');
+function wireDropzone(zoneId, inputId) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
   if (!zone || !input) return;
   zone.addEventListener('click', () => input.click());
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
@@ -205,6 +207,8 @@ function storeTintCustom(hexWithHash) {
     input.files = dt.files;
     input.dispatchEvent(new Event('change'));
   });
-})();
+}
+wireDropzone('header-dropzone', 'header-input');
+wireDropzone('icon-dropzone', 'icon-input');
 </script>
 {% endblock %}
