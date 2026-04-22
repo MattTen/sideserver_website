@@ -26,6 +26,7 @@ from .routes import scinsta as scinsta_routes
 from .routes import settings as settings_routes
 from .routes import updates as updates_routes
 from .scinsta import consume_build_result, integrate_build_result
+from .seo import is_indexing_disabled, refresh_from_db as refresh_seo
 from .updates import get_status
 from .db import SessionLocal
 
@@ -132,6 +133,11 @@ def create_app() -> FastAPI:
     if is_configured():
         try:
             init_db()
+            db = SessionLocal()
+            try:
+                refresh_seo(db)
+            finally:
+                db.close()
         except Exception:
             logger.exception("init_db() a échoué au boot — la page /setup/database restera accessible")
     static_dir = Path(__file__).resolve().parent.parent / "static"
@@ -151,6 +157,16 @@ def create_app() -> FastAPI:
             return await call_next(request)
         from fastapi.responses import RedirectResponse
         return RedirectResponse("/setup/database", status_code=303)
+
+    # Ajoute X-Robots-Tag: noindex sur toutes les reponses quand l'option
+    # "desactiver l'indexation" est active dans Reglages. S'applique aussi
+    # aux static files, IPAs, icones, bref tout ce qui sort du conteneur.
+    @app.middleware("http")
+    async def _noindex_headers(request, call_next):
+        resp = await call_next(request)
+        if is_indexing_disabled():
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return resp
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

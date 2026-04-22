@@ -13,6 +13,7 @@ from ..config import Config
 from ..db import get_db
 from ..models import User
 from .apps import TINT_COLORS, _TINT_PRESET_VALUES
+from ..seo import is_indexing_disabled, set_indexing_disabled
 from ..source_gen import get_setting, set_setting
 from ..templates import templates
 
@@ -50,6 +51,7 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "store_header_file": header_file if header_file and (Config.ICONS_DIR / header_file).exists() else "",
         "tint_colors": TINT_COLORS,
         "tint_preset_values": _TINT_PRESET_VALUES,
+        "indexing_disabled": is_indexing_disabled(),
         "msg": msg,
         "err": err,
         "active": "settings",
@@ -143,6 +145,16 @@ async def settings_upload_header(
     new_name = await _save_appearance_image(header, "header")
     _drop_previous(db, "store_header_file")
     set_setting(db, "store_header_file", new_name)
+    return RedirectResponse("/settings", status_code=303)
+
+
+@router.post("/settings/indexing")
+def settings_indexing(
+    disable_indexing: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    set_indexing_disabled(db, disable_indexing == "1")
     return RedirectResponse("/settings", status_code=303)
 
 
