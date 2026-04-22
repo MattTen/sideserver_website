@@ -78,8 +78,9 @@
     const okIcon = document.getElementById('toggle-indexing-ok');
     const errBox = document.getElementById('toggle-indexing-err');
     let okTimer = null;
+    let errTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      if (errBox) { errBox.style.display = 'none'; clearTimeout(errTimer); }
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
@@ -88,7 +89,10 @@
     function showErr() {
       if (okIcon) okIcon.classList.remove('show');
       indexingToggle.checked = !indexingToggle.checked;
-      if (errBox) errBox.style.display = 'block';
+      if (!errBox) return;
+      errBox.style.display = 'block';
+      clearTimeout(errTimer);
+      errTimer = setTimeout(() => { errBox.style.display = 'none'; }, 2000);
     }
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
