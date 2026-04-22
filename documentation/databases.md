@@ -1,17 +1,16 @@
 # Bases de données — Structure et cycle de vie
 
-## Schémas MariaDB
+## Connexion
 
-Deux schémas séparés sur l'hôte (port 3306), chacun géré par son propre user MySQL :
+Modèle mono-environnement : **une VM = un conteneur = une BDD**. La connexion (host/port/user/password/database) est saisie via l'UI `/setup/database` au premier démarrage et persistée dans `/etc/ipastore/db.json` (mode 600, owner uid 1000).
 
-| Schéma | User MySQL | Conteneur |
-|---|---|---|
-| `ipastore-prod` | `ipastore-prod` | sidestore-website-prod (port 80) |
-| `ipastore-dev` | `ipastore-dev` | sidestore-website-dev (port 8080) |
+MySQL ou MariaDB, indifféremment. La BDD peut être sur la même VM (via `host.docker.internal` qui résout vers l'hôte depuis le réseau Docker bridge) ou sur un hôte distant.
 
-Le conteneur se connecte via `host.docker.internal` (résout vers l'hôte depuis le réseau Docker bridge).
+Les tables sont créées automatiquement au démarrage du conteneur via `Base.metadata.create_all()` (SQLAlchemy).
 
-Les tables sont créées automatiquement au démarrage du conteneur via `Base.metadata.create_all()` (SQLAlchemy). Il n'y a pas de migrations — les colonnes ajoutées doivent être créées manuellement sur la prod si la table existe déjà.
+**Migrations additives automatiques** : à chaque démarrage, `init_db()` compare les modèles SQLAlchemy à la BDD live et applique les opérations strictement additives nécessaires (`ALTER TABLE … ADD COLUMN`, `CREATE INDEX`). Aucun `DROP`, aucun `MODIFY` — les divergences de type sur colonnes existantes sont laissées telles quelles.
+
+Pour les opérations destructives (DROP COLUMN, RENAME), ajouter le DDL dans `app/db.py::_legacy_migrate()`.
 
 ---
 
@@ -160,15 +159,16 @@ apps    1 ──< versions   (cascade delete : supprimer une App supprime toutes
 
 ---
 
-## Synchronisation entre environnements
+## Promotion dev → prod
 
-| Commande | Direction | Contenu |
-|---|---|---|
-| `website-management sync` | prod → dev | BDD complète + fichiers (`/srv/store-prod` → `/srv/store-dev`) |
-| `website-management sync-to-prod` | dev → prod | BDD complète + fichiers (`/srv/store-dev` → `/srv/store-prod`) |
+Mono-env : les VM dev et prod sont **disjointes**, il n'y a plus de sync physique BDD/store. Le cycle de promotion passe par git :
 
-> **`sync-to-prod` est irréversible** : toutes les données prod sont écrasées par dev.
-> Utiliser uniquement après validation complète en dev.
+1. Développement sur la VM dev (branche `dev`, rolling via `website-management update`)
+2. Validation dev OK → merge `dev` → `main` → push
+3. Tag GitHub release (ex `v1.4.0`)
+4. Sur la VM prod : `website-management update` détecte la release et déploie ; `init_db()` applique automatiquement les nouvelles tables/colonnes
+
+Pour comparer deux schémas BDD à froid (utile au debug), le tool standalone `tools/schema-sync.py` prend `--source` et `--target` en argument et génère un plan SQL additif.
 
 ---
 
