@@ -53,7 +53,7 @@
           <div class="appearance-header appearance-header-empty">Déposer ou cliquer pour ajouter une bannière</div>
           {% endif %}
         </div>
-        <div class="row-gap mt-4" style="justify-content:center;">
+        <div class="row-gap mt-4">
           <label class="btn btn-sm" style="cursor:pointer;">
             <input type="file" name="header" id="header-input" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
             {{ 'Remplacer' if store_header_file else 'Téléverser' }}
