@@ -77,10 +77,10 @@
   if (indexingToggle) {
     const okIcon = document.getElementById('toggle-indexing-ok');
     const errBox = document.getElementById('toggle-indexing-err');
+    const errClose = document.getElementById('toggle-indexing-err-close');
     let okTimer = null;
-    let errTimer = null;
     function showOk() {
-      if (errBox) { errBox.style.display = 'none'; clearTimeout(errTimer); }
+      if (errBox) errBox.style.display = 'none';
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
@@ -89,19 +89,23 @@
     function showErr() {
       if (okIcon) okIcon.classList.remove('show');
       indexingToggle.checked = !indexingToggle.checked;
-      if (!errBox) return;
-      errBox.style.display = 'block';
-      clearTimeout(errTimer);
-      errTimer = setTimeout(() => { errBox.style.display = 'none'; }, 2000);
+      if (errBox) errBox.style.display = 'flex';
     }
+    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 2000);
       try {
-        const r = await fetch('/settings/indexing', { method: 'POST', body: fd, credentials: 'same-origin' });
+        const r = await fetch('/settings/indexing', {
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+        });
+        clearTimeout(timeout);
         if (r.ok) showOk();
         else showErr();
       } catch (_) {
+        clearTimeout(timeout);
         showErr();
       }
     });
