@@ -295,3 +295,7 @@ echo "  Puis           : /setup pour creer l'admin"
 echo
 echo "Management CLI   : /usr/local/bin/website-management"
 echo "  (sans argument = menu interactif)"
+echo
+echo "Note : ${APP_USER} a ete ajoute au groupe docker, mais les sessions SSH"
+echo "       ouvertes AVANT le bootstrap n'ont pas ce groupe. Reconnecte-toi"
+echo "       (exit + ssh) ou lance 'newgrp docker' pour utiliser docker ps."
