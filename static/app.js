@@ -76,19 +76,29 @@
   const indexingToggle = document.getElementById('toggle-indexing');
   if (indexingToggle) {
     const okIcon = document.getElementById('toggle-indexing-ok');
+    const errBox = document.getElementById('toggle-indexing-err');
     let okTimer = null;
+    function showOk() {
+      if (errBox) errBox.style.display = 'none';
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function showErr() {
+      if (okIcon) okIcon.classList.remove('show');
+      indexingToggle.checked = !indexingToggle.checked;
+      if (errBox) errBox.style.display = 'block';
+    }
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
       try {
         const r = await fetch('/settings/indexing', { method: 'POST', body: fd, credentials: 'same-origin' });
-        if (r.ok && okIcon) {
-          okIcon.classList.add('show');
-          clearTimeout(okTimer);
-          okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
-        }
+        if (r.ok) showOk();
+        else showErr();
       } catch (_) {
-        indexingToggle.checked = !indexingToggle.checked;
+        showErr();
       }
     });
   }
