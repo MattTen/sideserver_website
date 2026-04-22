@@ -2,11 +2,15 @@
 
 Ce document recense tous les systèmes d'authentification du projet, leurs emplacements, leurs droits et comment les renouveler.
 
+Modèle mono-environnement : **une VM = un conteneur = un jeu de credentials**. Tous les fichiers sensibles sont dans `/etc/ipastore/` (mode 750, owner = app-user, uid 1000), monté en volume dans le conteneur. Les noms de fichiers contiennent toujours `prod` quel que soit le mode réel (dev ou prod) — c'est la branche git checkoutée qui détermine le comportement applicatif, pas le nom des fichiers.
+
 ---
 
-## 1. Token GitHub (lecture des releases — côté serveur)
+## 1. Token GitHub (lecture des releases)
 
-**Rôle** : permet au serveur de lire les releases du repo privé via l'API GitHub. Utilisé par `website-management prod-check/prod-update` et par la vérification automatique 6h du conteneur.
+**Rôle** : permet au conteneur de lire les releases via l'API GitHub. Utilisé par `website-management check/update` et la vérification automatique 6h du conteneur.
+
+**Le repo actuel est public** : le token est **optionnel**. On ne le crée que si le repo passe en privé.
 
 | Champ | Valeur |
 |---|---|
@@ -14,92 +18,45 @@ Ce document recense tous les systèmes d'authentification du projet, leurs empla
 | Compte | MattTen |
 | Repo ciblé | `MattTen/sideserver_website` uniquement |
 | Permissions | Contents : Read-only · Metadata : Read-only |
-| Expiration | 1 an max (fine-grained) — à renouveler |
-| Emplacement sur le serveur | `/etc/ipastore/.git-credentials` |
-| Format du fichier | `https://MattTen:<TOKEN>@github.com` |
-| Propriétaire/droits | `altuser:altuser 600` |
+| Expiration | 1 an max — à renouveler |
+| Emplacement | `/etc/ipastore/.git-credentials` |
+| Format | `https://MattTen:<TOKEN>@github.com` |
+| Droits | `app-user:app-user 600` |
 
-**Renouveler le token** :
+**Créer/renouveler** :
 1. [github.com/settings/tokens](https://github.com/settings/tokens) → *Fine-grained tokens* → *Generate new token*
 2. Repository access : `MattTen/sideserver_website` uniquement
-3. Permissions : Contents = Read-only, Metadata = Read-only (auto)
-4. Sur le serveur :
+3. Permissions : Contents = Read-only, Metadata = Read-only
+4. Sur la VM :
    ```bash
-   printf 'https://MattTen:NOUVEAU_TOKEN@github.com\n' > /etc/ipastore/.git-credentials
-   chmod 600 /etc/ipastore/.git-credentials
-   # Vérifier :
-   website-management prod-check
+   printf 'https://MattTen:NOUVEAU_TOKEN@github.com\n' | sudo tee /etc/ipastore/.git-credentials
+   sudo chmod 600 /etc/ipastore/.git-credentials
+   website-management check
    ```
 
 ---
 
-## 2. Utilisateurs MySQL
+## 2. Utilisateur MySQL de l'application
 
-Trois users MySQL distincts, chacun avec un rôle précis.
-
-### 2a. `ipastore-prod` — application prod
+Un seul user MySQL par VM — celui qu'utilise le conteneur pour lire/écrire sa BDD.
 
 | Champ | Valeur |
 |---|---|
-| User MySQL | `ipastore-prod` |
-| Host autorisé | `%` (conteneur Docker via `host.docker.internal`) |
-| Port | `3306` |
-| Base de données | `ipastore-prod` |
-| Droits | `ALL PRIVILEGES ON ipastore-prod.*` |
-| Où trouver le mot de passe | `/etc/ipastore/prod.env` → variable `IPASTORE_DB_URL` |
-| Utilisé par | conteneur `sidestore-website-prod` |
+| User MySQL | libre (ex: `ipastore`) |
+| Host autorisé | tout host depuis lequel le conteneur se connecte (`%` ou `host.docker.internal` côté Docker, `localhost` si la BDD est sur la même VM) |
+| Port | `3306` (défaut MySQL/MariaDB) |
+| Base de données | libre (ex: `ipastore`) |
+| Droits | `ALL PRIVILEGES ON <db>.*` |
+| Où trouver le mot de passe | `/etc/ipastore/db.json` (champ `password`) |
+| Utilisé par | le conteneur `sidestore-website-prod` |
 
-Le mot de passe est généré aléatoirement à l'installation (`deploy/bootstrap.sh`) et injecté dans la connection string de `IPASTORE_DB_URL`. Il n'est stocké qu'à un seul endroit : ce fichier.
+**Saisie initiale** : la connexion est saisie via l'UI `/setup/database` au premier démarrage (host, port, user, password, database). Les valeurs sont testées (`SELECT 1` + tentative de `CREATE TABLE`) puis persistées dans `/etc/ipastore/db.json` (mode 600, owner uid 1000, format JSON).
 
-### 2b. `ipastore-dev` — application dev
+**Changer la connexion BDD** :
+- Soit via l'UI `/settings` (si exposé)
+- Soit directement : éditer `/etc/ipastore/db.json` puis `docker restart sidestore-website-prod`
 
-| Champ | Valeur |
-|---|---|
-| User MySQL | `ipastore-dev` |
-| Host autorisé | `%` (conteneur Docker via `host.docker.internal`) |
-| Port | `3306` |
-| Base de données | `ipastore-dev` |
-| Droits | `ALL PRIVILEGES ON ipastore-dev.*` |
-| Où trouver le mot de passe | `/etc/ipastore/dev.env` → variable `IPASTORE_DB_URL` |
-| Utilisé par | conteneur `sidestore-website-dev` |
-
-Même principe que prod — mot de passe généré à l'install, stocké uniquement dans `dev.env`.
-
-### 2c. `ipastore-mgmt` — script de management
-
-| Champ | Valeur |
-|---|---|
-| User MySQL | `ipastore-mgmt` |
-| Host autorisé | `localhost` uniquement |
-| Droits | `ALL PRIVILEGES ON *.*` (nécessaire pour les opérations cross-BDD : sync, reset-users) |
-| Où trouver le mot de passe | `/etc/ipastore/.mysql.cnf` → clé `password` |
-| Propriétaire/droits | `altuser:altuser 600` |
-| Utilisé par | `website-management` (sync, reset-users, dev-update) |
-
-**Format de `/etc/ipastore/.mysql.cnf`** :
-```ini
-[client]
-user=ipastore-mgmt
-password=<généré à l'install>
-host=localhost
-```
-
-**Changer le mot de passe de `ipastore-mgmt`** :
-```bash
-# En tant que root sur le serveur :
-NEW_PASS=$(openssl rand -base64 32 | tr -d '/+=')
-mysql -u root -e "ALTER USER 'ipastore-mgmt'@'localhost' IDENTIFIED BY '${NEW_PASS}';"
-sed -i "s/^password=.*/password=${NEW_PASS}/" /etc/ipastore/.mysql.cnf
-```
-
-**Changer le mot de passe de `ipastore-mgmt`** :
-```bash
-# Sur le serveur en tant que root :
-NEW_PASS=$(openssl rand -base64 32 | tr -d '/+=')
-mysql -u root -e "ALTER USER 'ipastore-mgmt'@'localhost' IDENTIFIED BY '${NEW_PASS}';"
-# Mettre à jour le fichier :
-sed -i "s/^password=.*/password=${NEW_PASS}/" /etc/ipastore/.mysql.cnf
-```
+Il n'y a **plus** de user `ipastore-mgmt` ni de fichier `.mysql.cnf` — les opérations administratives (reset-users) passent par `docker exec` dans le conteneur, qui utilise la connexion applicative déjà configurée.
 
 ---
 
@@ -107,22 +64,20 @@ sed -i "s/^password=.*/password=${NEW_PASS}/" /etc/ipastore/.mysql.cnf
 
 **Rôle** : signe les cookies de session (`ipastore_session`) via HMAC (bibliothèque `itsdangerous`). Sans elle, toutes les sessions actives sont invalidées.
 
-| Env | Fichier | Droits |
-|---|---|---|
-| prod | `/etc/ipastore/secret_key.prod` | `altuser:altuser 600` |
-| dev | `/etc/ipastore/secret_key.dev` | `altuser:altuser 600` |
+| Fichier | Droits |
+|---|---|
+| `/etc/ipastore/secret_key` (défaut) ou `/etc/ipastore/secret_key.prod` (si `IPASTORE_SECRET_FILE` pointe dessus) | `app-user:app-user 600` |
 
 - Générée automatiquement au premier démarrage du conteneur si absente.
 - 64 octets aléatoires (`secrets.token_bytes(64)`).
-- **Ne pas supprimer** sans recréer le fichier : toutes les sessions seront invalidées et les utilisateurs devront se reconnecter.
+- **Ne pas supprimer** sans recréer le fichier : toutes les sessions seront invalidées.
 
-**Régénérer** (invalide toutes les sessions actives) :
+**Régénérer** (invalide toutes les sessions) :
 ```bash
-python3 -c "import secrets,sys; sys.stdout.buffer.write(secrets.token_bytes(64))" \
-  > /etc/ipastore/secret_key.prod
-chmod 600 /etc/ipastore/secret_key.prod
-# Redémarrer le conteneur pour prendre en compte :
-cd /opt/sideserver-prod && docker compose restart
+sudo python3 -c "import secrets,sys; sys.stdout.buffer.write(secrets.token_bytes(64))" \
+  | sudo tee /etc/ipastore/secret_key > /dev/null
+sudo chmod 600 /etc/ipastore/secret_key
+docker restart sidestore-website-prod
 ```
 
 ---
@@ -133,35 +88,35 @@ cd /opt/sideserver-prod && docker compose restart
 
 | Champ | Détail |
 |---|---|
-| Stockage | table `users` dans la BDD de l'env concerné |
+| Stockage | table `users` dans la BDD |
 | Hash | bcrypt, coût 12 |
 | Cookie | `ipastore_session` (HMAC signé, durée 30 jours) |
-| Routes protégées | toutes sauf `/source.json`, `/qr.svg`, `/ipas/*`, `/icons/*`, `/static/*` |
+| Routes protégées | toutes sauf `/source.json`, `/qr.svg`, `/ipas/*`, `/icons/*`, `/static/*`, `/setup*` |
 
-**Changer ou recréer le mot de passe admin** (via le script) :
+**Changer ou recréer le mot de passe admin** :
 ```bash
-website-management prod-reset-users   # supprime tous les admins + crée un nouveau
-website-management dev-reset-users    # idem sur dev
+website-management reset-users   # supprime tous les admins + prompt création
 ```
 
-**Changer uniquement le mot de passe** (sans reset total) : aller dans l'interface web → *Réglages* → *Compte administrateur*.
+**Changer uniquement le mot de passe** (sans reset total) : interface web → *Réglages* → *Compte administrateur*.
 
 **Premier démarrage** : si la table `users` est vide, l'interface redirige vers `/setup` pour créer le premier compte.
 
 ---
 
-## 5. Résumé des fichiers sensibles
+## 5. Résumé des fichiers sensibles dans `/etc/ipastore/`
 
 | Fichier | Contenu | Droits |
 |---|---|---|
-| `/etc/ipastore/.git-credentials` | Token GitHub | `altuser:altuser 600` |
-| `/etc/ipastore/.mysql.cnf` | Creds MySQL mgmt | `altuser:altuser 600` |
-| `/etc/ipastore/prod.env` | DB URL prod + vars app | `altuser:altuser 640` |
-| `/etc/ipastore/dev.env` | DB URL dev + vars app | `altuser:altuser 640` |
-| `/etc/ipastore/secret_key.prod` | Clé signature cookies prod | `altuser:altuser 600` |
-| `/etc/ipastore/secret_key.dev` | Clé signature cookies dev | `altuser:altuser 600` |
+| `.git-credentials` | Token GitHub (optionnel, repo public) | `app-user:app-user 600` |
+| `db.json` | Connexion BDD (host/port/user/password/database) | `uid1000 600` |
+| `prod.env` | Vars app (`IPASTORE_STORE_DIR`, `IPASTORE_SECRET_FILE`, `IPASTORE_ENV`, `IPASTORE_GITHUB_REPO`, éventuellement `IPASTORE_BASE_URL`) — **pas** la connexion BDD | `app-user:app-user 640` |
+| `secret_key` | Clé HMAC signature cookies (64 octets) | `app-user:app-user 600` |
+| `prod.version` | Tag ou `rolling-<sha>` de la version déployée | `app-user:app-user 644` |
+| `update-requested-prod` | Flag-file écrit par le conteneur pour déclencher une MAJ | `uid1000 644` (transient) |
+| `scinsta-upload-prod.ipa` / `scinsta-build-log-prod.txt` / `scinsta-build-result-prod.json` / … | I/O pipeline SCInsta | variés |
 
-Tous ces fichiers sont dans `/etc/ipastore/` qui appartient à `altuser` avec droits `750` — inaccessible aux autres utilisateurs du système.
+Tous ces fichiers sont dans `/etc/ipastore/` (mode 750, owned par l'app-user) — inaccessibles aux autres utilisateurs.
 
 ---
 
@@ -173,4 +128,5 @@ Tous ces fichiers sont dans `/etc/ipastore/` qui appartient à `altuser` avec dr
 | `GET /qr.svg` | QR code vers source.json |
 | `GET /ipas/*` | Téléchargement des fichiers IPA |
 | `GET /icons/*` | Icônes des apps |
+| `GET /screenshots/*` | Screenshots |
 | `GET /static/*` | CSS, JS, icône par défaut |

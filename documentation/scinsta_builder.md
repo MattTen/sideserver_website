@@ -18,7 +18,7 @@ Toute l'info et les interactions liées à la **version** :
 - **Source : `<url>` [Modifier]** — l'URL interrogée est éditable. Utile si decrypt.day change de slug, tombe, ou si l'admin veut pointer vers un miroir. Clic sur `Modifier` → input + boutons Enregistrer/Annuler.
 
 ### Carte "Métadonnées"
-Entre la carte decrypt.day et l'upload. Affiche 6 champs de l'App Instagram (dans l'ordre : **Nom**, **Développeur**, **Catégorie**, **Sous-titre**, **Description**, **Teinte**), chacun en lecture seule avec un bouton `Modifier` à droite (même pattern UI que la source URL et les descriptions de patchs).
+Entre la carte decrypt.day et l'upload. Affiche 5 champs de l'App Instagram (dans l'ordre : **Développeur**, **Catégorie**, **Sous-titre**, **Description**, **Teinte**), chacun en lecture seule avec un bouton `Modifier` à droite (même pattern UI que la source URL et les descriptions de patchs). Le champ **Nom** n'est pas exposé ici (non éditable via SCInsta, gérable depuis l'onglet Applications).
 
 Deux régimes :
 - **App existe en BDD** (`state.app_exists == true`) — les valeurs affichées viennent de la ligne `apps` directement. Clic sur `Modifier` + `Enregistrer` → `POST /scinsta/metadata/{field}` → update de la colonne `App.<field>`. Équivalent strict à éditer la fiche dans l'onglet Applications.
@@ -33,7 +33,8 @@ Juste après Métadonnées. Affiche la note qui sera utilisée au prochain build
 
 - Par défaut (aucun override) : preview `Instagram <version> + SCInsta` où `<version>` est la version connue la plus récente (`ig_latest` decrypt.day en priorité, sinon `ig_deployed`). Badge `défaut` visible pour indiquer que le texte sera régénéré à chaque build.
 - Après `Modifier` + `Enregistrer` : `POST /scinsta/changelog` écrit `scinsta_meta_changelog`. L'override est **persistant** — utilisé pour tous les builds suivants jusqu'à ce que l'admin clique `Réinitialiser` (qui vide le setting).
-- Intégré dans `integrate_build_result` : si `scinsta_meta_changelog` est non vide, il remplit `Version.changelog` verbatim ; sinon, auto-génération `Instagram <v> + SCInsta`.
+- **Détection du template auto** : si `scinsta_meta_changelog` contient exactement `Instagram X.X.X + SCInsta` (regex `^Instagram \d+(?:\.\d+)* \+ SCInsta$`), il est traité comme non-override et recalculé avec la version IG courante. Évite qu'un enregistrement accidentel de la valeur par défaut fige la note sur une version IG obsolète entre deux builds.
+- Intégré dans `integrate_build_result` : `read_changelog` retourne le texte final ; si c'est un override personnalisé, `Version.changelog` le prend verbatim ; sinon auto-génération `Instagram <v> + SCInsta`.
 
 ### Carte "1. Upload de l'IPA Instagram"
 Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Une alerte "IPA prête : V{version}" s'affiche quand un upload est en attente (la version est lue depuis `CFBundleShortVersionString` de l'Info.plist), avec un bouton `Supprimer`.
@@ -44,7 +45,9 @@ Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upl
 ### Carte "3. Lancer le build"
 Bouton `Builder maintenant`. Désactivé tant qu'aucun upload n'est prêt ou qu'un build est déjà en cours. Le statut affiche la progression (`clone`, `build`, `inject`, `patch`, `deploy`) via polling `/scinsta/status` toutes les 3s.
 
-Bouton `Annuler le build` (visible uniquement pendant un build, style `btn-danger`). Écrit `/etc/ipastore/scinsta-build-cancel-<env>`, déclenche le path unit `ipastore-scinsta-cancel@<env>.path` → service host-side qui `docker kill --signal=SIGTERM scinsta-builder-<env>` puis écrit un `scinsta-build-result-<env>` avec status `failed` et message "Build annule par l'admin". Le watcher lifespan bascule alors le state en `failed` côté UI. Utilisé en cas de build qui boucle indéfiniment (Theos bloqué, réseau mort…).
+Bouton `Annuler le build` (visible uniquement pendant un build, style `btn-danger`). Écrit `/etc/ipastore/scinsta-build-cancel-<env>`, déclenche le path unit `ipastore-scinsta-cancel@<env>.path` → service host-side qui `docker stop -t 2 scinsta-builder-<env>` puis écrit un `scinsta-build-result-<env>` avec status `failed` et message "Build annule par l'admin". Le watcher lifespan bascule alors le state en `failed` côté UI.
+
+> **Pourquoi `docker stop` et pas `docker kill --signal=SIGTERM`** : `build.py` est PID 1 dans le container. Le kernel Linux ignore les signaux sans handler pour PID 1 (sauf SIGKILL). SIGTERM envoyé via `docker kill --signal=SIGTERM` était donc silencieusement ignoré et le build continuait. `docker stop -t 2` envoie SIGTERM, attend 2 s, puis SIGKILL (uncatchable) — et bloque jusqu'à ce que le container soit réellement arrêté, libérant le `docker run --rm` du service de build pour qu'il se termine proprement.
 
 Un `<pre>` sous le bouton affiche la **sortie temps réel** du conteneur builder (git clone, Theos, cyan, ipapatch, patch). Implémentation :
 - Côté builder (`tools/scinsta-builder/build.py`) : `_install_log_tee()` ouvre `/etc/ipastore/scinsta-build-log-<env>.txt` en line-buffered et redirige `sys.stdout`/`sys.stderr` vers un `_Tee(sys.__stdout__, fh)`. Chaque ligne arrive dans le fichier dès qu'elle est imprimée, même pendant `bash ./build.sh sideload` (qui tourne plusieurs minutes).
@@ -193,11 +196,13 @@ Stockées en BDD dans la table `settings` (voir [databases.md](databases.md)). A
 2. Insère (ou met à jour en place si déjà présente) la `Version` avec :
    - `version = <IG version>` (ex: `425.0.0`) — lu depuis `CFBundleShortVersionString` de l'Info.plist.
    - `build_version = <CFBundleVersion>` (ex: `933996394`) — lu depuis l'Info.plist de l'IPA final. **Doit** correspondre au `CFBundleVersion` réel ; sinon SideStore refuse l'install avec un mismatch "version trouvée dans l'IPA ≠ version du store". Le short SHA SCInsta n'est **plus** utilisé comme `build_version` (cassait l'install), il reste tracé dans le setting `scinsta_last_build_scinsta_sha`.
-   - `changelog` = override `scinsta_meta_changelog` si non vide, sinon auto `"Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
+   - `changelog` = override `scinsta_meta_changelog` si non vide **et différent du template auto** (voir §1 Note de version), sinon auto `"Instagram <v> + SCInsta"` (sobre ; rien sur le patch ou le SHA pour ne pas polluer l'affichage SideStore).
    - **Rebuilds du même CFBundleVersion** : la ligne Version existante est remplacée en place (nouveau `ipa_filename`, `size`, `sha256`, `uploaded_at` bumpé) et l'ancien IPA est supprimé du disque.
    - **Purge des lignes obsolètes** : toutes les autres Versions pour la même App + `version` IG mais avec un `build_version` différent (ex : lignes historiques créées avec short SHA, ou upload vanille pré-SCInsta) sont supprimées, IPAs inclus — un seul IPA par `(app, version, CFBundleVersion)` reste en BDD.
 3. **Aucun article news automatique** — l'admin rédige manuellement depuis l'onglet News s'il veut annoncer le build (et déclencher la notif push via `notify=1`).
 4. Supprime `scinsta-upload-<env>.ipa` pour que l'UI n'affiche plus "upload en attente".
+
+**Safety net** : `_process_scinsta_result` dans `main.py` entoure `integrate_build_result` d'un try/except. Si l'intégration plante (bug applicatif, contrainte BDD…), le status est basculé en `failed` avec le message d'erreur — évite que l'UI reste figée sur "build en cours" indéfiniment alors que le builder a terminé.
 
 ---
 

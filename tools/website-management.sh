@@ -1,21 +1,31 @@
 #!/usr/bin/env bash
-# website-management.sh — Gestion des environnements prod/dev de sideserver_website.
+# website-management.sh — Gestion mono-env de sideserver_website.
+#
+# Modele mono-env : une VM = un seul environnement (prod OU dev), distingue
+# uniquement par la branche checkoutee dans /opt/sideserver-prod :
+#   main -> prod (release-based, redeploiement sur tag)
+#   dev  -> dev  (rolling, redeploiement sur HEAD de la branche)
+# Les chemins, nom de conteneur, fichier .env, units systemd restent
+# identiques dans les deux cas (bootstrap-dev est une copie conforme de
+# bootstrap-prod, seule la branche change). Un meme script sert donc les
+# deux usages, et decide du comportement d'update en lisant la branche
+# courante du clone.
 #
 # Sans argument : menu interactif.
-# Avec argument : exécution d'une commande unique (voir --help).
+# Avec argument : execution d'une commande unique (voir --help).
+#
+# Les aliases `prod-update`, `prod-scinsta-build`, `prod-scinsta-cancel`
+# sont conserves pour la compatibilite avec les units systemd generees
+# par le bootstrap (qui utilisent l'instance %i=prod).
 
 set -euo pipefail
 
 # ────── Config ──────
-PROD_DIR="${SIDESERVER_PROD_DIR:-/opt/sideserver-prod}"
-DEV_DIR="${SIDESERVER_DEV_DIR:-/opt/sideserver-dev}"
-TOOLS_DIR="${SIDESERVER_TOOLS_DIR:-/opt/sideserver-tools}"
+APP_DIR="${SIDESERVER_APP_DIR:-/opt/sideserver-prod}"
 GITHUB_REPO="${SIDESERVER_REPO:-MattTen/sideserver_website}"
-DB_PROD="ipastore-prod"
-DB_DEV="ipastore-dev"
-STORE_PROD="/srv/store-prod"
-STORE_DEV="/srv/store-dev"
-MYSQL_DEFAULTS="/etc/ipastore/.mysql.cnf"
+STORE_DIR="/srv/store-prod"
+CONTAINER_NAME="sidestore-website-prod"
+VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
 # Couleurs
@@ -32,50 +42,43 @@ ok()    { printf "${C_GREEN}[mgmt]${C_RESET} %s\n" "$*"; }
 warn()  { printf "${C_YELLOW}[mgmt]${C_RESET} %s\n" "$*" >&2; }
 err()   { printf "${C_RED}[mgmt]${C_RESET} %s\n" "$*" >&2; }
 
-env_dir() {
-  case "$1" in
-    prod) echo "$PROD_DIR" ;;
-    dev)  echo "$DEV_DIR" ;;
-    *)    err "env inconnu : $1"; exit 1 ;;
-  esac
+# safe.directory : le clone est chowne APP_USER par le bootstrap mais les
+# commandes systemd tournent aussi en APP_USER ; par contre si l'admin lance
+# le script en sudo apres un bootstrap recent, on veut que git accepte.
+GIT_SAFE=(-c "safe.directory=${APP_DIR}")
+
+# ────── Helpers git ──────
+
+# Wrapper git qui injecte le credential.helper si un token est configure
+# (sinon pas d'auth, le repo est suppose public).
+git_auth() {
+  if [[ -r "$GIT_CREDENTIALS_FILE" ]]; then
+    git "${GIT_SAFE[@]}" -c "credential.helper=store --file $GIT_CREDENTIALS_FILE" "$@"
+  else
+    git "${GIT_SAFE[@]}" "$@"
+  fi
 }
 
-container_name() {
-  case "$1" in
-    prod) echo sidestore-website-prod ;;
-    dev)  echo sidestore-website-dev ;;
-  esac
-}
-
-env_branch() {
-  case "$1" in
-    prod) echo main ;;
-    dev)  echo dev ;;
-  esac
-}
-
-version_file() {
-  echo "/etc/ipastore/${1}.version"
-}
-
-# ────── Helpers releases ──────
-
-# Extrait le token GitHub de /etc/ipastore/.git-credentials (format:
-# https://user:TOKEN@github.com). Renvoie vide si absent/illisible.
+# Extrait le token GitHub de /etc/ipastore/.git-credentials si present.
 github_token() {
   [[ -r "$GIT_CREDENTIALS_FILE" ]] || return 0
   sed -nE 's|^https://[^:]+:([^@]+)@github\.com.*|\1|p' "$GIT_CREDENTIALS_FILE" | head -n1
 }
 
-# Wrapper git qui injecte le credential.helper pointant vers notre fichier.
-# Utilisé pour tous les appels git réseau (fetch, checkout de tag…) afin
-# d'éviter le prompt interactif sur les repos privés.
-git_auth() {
-  git -c "credential.helper=store --file $GIT_CREDENTIALS_FILE" "$@"
+# Branche actuellement checkoutee dans APP_DIR (main ou dev).
+current_branch() {
+  git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown
 }
 
-# Renvoie le tag_name de la dernière release (ex: v1.2.3), ou vide si rien.
-# Nécessaire d'être authentifié pour les repos privés.
+# Env logique deduit de la branche : main -> prod, autre -> dev.
+env_from_branch() {
+  case "$(current_branch)" in
+    main) echo prod ;;
+    *)    echo dev ;;
+  esac
+}
+
+# Renvoie le tag_name de la derniere release (ex: v1.2.3), ou vide si rien.
 latest_release_tag() {
   local -a curl_args=(-fsSL -H 'Accept: application/vnd.github+json')
   local token; token="$(github_token)"
@@ -87,10 +90,8 @@ latest_release_tag() {
     | sed -E 's/.*"([^"]+)"[[:space:]]*$/\1/'
 }
 
-# Renvoie le contenu du fichier version de l'env donné, ou vide.
 current_version() {
-  local f; f="$(version_file "$1")"
-  [[ -f "$f" ]] && cat "$f" || true
+  [[ -f "$VERSION_FILE" ]] && cat "$VERSION_FILE" || true
 }
 
 # Retourne 0 si $1 > $2 (versions dotted, avec ou sans 'v' initial).
@@ -99,8 +100,6 @@ version_gt() {
   [[ -z "$a" ]] && return 1
   [[ -z "$b" ]] && return 0
   [[ "$a" = "$b" ]] && return 1
-  # Si a n'est pas du semver (1.2.3…), on le considère plus petit que tout.
-  # Si b n'est pas du semver (ex: déploiement rolling "main-abc1234"), a gagne.
   local re='^[0-9]+(\.[0-9]+)*$'
   [[ "$a" =~ $re ]] || return 1
   [[ "$b" =~ $re ]] || return 0
@@ -108,126 +107,106 @@ version_gt() {
 }
 
 write_version_file() {
-  local env="$1" version="$2"
-  local f; f="$(version_file "$env")"
-  printf '%s\n' "$version" > "$f"
-  chmod 644 "$f" || true
+  printf '%s\n' "$1" > "$VERSION_FILE"
+  chmod 644 "$VERSION_FILE" || true
 }
 
-# ────── Commandes conteneurs ──────
+# ────── Commandes conteneur ──────
 
 cmd_start() {
-  local env="$1"
-  info "Démarrage $env ($(env_dir "$env"))"
-  (cd "$(env_dir "$env")" && docker compose up -d --build)
-  docker ps --filter "name=$(container_name "$env")" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
+  info "Demarrage ($APP_DIR)"
+  (cd "$APP_DIR" && docker compose up -d --build)
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
 }
 
 cmd_stop() {
-  local env="$1"
-  info "Arrêt $env"
-  (cd "$(env_dir "$env")" && docker compose down)
+  info "Arret"
+  (cd "$APP_DIR" && docker compose down)
 }
 
 cmd_restart() {
-  local env="$1"
-  info "Redémarrage $env (force-recreate)"
-  (cd "$(env_dir "$env")" && docker compose up -d --build --force-recreate)
-  docker ps --filter "name=$(container_name "$env")" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
+  info "Redemarrage (force-recreate)"
+  (cd "$APP_DIR" && docker compose up -d --build --force-recreate)
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
 }
 
 cmd_logs() {
-  local env="$1"
-  info "Logs $env (Ctrl+C pour sortir)"
-  (cd "$(env_dir "$env")" && docker compose logs -f --tail=200)
+  info "Logs (Ctrl+C pour sortir)"
+  (cd "$APP_DIR" && docker compose logs -f --tail=200)
 }
 
 cmd_status() {
-  info "État des conteneurs sideserver"
-  docker ps -a --filter "name=sidestore-website" \
+  info "Conteneur"
+  docker ps -a --filter "name=$CONTAINER_NAME" \
     --format "  {{.Names}}\t{{.Status}}\t{{.Ports}}"
   echo
-  info "Versions déployées"
-  printf "  prod : %s\n" "$(current_version prod 2>/dev/null || echo '<aucune>')"
-  printf "  dev  : %s\n" "$(current_version dev 2>/dev/null || echo '<rolling>')"
+  info "Version deployee : $(current_version 2>/dev/null || echo '<aucune>')"
+  info "Branche courante : $(current_branch)"
+  info "Env logique      : $(env_from_branch)"
 }
 
-# ────── Mise à jour ──────
-#
-# prod : release-based (git checkout du tag de la dernière release).
-# dev  : rolling (git pull branche dev + rebuild).
+# ────── Mise a jour ──────
 
-cmd_update_prod() {
-  local dir; dir="$(env_dir prod)"
-  info "Récupération de la dernière release depuis github.com/${GITHUB_REPO}..."
+# Rolling : pull HEAD de la branche courante + rebuild. Utilise pour :
+#   - dev : workflow normal (HEAD de dev)
+#   - prod : hotfix d'urgence (bypass release)
+cmd_pull_rolling() {
+  local branch; branch="$(current_branch)"
+  info "Pull rolling branche '$branch' dans $APP_DIR"
+  (cd "$APP_DIR" \
+    && git_auth fetch origin "$branch" \
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch" \
+    && docker compose up -d --build)
+  local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
+  write_version_file "rolling-${branch}-${sha}"
+  ok "Mis a jour : rolling-${branch}-${sha}"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
+}
+
+# Release-based : checkout du tag de la derniere release GitHub. Utilise
+# uniquement pour la prod (branche main). Idempotent si deja a jour.
+cmd_update_release() {
+  info "Recuperation de la derniere release depuis github.com/${GITHUB_REPO}"
   local latest current
   latest="$(latest_release_tag || true)"
   if [[ -z "$latest" ]]; then
-    err "Impossible de récupérer la dernière release (pas de release publiée, ou API inaccessible)"
+    err "Impossible de recuperer la derniere release (pas de release publiee, ou API inaccessible)"
     return 1
   fi
-  current="$(current_version prod || true)"
-  info "Déployé actuellement : ${current:-<aucun>}"
-  info "Dernière release     : $latest"
+  current="$(current_version || true)"
+  info "Deploye actuellement : ${current:-<aucun>}"
+  info "Derniere release     : $latest"
 
   if [[ -n "$current" ]] && ! version_gt "$latest" "$current"; then
-    ok "Prod déjà à jour ($current)"
+    ok "Deja a jour ($current)"
     return 0
   fi
 
   info "Checkout $latest + rebuild du conteneur"
-  (cd "$dir" \
+  (cd "$APP_DIR" \
     && git_auth fetch --tags --prune origin \
-    && git checkout --force "$latest" \
+    && git "${GIT_SAFE[@]}" checkout --force "$latest" \
     && docker compose up -d --build)
-  write_version_file prod "$latest"
-  ok "Prod déployée : $latest"
-  docker ps --filter "name=$(container_name prod)" --format "  {{.Names}}  {{.Status}}"
+  write_version_file "$latest"
+  ok "Deploye : $latest"
+  docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}"
 }
 
-cmd_update_dev() {
-  local dir; dir="$(env_dir dev)"
-  info "Pull branche 'dev' dans $dir"
-  (cd "$dir" \
-    && git_auth fetch origin dev \
-    && git reset --hard origin/dev \
-    && docker compose up -d --build)
-  write_version_file dev "rolling-$(git -C "$dir" rev-parse --short HEAD)"
-  ok "Dev mis à jour"
-  docker ps --filter "name=$(container_name dev)" --format "  {{.Names}}  {{.Status}}"
-}
-
-# Bypass d'urgence du workflow release-based : pull direct de main + rebuild.
-# A n'utiliser que pour un hotfix critique en attendant qu'une vraie release
-# soit taggee. La version ecrite est marquee "rolling-main-<sha>" pour eviter
-# les faux positifs de prod-check (qui compare a la derniere release GitHub).
-cmd_pull_prod() {
-  local dir; dir="$(env_dir prod)"
-  warn "PULL D'URGENCE : pull direct de 'main' sans passer par une release."
-  warn "A n'utiliser que pour un hotfix ; tag une release des que possible."
-  info "Pull branche 'main' dans $dir"
-  (cd "$dir" \
-    && git_auth fetch origin main \
-    && git reset --hard origin/main \
-    && docker compose up -d --build)
-  write_version_file prod "rolling-main-$(git -C "$dir" rev-parse --short HEAD)"
-  ok "Prod mis à jour (rolling main)"
-  docker ps --filter "name=$(container_name prod)" --format "  {{.Names}}  {{.Status}}"
-}
-
+# update : dispatcher selon le mode (branche).
+#   main -> release-based (latest tag)
+#   dev  -> rolling (HEAD de la branche)
 cmd_update() {
-  case "$1" in
-    prod) cmd_update_prod ;;
-    dev)  cmd_update_dev ;;
+  case "$(env_from_branch)" in
+    prod) cmd_update_release ;;
+    dev)  cmd_pull_rolling ;;
   esac
 }
 
-# Sortie machine-readable pour l'UI / le scheduler.
-# Format : lignes "key=value". Codes de sortie : 0 ok, 1 erreur.
+# Sortie machine-readable pour l'UI admin.
 cmd_check_update() {
-  local env="$1"
   local current latest available="0"
-  current="$(current_version "$env" || true)"
+  current="$(current_version || true)"
+  local env; env="$(env_from_branch)"
 
   if [[ "$env" == "dev" ]]; then
     echo "env=dev"
@@ -253,171 +232,27 @@ cmd_check_update() {
   echo "update_available=${available}"
 }
 
+# self-update : mono-env, plus de clone tools separe. On pull simplement
+# la branche courante du clone applicatif — ce script en fait partie.
 cmd_self_update() {
-  info "Pull du script depuis $TOOLS_DIR (branche main, sparse-checkout)"
-  (cd "$TOOLS_DIR" && git_auth fetch origin main && git reset --hard origin/main)
-  ok "Script à jour : $(git -C "$TOOLS_DIR" log -1 --format='%h %s')"
-}
-
-# ────── Sync TOTALE prod -> dev ──────
-
-cmd_sync() {
-  warn "Sync TOTALE $DB_PROD -> $DB_DEV : toutes les modifs dev seront perdues."
-  read -r -p "Confirmer ? [y/N] " yn
-  [[ "$yn" =~ ^[yYoO]$ ]] || { info "Annulé"; return 1; }
-
-  if [[ ! -f "$MYSQL_DEFAULTS" ]]; then
-    err "Fichier $MYSQL_DEFAULTS manquant. Crée-le avec [client] user=root password=..."
-    return 1
-  fi
-
-  info "Drop + recreate $DB_DEV"
-  mysql --defaults-extra-file="$MYSQL_DEFAULTS" <<SQL
-DROP DATABASE IF EXISTS \`$DB_DEV\`;
-CREATE DATABASE \`$DB_DEV\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-GRANT ALL PRIVILEGES ON \`$DB_DEV\`.* TO 'ipastore-dev'@'%';
-FLUSH PRIVILEGES;
-SQL
-
-  info "Dump + restore de $DB_PROD"
-  # --single-transaction : snapshot cohérent InnoDB sans poser de verrou table.
-  # --quick : streame les lignes au lieu de les bufferiser en mémoire (gros volumes).
-  mysqldump --defaults-extra-file="$MYSQL_DEFAULTS" \
-    --routines --triggers --events \
-    --single-transaction --quick \
-    "$DB_PROD" \
-    | mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$DB_DEV"
-
-  info "Mirror $STORE_PROD -> $STORE_DEV (rsync --delete)"
-  mkdir -p "$STORE_DEV"/{ipas,icons,screenshots}
-  rsync -a --delete "$STORE_PROD/" "$STORE_DEV/"
-
-  info "Restart conteneur dev"
-  (cd "$DEV_DIR" && docker compose restart)
-
-  ok "Sync terminée. La BDD et les fichiers dev reflètent la prod."
-}
-
-cmd_sync_schema_to_prod() {
-  # Migration additive uniquement : on ne touche JAMAIS aux donnees prod.
-  # Pas de DROP, pas de MODIFY COLUMN — les divergences de type sur des
-  # colonnes existantes sont affichees en commentaire dans le plan et
-  # laissees au jugement de l'admin.
-  warn "Sync SCHEMA uniquement (DDL) : $DB_DEV -> $DB_PROD"
-  printf "  - CREATE les tables absentes en prod\n"
-  printf "  - ADD COLUMN pour les colonnes manquantes\n"
-  printf "  - ADD INDEX / UNIQUE / FOREIGN KEY pour les cles manquantes\n"
-  printf "  - PAS de DROP, PAS de MODIFY : aucune donnee prod touchee\n"
-  printf "  - Divergences de type sur colonnes existantes : affichees en commentaire, NON corrigees\n"
-  read -r -p "Continuer ? [y/N] " yn
-  [[ "$yn" =~ ^[yYoO]$ ]] || { info "Annulé"; return 1; }
-
-  [[ -f "$MYSQL_DEFAULTS" ]] || { err "Fichier $MYSQL_DEFAULTS manquant."; return 1; }
-
-  local sync_script="$TOOLS_DIR/tools/schema-sync.py"
-  if [[ ! -f "$sync_script" ]]; then
-    err "Script $sync_script introuvable — lance 'self-update' d'abord."
-    return 1
-  fi
-
-  local plan="/tmp/schema-migration-$$.sql"
-  info "Generation du plan ($DB_DEV -> $DB_PROD)"
-  if ! python3 "$sync_script" --source "$DB_DEV" --target "$DB_PROD" \
-       --defaults "$MYSQL_DEFAULTS" --out "$plan"; then
-    err "Echec de la generation du plan"
-    rm -f "$plan"
-    return 1
-  fi
-
-  # Plan vide (une seule ligne "-- Rien a faire") = schemas deja identiques.
-  if [[ ! -s "$plan" ]] || grep -q "^-- Rien a faire" "$plan"; then
-    ok "Schemas deja identiques — rien a faire."
-    rm -f "$plan"
-    return 0
-  fi
-
-  info "Plan de migration :"
-  printf "${C_DIM}----------------------------------------${C_RESET}\n"
-  cat "$plan"
-  printf "${C_DIM}----------------------------------------${C_RESET}\n"
-
-  read -r -p "Appliquer ce plan sur $DB_PROD ? [y/N] " yn2
-  [[ "$yn2" =~ ^[yYoO]$ ]] || {
-    info "Annulé — plan conserve dans $plan pour relecture"
-    return 1
-  }
-
-  # FOREIGN_KEY_CHECKS=0 permet les forward references quand on ajoute
-  # plusieurs tables + FKs dans le meme fichier (ordre d'insertion non trivial).
-  info "Application sur $DB_PROD"
-  if {
-      echo "SET FOREIGN_KEY_CHECKS=0;"
-      cat "$plan"
-      echo "SET FOREIGN_KEY_CHECKS=1;"
-     } | mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$DB_PROD"; then
-    ok "Schema $DB_PROD aligne sur $DB_DEV. Aucune donnee modifiee."
-    rm -f "$plan"
-  else
-    err "Echec de l'application — plan conserve dans $plan pour diagnostic"
-    return 1
-  fi
-}
-
-cmd_sync_to_prod() {
-  # Opération IRRÉVERSIBLE : toutes les données prod sont écrasées par dev.
-  # Double confirmation exigée pour éviter toute manipulation accidentelle.
-  printf "${C_RED}╔══════════════════════════════════════════════════════╗${C_RESET}\n"
-  printf "${C_RED}║  ATTENTION : SYNC DEV -> PROD                        ║${C_RESET}\n"
-  printf "${C_RED}║  Toutes les données PROD seront écrasées par DEV.    ║${C_RESET}\n"
-  printf "${C_RED}║  Cette opération est IRRÉVERSIBLE.                   ║${C_RESET}\n"
-  printf "${C_RED}╚══════════════════════════════════════════════════════╝${C_RESET}\n"
-  read -r -p "Tape 'CONFIRMER' pour continuer : " confirmation
-  [[ "$confirmation" == "CONFIRMER" ]] || { info "Annulé"; return 1; }
-
-  if [[ ! -f "$MYSQL_DEFAULTS" ]]; then
-    err "Fichier $MYSQL_DEFAULTS manquant."
-    return 1
-  fi
-
-  info "Arrêt conteneur prod (évite les écritures concurrentes pendant la restauration)"
-  (cd "$PROD_DIR" && docker compose stop)
-
-  info "Drop + recreate $DB_PROD"
-  mysql --defaults-extra-file="$MYSQL_DEFAULTS" <<SQL
-DROP DATABASE IF EXISTS \`$DB_PROD\`;
-CREATE DATABASE \`$DB_PROD\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-GRANT ALL PRIVILEGES ON \`$DB_PROD\`.* TO 'ipastore-prod'@'%';
-FLUSH PRIVILEGES;
-SQL
-
-  info "Dump $DB_DEV -> restore $DB_PROD"
-  mysqldump --defaults-extra-file="$MYSQL_DEFAULTS" \
-    --routines --triggers --events \
-    --single-transaction --quick \
-    "$DB_DEV" \
-    | mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$DB_PROD"
-
-  info "Mirror $STORE_DEV -> $STORE_PROD (rsync --delete)"
-  mkdir -p "$STORE_PROD"/{ipas,icons,screenshots}
-  rsync -a --delete "$STORE_DEV/" "$STORE_PROD/"
-
-  info "Redémarrage conteneur prod"
-  (cd "$PROD_DIR" && docker compose start)
-
-  ok "Sync dev -> prod terminée. La BDD et les fichiers prod reflètent dev."
+  local branch; branch="$(current_branch)"
+  info "Pull self-update (branche $branch) dans $APP_DIR"
+  (cd "$APP_DIR" \
+    && git_auth fetch origin "$branch" \
+    && git "${GIT_SAFE[@]}" reset --hard "origin/$branch")
+  ok "Script a jour : $(git "${GIT_SAFE[@]}" -C "$APP_DIR" log -1 --format='%h %s')"
 }
 
 # ────── Reset users ──────
 
+# Purge tous les users admin et en insere un nouveau. Utilise le
+# Python du conteneur (SQLAlchemy + bcrypt + db.json), donc pas besoin
+# de client mysql ni de .mysql.cnf hote — la connexion est celle configuree
+# via /setup/database.
 cmd_reset_users() {
-  local env="$1"
-  local db
-  case "$env" in prod) db="$DB_PROD" ;; dev) db="$DB_DEV" ;; *) err "env ?"; return 1 ;; esac
-  local container; container="$(container_name "$env")"
-
-  warn "Cette opération SUPPRIME tous les utilisateurs de '$db' ($env)."
+  warn "Cette operation SUPPRIME tous les utilisateurs admin."
   read -r -p "Confirmer ? [y/N] " yn
-  [[ "$yn" =~ ^[yYoO]$ ]] || { info "Annulé"; return 1; }
+  [[ "$yn" =~ ^[yYoO]$ ]] || { info "Annule"; return 1; }
 
   local new_user new_pass1 new_pass2
   read -r -p "Nouveau login admin : " new_user
@@ -429,80 +264,78 @@ cmd_reset_users() {
   [[ "$new_pass1" == "$new_pass2" ]] || { err "Les mots de passe ne correspondent pas"; return 1; }
   [[ ${#new_pass1} -ge 8 ]] || { err "Mot de passe trop court (8 min)"; return 1; }
 
-  if ! docker ps --filter "name=$container" --format "{{.Names}}" | grep -q "^$container$"; then
-    err "Conteneur $container non démarré. Lance-le d'abord ($env-start)."
+  if ! docker ps --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+    err "Conteneur $CONTAINER_NAME non demarre. Lance-le d'abord (option Start)."
     return 1
   fi
 
-  info "Hash bcrypt du mot de passe (via conteneur $container)"
-  local hash
-  hash="$(printf '%s' "$new_pass1" | docker exec -i "$container" python -c \
-    'import sys,bcrypt; print(bcrypt.hashpw(sys.stdin.buffer.read(),bcrypt.gensalt(rounds=12)).decode())')"
-  [[ -n "$hash" ]] || { err "Échec du hash"; return 1; }
+  info "Purge + reinsertion via le conteneur (Python + SQLAlchemy + bcrypt)"
+  # Le password est passe via stdin (pas via arg) pour eviter qu'il apparaisse
+  # dans la table process ou les logs docker.
+  local py_script='
+import sys
+import bcrypt
+from sqlalchemy import text
+from app.db import get_engine, init_db
+from app.db_config import is_configured
 
-  info "Purge users + insertion du nouvel admin dans '$db'"
-  # sed "s/'/''/g" : échappe les apostrophes dans le username pour éviter
-  # toute injection SQL (le hash bcrypt ne contient que des chars alphanumériques).
-  mysql --defaults-extra-file="$MYSQL_DEFAULTS" "$db" <<SQL
-DELETE FROM users;
-INSERT INTO users (username, password_hash, created_at)
-VALUES ('$(printf '%s' "$new_user" | sed "s/'/''/g")', '$hash', UTC_TIMESTAMP());
-SQL
+if not is_configured():
+    print("BDD non configuree (ouvre /setup/database dabord)", file=sys.stderr)
+    sys.exit(1)
 
-  ok "Admin '$new_user' recréé sur $env. Connecte-toi avec ces identifiants."
+username = sys.argv[1]
+password = sys.stdin.buffer.read()
+pw_hash = bcrypt.hashpw(password, bcrypt.gensalt(rounds=12)).decode()
+
+init_db()
+with get_engine().begin() as conn:
+    conn.execute(text("DELETE FROM users"))
+    conn.execute(
+        text("INSERT INTO users (username, password_hash, created_at) VALUES (:u, :h, UTC_TIMESTAMP())"),
+        {"u": username, "h": pw_hash},
+    )
+print("OK")
+'
+  if printf '%s' "$new_pass1" | docker exec -i "$CONTAINER_NAME" \
+      python -c "$py_script" "$new_user"; then
+    ok "Admin '$new_user' cree. Connecte-toi avec ces identifiants."
+  else
+    err "Echec de la reinsertion"
+    return 1
+  fi
 }
 
 # ────── SCInsta builder ──────
-#
-# Conteneur one-shot build par `docker build` dans tools/scinsta-builder/ du
-# clone de l'env concerne (pour que le code du builder suive les versions
-# deployees de l'app, meme logique que pour le sparse-checkout tools).
-# Image taguee `scinsta-builder:latest` et reutilisee a chaque invocation.
 
 SCINSTA_BUILDER_IMAGE="scinsta-builder:latest"
 
 cmd_scinsta_build() {
-  local env="$1"
-  local dir
-  dir="$(env_dir "$env")/tools/scinsta-builder"
-  [[ -d "$dir" ]] || { err "Builder introuvable : $dir (lance $env-update ?)"; exit 1; }
+  local env="${1:-$(env_from_branch)}"
+  local dir="$APP_DIR/tools/scinsta-builder"
+  [[ -d "$dir" ]] || { err "Builder introuvable : $dir (relance 'update' ?)"; exit 1; }
 
-  # Tee toute la sortie (docker build + docker run + messages info) vers le
-  # fichier log poll par l'UI. Sans ca, l'utilisateur ne voit rien tant que
-  # build.py ne demarre pas (docker build peut prendre plusieurs minutes,
-  # notamment sur premiere execution ou apres modification du Dockerfile).
+  # Tee toute la sortie vers le fichier log poll par l'UI.
   local log_file="/etc/ipastore/scinsta-build-log-${env}.txt"
   : > "$log_file"
   exec > >(tee -a "$log_file") 2>&1
 
-  info "Build image Docker $SCINSTA_BUILDER_IMAGE (idempotent, cache actif)"
+  info "Build image Docker $SCINSTA_BUILDER_IMAGE"
   docker build --progress=plain -t "$SCINSTA_BUILDER_IMAGE" "$dir"
 
-  local store="/srv/store-${env}"
-  local repo_dir; repo_dir="$(env_dir "$env")"
   local cname="scinsta-builder-${env}"
   info "Run scinsta-builder env=$env (container=$cname)"
-  # /etc/ipastore : upload IPA + flag + progress/result files
-  # /srv/store-<env> : volume de stockage final
-  # /opt/sideserver-<env> (ro) : fallback pour patches (patch/ du clone)
-  # --name deterministe : permet a cmd_scinsta_cancel de le killer
-  # proprement (docker kill --signal TERM <name>) si l'admin veut stopper.
   docker run --rm --name "$cname" \
     -e IPASTORE_ENV="$env" \
     -v /etc/ipastore:/etc/ipastore \
-    -v "${store}:/srv/store" \
-    -v "${repo_dir}:/opt/sideserver-${env}:ro" \
+    -v "${STORE_DIR}:/srv/store" \
+    -v "${APP_DIR}:/opt/sideserver-${env}:ro" \
     --network host \
     "$SCINSTA_BUILDER_IMAGE"
-  ok "Build terminé (env=$env)"
+  ok "Build termine (env=$env)"
 }
 
 cmd_scinsta_cancel() {
-  # Stoppe un build en cours : kill le conteneur + ecrit un result failed
-  # pour que le watcher web bascule le state en "failed" et debloque l'UI.
-  # Lance par systemd path unit ipastore-scinsta-cancel@<env>.path qui
-  # surveille /etc/ipastore/scinsta-build-cancel-<env>.
-  local env="$1"
+  local env="${1:-$(env_from_branch)}"
   local cname="scinsta-builder-${env}"
   local flag="/etc/ipastore/scinsta-build-cancel-${env}"
   local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
@@ -510,32 +343,19 @@ cmd_scinsta_cancel() {
   local result="/etc/ipastore/scinsta-build-result-${env}"
 
   info "Cancel demande pour env=$env"
-  # On supprime le flag de demande AVANT de kill — evite que le path unit
-  # retrigger un nouveau build juste apres qu'on aie tue le conteneur.
   rm -f "$flag" "$req_flag"
 
   if docker ps --filter "name=^${cname}\$" --format "{{.Names}}" | grep -q "^${cname}\$"; then
     info "Stop du conteneur $cname (SIGTERM -t2 puis SIGKILL, bloquant)"
-    # docker stop envoie SIGTERM, attend -t secondes, puis SIGKILL. Bloque
-    # jusqu'a ce que le conteneur soit reellement arrete. On prefere stop
-    # a kill parce que build.py est PID 1 dans le conteneur : sans handler
-    # explicite, le kernel Linux IGNORE les signaux sans handler pour PID 1
-    # (sauf SIGKILL). Un `docker kill --signal=SIGTERM` ne tuait donc rien
-    # et le build continuait — c'est le bug "cancel ne fait rien, le build
-    # precedent continue". 2s de grace suffit : build.py n'a pas de cleanup
-    # critique, et si le container survit SIGKILL prend le relais.
     docker stop -t 2 "$cname" || true
   else
     warn "Conteneur $cname non trouve (deja termine ?)"
   fi
 
-  # Ecrit un result failed pour que le watcher consomme et bascule le
-  # state en "failed" cote UI. Sans ca le state resterait en "running"
-  # jusqu'au prochain restart du conteneur web.
   local now
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   cat > "$result" <<JSON
-{"status":"failed","finished_at":"$now","error":"Build annulé"}
+{"status":"failed","finished_at":"$now","error":"Build annule"}
 JSON
   rm -f "$progress"
   ok "Build $env marque comme annule."
@@ -545,58 +365,45 @@ JSON
 
 usage() {
   cat <<EOF
-$(printf "${C_BOLD}website-management.sh${C_RESET}") — gestion des environnements prod/dev
+$(printf "${C_BOLD}website-management.sh${C_RESET}") — gestion mono-env de sideserver_website
 
 $(printf "${C_BOLD}USAGE${C_RESET}")
   $(basename "$0")                   # menu interactif
-  $(basename "$0") <commande>        # exécution directe
+  $(basename "$0") <commande>        # execution directe
 
-$(printf "${C_BOLD}CONTENEURS${C_RESET}")
-  prod-start          Démarre le conteneur prod (port 80)
-  prod-stop           Arrête prod
-  prod-restart        Rebuild + redémarre prod
-  prod-logs           Suit les logs prod
-  dev-start           Démarre le conteneur dev (port 8080)
-  dev-stop            Arrête dev
-  dev-restart         Rebuild + redémarre dev
-  dev-logs            Suit les logs dev
-  status              État + versions déployées
+$(printf "${C_BOLD}CONTENEUR${C_RESET}")
+  start               Demarre le conteneur
+  stop                Arrete le conteneur
+  restart             Rebuild + redemarre
+  logs                Suit les logs
+  status              Conteneur + version + branche
 
-$(printf "${C_BOLD}MISE À JOUR DU CODE${C_RESET}")
-  prod-update         Déploie la dernière RELEASE GitHub (si > version actuelle)
-  prod-check          Affiche current / latest / update_available (machine-readable)
-  prod-pull           URGENCE : pull direct de 'main' + rebuild (bypass release)
-  dev-update          git pull 'dev' + rebuild (rolling)
-  dev-check           Retourne update_available=0 (dev est rolling)
-  self-update         Met à jour ce script depuis /opt/sideserver-tools
+$(printf "${C_BOLD}MISE A JOUR DU CODE${C_RESET}")
+  update              Dispatcher : release-based si branche main, rolling sinon
+  check               Machine-readable : current / latest / update_available
+  pull                Force pull HEAD de la branche courante (hotfix)
+  self-update         Pull ce script (git pull de APP_DIR)
 
-$(printf "${C_BOLD}DONNÉES${C_RESET}")
-  sync                Sync TOTALE prod -> dev (écrase BDD + fichiers dev)
-  sync-to-prod        Sync TOTALE dev -> prod (écrase BDD + fichiers prod — IRRÉVERSIBLE)
-  sync-schema-to-prod Aligne le SCHÉMA prod sur celui de dev (DDL additif, pas de données)
-  prod-reset-users    Supprime tous les admins prod, en crée un nouveau
-  dev-reset-users     Idem sur dev
+$(printf "${C_BOLD}ADMIN${C_RESET}")
+  reset-users         Supprime tous les admins et en cree un nouveau
 
 $(printf "${C_BOLD}SCINSTA BUILDER${C_RESET}")
-  prod-scinsta-build  Lance le pipeline SCInsta + Instagram (IPA uploadée requise)
-  dev-scinsta-build   Idem sur dev (habituellement déclenché par systemd)
-  prod-scinsta-cancel Stoppe un build SCInsta en cours sur prod (docker kill + result failed)
-  dev-scinsta-cancel  Idem sur dev
+  scinsta-build       Lance le pipeline SCInsta + Instagram
+  scinsta-cancel      Stoppe un build SCInsta en cours
+
+$(printf "${C_BOLD}COMPAT SYSTEMD${C_RESET}")
+  prod-update / prod-scinsta-build / prod-scinsta-cancel
+  (aliases pour les units ipastore-*@prod.service, identiques au mono-env)
 
 $(printf "${C_BOLD}AIDE${C_RESET}")
   -h, --help          Cette aide
-
-$(printf "${C_BOLD}EXEMPLES${C_RESET}")
-  $(basename "$0") prod-update
-  $(basename "$0") prod-check
-  $(basename "$0") sync
 EOF
 }
 
 # ────── Menu interactif ──────
 
 pause_menu() {
-  printf "\n${C_DIM}Appuie sur Entrée pour revenir au menu...${C_RESET}"
+  printf "\n${C_DIM}Appuie sur Entree pour revenir au menu...${C_RESET}"
   read -r _
 }
 
@@ -604,59 +411,49 @@ menu() {
   while true; do
     clear
     printf "${C_BOLD}╔═══════════════════════════════════════════════╗${C_RESET}\n"
-    printf "${C_BOLD}║  SideServer Website — Gestion prod / dev      ║${C_RESET}\n"
+    printf "${C_BOLD}║  SideServer Website — Gestion mono-env        ║${C_RESET}\n"
     printf "${C_BOLD}╚═══════════════════════════════════════════════╝${C_RESET}\n\n"
-    printf "  ${C_DIM}Conteneurs :${C_RESET}\n"
-    docker ps -a --filter "name=sidestore-website" \
+    local branch env
+    branch="$(current_branch)"
+    env="$(env_from_branch)"
+    printf "  ${C_DIM}Conteneur :${C_RESET}\n"
+    docker ps -a --filter "name=$CONTAINER_NAME" \
       --format "    ${C_CYAN}{{.Names}}${C_RESET}  {{.Status}}  ${C_DIM}{{.Ports}}${C_RESET}" \
       2>/dev/null || printf "    ${C_YELLOW}(docker indisponible)${C_RESET}\n"
-    printf "  ${C_DIM}Versions :${C_RESET}\n"
-    printf "    prod : ${C_GREEN}%s${C_RESET}\n" "$(current_version prod 2>/dev/null || echo '<aucune>')"
-    printf "    dev  : ${C_GREEN}%s${C_RESET}\n" "$(current_version dev  2>/dev/null || echo '<rolling>')"
+    printf "  ${C_DIM}Version :${C_RESET}  ${C_GREEN}%s${C_RESET}\n" "$(current_version 2>/dev/null || echo '<aucune>')"
+    printf "  ${C_DIM}Branche :${C_RESET}  ${C_GREEN}%s${C_RESET}  ${C_DIM}(env=%s)${C_RESET}\n" "$branch" "$env"
     printf "\n"
-    printf "  ${C_BOLD}PROD${C_RESET} (port 80, release-based)\n"
+    printf "  ${C_BOLD}CONTENEUR${C_RESET}\n"
     printf "     1) Start                  2) Stop\n"
     printf "     3) Restart                4) Logs\n"
-    printf "     5) Update (dernière release)\n"
-    printf "     6) Reset utilisateurs\n"
-    printf "     7) Pull d'urgence (main direct, bypass release)\n"
     printf "\n"
-    printf "  ${C_BOLD}DEV${C_RESET} (port 8080, rolling branche dev)\n"
-    printf "    11) Start                 12) Stop\n"
-    printf "    13) Restart               14) Logs\n"
-    printf "    15) Update (git pull + rebuild)\n"
-    printf "    16) Reset utilisateurs\n"
+    printf "  ${C_BOLD}CODE${C_RESET}\n"
+    if [[ "$env" == "prod" ]]; then
+      printf "     5) Update (derniere release GitHub)\n"
+      printf "     6) Pull d'urgence (force main direct)\n"
+    else
+      printf "     5) Update (git pull branche %s)\n" "$branch"
+      printf "     6) Pull force (equivalent a Update en mode dev)\n"
+    fi
+    printf "     7) Check update (machine-readable)\n"
+    printf "     8) Self-update (pull ce script)\n"
     printf "\n"
-    printf "  ${C_BOLD}DONNÉES${C_RESET}\n"
-    printf "    20) Sync TOTALE prod -> dev (écrase dev)\n"
-    printf "    25) Sync TOTALE dev -> prod (écrase prod — IRRÉVERSIBLE)\n"
-    printf "    26) Sync SCHÉMA dev -> prod (structure seule, pas de données)\n"
-    printf "    21) Self-update (pull ce script)\n"
-    printf "    22) Check update prod     23) Check update dev\n"
+    printf "  ${C_BOLD}ADMIN${C_RESET}\n"
+    printf "     9) Reset utilisateurs\n"
     printf "\n"
     printf "     s) Status                 h) Aide CLI\n"
     printf "     q) Quitter\n\n"
     read -r -p "  Choix : " choice
     case "$choice" in
-       1) cmd_start prod ;;
-       2) cmd_stop prod ;;
-       3) cmd_restart prod ;;
-       4) cmd_logs prod ;;
-       5) cmd_update_prod ;;
-       6) cmd_reset_users prod ;;
-       7) cmd_pull_prod ;;
-      11) cmd_start dev ;;
-      12) cmd_stop dev ;;
-      13) cmd_restart dev ;;
-      14) cmd_logs dev ;;
-      15) cmd_update_dev ;;
-      16) cmd_reset_users dev ;;
-      20) cmd_sync ;;
-      25) cmd_sync_to_prod ;;
-      26) cmd_sync_schema_to_prod ;;
-      21) cmd_self_update ;;
-      22) cmd_check_update prod ;;
-      23) cmd_check_update dev ;;
+       1) cmd_start ;;
+       2) cmd_stop ;;
+       3) cmd_restart ;;
+       4) cmd_logs ;;
+       5) cmd_update ;;
+       6) cmd_pull_rolling ;;
+       7) cmd_check_update ;;
+       8) cmd_self_update ;;
+       9) cmd_reset_users ;;
       s|S) cmd_status ;;
       h|H) usage ;;
       q|Q|exit|quit) exit 0 ;;
@@ -671,29 +468,23 @@ menu() {
 case "${1:-}" in
   "")                  menu ;;
   -h|--help|help)      usage ;;
-  prod-start)          cmd_start prod ;;
-  prod-stop)           cmd_stop prod ;;
-  prod-restart)        cmd_restart prod ;;
-  prod-logs)           cmd_logs prod ;;
-  prod-update)         cmd_update_prod ;;
-  prod-pull)           cmd_pull_prod ;;
-  prod-check)          cmd_check_update prod ;;
-  prod-reset-users)    cmd_reset_users prod ;;
+  start)               cmd_start ;;
+  stop)                cmd_stop ;;
+  restart)             cmd_restart ;;
+  logs)                cmd_logs ;;
+  status)              cmd_status ;;
+  update)              cmd_update ;;
+  pull)                cmd_pull_rolling ;;
+  check)               cmd_check_update ;;
+  self-update)         cmd_self_update ;;
+  reset-users)         cmd_reset_users ;;
+  scinsta-build)       cmd_scinsta_build "$(env_from_branch)" ;;
+  scinsta-cancel)      cmd_scinsta_cancel "$(env_from_branch)" ;;
+  # Aliases systemd : ipastore-update@prod.service appelle "prod-update".
+  # Comme l'env physique est toujours "prod" dans le nouveau modele, on
+  # map ces commandes aux operations mono-env et on ignore l'instance.
+  prod-update)         cmd_update ;;
   prod-scinsta-build)  cmd_scinsta_build prod ;;
   prod-scinsta-cancel) cmd_scinsta_cancel prod ;;
-  dev-start)           cmd_start dev ;;
-  dev-stop)            cmd_stop dev ;;
-  dev-restart)         cmd_restart dev ;;
-  dev-logs)            cmd_logs dev ;;
-  dev-update)          cmd_update_dev ;;
-  dev-check)           cmd_check_update dev ;;
-  dev-reset-users)     cmd_reset_users dev ;;
-  dev-scinsta-build)   cmd_scinsta_build dev ;;
-  dev-scinsta-cancel)  cmd_scinsta_cancel dev ;;
-  self-update)         cmd_self_update ;;
-  status)              cmd_status ;;
-  sync)                cmd_sync ;;
-  sync-to-prod)        cmd_sync_to_prod ;;
-  sync-schema-to-prod) cmd_sync_schema_to_prod ;;
   *) err "Commande inconnue : $1"; echo; usage; exit 1 ;;
 esac

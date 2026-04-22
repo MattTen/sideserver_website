@@ -13,10 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from .config import Config, ensure_dirs, load_secret_key
 from .news_bg import ensure_news_bg
 from .db import init_db
+from .db_config import is_configured
 from .routes import apps as apps_routes
 from .routes import auth as auth_routes
 from .routes import categories as categories_routes
 from .routes import dashboard as dashboard_routes
+from .routes import db_setup as db_setup_routes
 from .routes import news as news_routes
 from .routes import patches as patches_routes
 from .routes import public as public_routes
@@ -30,9 +32,20 @@ from .db import SessionLocal
 logger = logging.getLogger(__name__)
 
 
+async def _wait_until_configured() -> None:
+    """Bloque tant que la BDD n'est pas configurée via /setup/database.
+
+    Les boucles d'arrière-plan (updates, scinsta result watcher) s'appuient
+    dessus pour ne pas crasher quand l'app boot sans credentials.
+    """
+    while not is_configured():
+        await asyncio.sleep(5)
+
+
 async def _update_check_loop() -> None:
     """Background task: refresh update status every INTERVAL seconds."""
     interval = Config.UPDATE_CHECK_INTERVAL_SECONDS
+    await _wait_until_configured()
     # First check shortly after startup (don't block request handling).
     await asyncio.sleep(30)
     while True:
@@ -87,6 +100,7 @@ def _process_scinsta_result() -> None:
 
 async def _scinsta_result_loop() -> None:
     """Watcher : toutes les 5s, integre un result file si present."""
+    await _wait_until_configured()
     await asyncio.sleep(10)
     while True:
         try:
@@ -114,11 +128,30 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     ensure_dirs()
     load_secret_key()
-    init_db()
+    # init_db() n'est tenté que si la BDD est déjà configurée. Si ce n'est
+    # pas le cas (premier démarrage), l'appel sera fait après POST /setup/database.
+    if is_configured():
+        try:
+            init_db()
+        except Exception:
+            logger.exception("init_db() a échoué au boot — la page /setup/database restera accessible")
     static_dir = Path(__file__).resolve().parent.parent / "static"
     ensure_news_bg(static_dir)
 
     app = FastAPI(title="IPA Store", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    # Middleware de garde : tant que la BDD n'est pas configurée, seules les
+    # routes publiques (static, setup/database) sont accessibles.
+    @app.middleware("http")
+    async def _db_setup_guard(request, call_next):
+        if is_configured():
+            return await call_next(request)
+        path = request.url.path
+        allowed_prefixes = ("/setup/database", "/static/", "/favicon")
+        if any(path.startswith(p) for p in allowed_prefixes):
+            return await call_next(request)
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse("/setup/database", status_code=303)
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
@@ -134,6 +167,7 @@ def create_app() -> FastAPI:
     # /news-img sert les visuels d'articles publiés dans source.json.news[].imageURL
     app.mount("/news-img", StaticFiles(directory=str(Config.NEWS_DIR)), name="news-img")
 
+    app.include_router(db_setup_routes.router)
     app.include_router(public_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(dashboard_routes.router)
