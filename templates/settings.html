@@ -138,7 +138,15 @@
     Empêche les moteurs de recherche d'indexer le site.
   </p>
   <label class="toggle-row">
-    <span>Désactiver l'indexation</span>
+    <span class="row-gap" style="gap:8px;">
+      <span>Désactiver l'indexation d'IPA Store</span>
+      <span class="toggle-ok" id="toggle-indexing-ok" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12.5l3 3 5-6"/>
+        </svg>
+      </span>
+    </span>
     <span class="toggle">
       <input type="checkbox" id="toggle-indexing" {% if indexing_disabled %}checked{% endif %}>
       <span class="toggle-slider"></span>
