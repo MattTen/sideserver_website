@@ -25,6 +25,13 @@
 # La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
 # a la premiere connexion via /setup/database -- ce script ne cree pas de BDD
 # ni d'utilisateur MySQL. L'admin doit preparer son serveur BDD de son cote.
+#
+# GESTION DES PERMISSIONS : le script cree un user+groupe `ipastore` dedie
+# (uid/gid 1000 si libre, sinon auto) et l'ajoute au groupe docker. Les
+# units systemd tournent en tant que `ipastore`. L'user qui lance sudo
+# bash n'est PAS touche -- s'il veut docker sans sudo, il doit s'ajouter
+# manuellement au groupe docker. C'est volontaire pour eviter de donner
+# des permissions docker a un user par effet de bord.
 
 set -euo pipefail
 
@@ -68,20 +75,47 @@ https://download.docker.com/linux/${DOCKER_OS} $(. /etc/os-release && echo "$VER
   systemctl enable --now docker
 fi
 
-# Le conteneur tourne en uid 1000 (user 'ipastore' interne). Les units systemd
-# qui exposent le script de management doivent tourner sous le user local qui
-# a uid 1000 (pour acceder a docker et ecrire dans /etc/ipastore). On detecte
-# ce user automatiquement ; si uid 1000 n'existe pas, on cree "ipastore".
-APP_USER="$(getent passwd 1000 | cut -d: -f1 || true)"
-if [[ -z "$APP_USER" ]]; then
-  useradd -m -u 1000 -s /bin/bash ipastore
-  APP_USER="ipastore"
-fi
-APP_GROUP="$(getent group $(id -g "$APP_USER") | cut -d: -f1)"
-echo "[bootstrap] User applicatif (uid 1000) : ${APP_USER}:${APP_GROUP}"
+# Le conteneur tourne en uid de l'user interne `ipastore`. Pour matcher les
+# permissions host <-> conteneur sur les volumes montes (/etc/ipastore,
+# /srv/store), on cree TOUJOURS un user+groupe host dedie `ipastore` avec
+# uid/gid 1000 si libres, sinon un uid/gid libre (auto). Ces valeurs sont
+# ensuite passees au build Docker via build-args pour que l'user interne
+# du conteneur ait les memes uid/gid que l'user host.
+#
+# Important : on ne TOUCHE PAS a l'user qui lance sudo bash ($SUDO_USER).
+# S'il veut utiliser docker directement, il l'ajoute lui-meme au groupe
+# docker (usermod -aG docker <user>).
+APP_USER="ipastore"
+APP_GROUP="ipastore"
 
-# Ajoute le user au groupe docker si pas deja dedans (necessaire pour que les
-# units systemd ExecStart=website-management puissent piloter docker sans sudo).
+if ! getent group ipastore >/dev/null; then
+  if ! getent group 1000 >/dev/null; then
+    groupadd -g 1000 ipastore
+  else
+    groupadd ipastore
+  fi
+fi
+
+if ! id -u ipastore >/dev/null 2>&1; then
+  if ! getent passwd 1000 >/dev/null; then
+    useradd -m -u 1000 -g ipastore -s /bin/bash ipastore
+  else
+    # uid 1000 pris par un autre user (ex: ubuntu cloud). On cree ipastore
+    # avec un uid libre ; le conteneur sera buildé avec ce meme uid pour
+    # garder les permissions alignees sur les volumes montes.
+    useradd -m -g ipastore -s /bin/bash ipastore
+    echo "[bootstrap] WARNING : uid 1000 deja pris par '$(getent passwd 1000 | cut -d: -f1)',"
+    echo "[bootstrap]           ipastore cree avec uid $(id -u ipastore)."
+  fi
+fi
+
+IPASTORE_UID="$(id -u ipastore)"
+IPASTORE_GID="$(id -g ipastore)"
+echo "[bootstrap] User applicatif : ${APP_USER}:${APP_GROUP} (uid=${IPASTORE_UID} gid=${IPASTORE_GID})"
+
+# Le user `ipastore` doit pouvoir piloter docker car les units systemd
+# (ExecStart=website-management) tournent sous cet user. L'user courant
+# qui lance sudo bash n'est PAS touche.
 if ! id -nG "$APP_USER" | tr ' ' '\n' | grep -qx docker; then
   usermod -aG docker "$APP_USER"
 fi
@@ -91,12 +125,12 @@ mkdir -p /srv/store-prod/{ipas,icons,screenshots}
 mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
 # Le conteneur monte /srv/store-prod sur /srv/store et cree news/, ipas/,
-# icons/... en uid 1000. Sans chown explicite, les dirs restent root:root
-# et le mkdir du conteneur echoue (PermissionError).
-chown -R 1000:1000 /srv/store-prod
-# Idem pour /etc/ipastore : il doit etre accessible en uid 1000 pour lire
-# secret_key.*, db.json et ecrire les flags.
-chown 1000:1000 /etc/ipastore
+# icons/... en uid de l'user interne `ipastore`. Sans chown explicite,
+# les dirs restent root:root et le mkdir du conteneur echoue.
+chown -R "${IPASTORE_UID}:${IPASTORE_GID}" /srv/store-prod
+# Idem pour /etc/ipastore : il doit etre accessible en uid ipastore pour
+# lire secret_key.*, db.json et ecrire les flags.
+chown "${IPASTORE_UID}:${IPASTORE_GID}" /etc/ipastore
 chmod 750 /etc/ipastore
 
 echo "[bootstrap] Configuration des credentials git..."
@@ -105,7 +139,7 @@ if [[ -n "${GITHUB_TOKEN}" ]]; then
   cat > /etc/ipastore/.git-credentials <<EOF
 https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com
 EOF
-  chown 1000:1000 /etc/ipastore/.git-credentials
+  chown "${IPASTORE_UID}:${IPASTORE_GID}" /etc/ipastore/.git-credentials
   chmod 600 /etc/ipastore/.git-credentials
   GIT_CRED=(-c "credential.helper=store --file /etc/ipastore/.git-credentials")
 else
@@ -176,7 +210,7 @@ f=/etc/ipastore/secret_key.prod
 if [[ ! -f "$f" ]]; then
   head -c 64 /dev/urandom > "$f"
 fi
-chown 1000:1000 "$f"
+chown "${IPASTORE_UID}:${IPASTORE_GID}" "$f"
 chmod 600 "$f"
 
 echo "[bootstrap] Ecriture du fichier version (${DEPLOYED_VERSION})..."
@@ -291,12 +325,18 @@ if [[ -f "${TARGET_DIR}/tools/website-management.sh" ]]; then
 fi
 
 echo "[bootstrap] Ecriture du .env docker-compose..."
+# IPASTORE_UID/GID sont passees au Dockerfile via build-args dans
+# docker-compose.yml : l'user interne du conteneur est ainsi cree avec
+# les memes uid/gid que l'user host `ipastore`, ce qui garantit que les
+# fichiers ecrits via volumes montes ont les bonnes permissions.
 cat > "${TARGET_DIR}/.env" <<EOF
 CONTAINER_NAME=sidestore-website-prod
 HOST_PORT=${HOST_PORT}
 ENV_FILE=/etc/ipastore/prod.env
 STORE_PATH=/srv/store-prod
 IMAGE_TAG=prod
+IPASTORE_UID=${IPASTORE_UID}
+IPASTORE_GID=${IPASTORE_GID}
 EOF
 chown "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}/.env"
 
@@ -320,6 +360,10 @@ echo "  switch-dev      : bascule en env dev (branche dev, rolling)"
 echo "  switch-prod     : revient en prod (derniere release)"
 echo "  update          : dispatch auto selon env courant"
 echo
-echo "Note : ${APP_USER} a ete ajoute au groupe docker, mais les sessions SSH"
-echo "       ouvertes AVANT le bootstrap n'ont pas ce groupe. Reconnecte-toi"
-echo "       (exit + ssh) ou lance 'newgrp docker' pour utiliser docker ps."
+echo "Gestion des permissions :"
+echo "  - L'user applicatif '${APP_USER}' a ete cree avec uid ${IPASTORE_UID}"
+echo "    et ajoute au groupe docker (necessaire pour les units systemd)."
+echo "  - Ton user courant (\$SUDO_USER=${SUDO_USER:-root}) n'a PAS ete modifie."
+echo "  - Si tu veux utiliser 'docker ps' directement sans sudo, ajoute-toi"
+echo "    manuellement : sudo usermod -aG docker \$USER && newgrp docker"
+echo "  - Sinon, prefere 'sudo docker ps' ou 'website-management status'."
