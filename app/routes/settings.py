@@ -5,7 +5,7 @@ import re
 import secrets
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..auth import hash_password, require_user, verify_password
@@ -80,7 +80,7 @@ def settings_save(
     set_setting(db, "store_name", store_name.strip() or "Magasin Perso")
     set_setting(db, "store_subtitle", store_subtitle.strip())
     set_setting(db, "store_tint", tint)
-    return RedirectResponse("/settings", status_code=303)
+    return Response(status_code=204)
 
 
 async def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
@@ -186,11 +186,7 @@ def settings_password(
         err = "Les mots de passe ne correspondent pas"
 
     if err:
-        return templates.TemplateResponse(
-            request, "settings.html",
-            _settings_context(db, user, err=err),
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
+        return JSONResponse({"error": err}, status_code=status.HTTP_400_BAD_REQUEST)
     user.password_hash = hash_password(new_password)
     db.commit()
-    return RedirectResponse("/settings", status_code=303)
+    return Response(status_code=204)
