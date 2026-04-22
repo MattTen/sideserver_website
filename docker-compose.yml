@@ -1,6 +1,9 @@
-# Compose générique : paramétré via .env local (un clone par environnement).
-# - /opt/sideserver-prod/.env  -> CONTAINER_NAME=sidestore-website-prod, HOST_PORT=80,   etc.
-# - /opt/sideserver-dev/.env   -> CONTAINER_NAME=sidestore-website-dev,  HOST_PORT=8080, etc.
+# Compose generique : parametre via .env local (ecrit par le bootstrap).
+# Modele mono-env (1 VM = 1 environnement), paths toujours identiques :
+#   /opt/sideserver-prod/.env -> CONTAINER_NAME=sidestore-website-prod,
+#                                HOST_PORT=80, ENV_FILE=/etc/ipastore/prod.env,
+#                                STORE_PATH=/srv/store-prod
+# Le bootstrap-dev utilise les memes valeurs -- seule la branche Git differe.
 
 services:
   ipastore:

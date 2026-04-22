@@ -1,112 +1,128 @@
 # SideServer Website
 
-Plateforme auto-hébergée de distribution d'IPAs pour SideStore. Interface d'admin FastAPI + Jinja2, stockage MariaDB, génération dynamique de `source.json`.
+Plateforme auto-hébergée de distribution d'IPAs pour SideStore. Interface d'admin FastAPI + Jinja2, stockage MySQL/MariaDB, génération dynamique de `source.json`.
 
 ## Architecture
 
-- **Backend** : FastAPI + SQLAlchemy 2.0 + Uvicorn
-- **Base de données** : MariaDB sur l'hôte (2 schémas séparés `ipastore-prod` / `ipastore-dev`)
-- **Stockage** : binaires IPA + icônes + screenshots sur le disque hôte (`/srv/store-prod/`, `/srv/store-dev/`)
-- **Déploiement** : deux conteneurs Docker (prod port 80, dev port 8080) alimentés par les branches `main` et `dev`
-- **Isolation prod/dev** : même code, variables d'environnement différentes — `STORE_DIR` et `DB_URL` pointent vers des ressources séparées selon le conteneur
+- **Backend** : FastAPI + SQLAlchemy 2.0 + Uvicorn (Python 3.13)
+- **Base de données** : MySQL ou MariaDB (externe, pas embarqué dans le conteneur). La connexion est saisie via l'UI à la première connexion.
+- **Stockage** : binaires IPA + icônes + screenshots sur le disque hôte (`/srv/store-prod/`), montés en volume dans le conteneur.
+- **Déploiement** : un conteneur Docker par VM.
 
-Sur la VM, 3 clones git sparse coexistent :
+### Modèle mono-environnement (1 VM = 1 environnement)
 
-| Clone | Chemin | Contenu |
+Chaque VM héberge **un seul** environnement. Dev et prod vivent sur des machines séparées, pas côte-à-côte :
+
+| VM | Branche Git | Mode de mise à jour |
 |---|---|---|
-| prod | `/opt/sideserver-prod` | branche `main`, exclut `documentation/` et `CLAUDE.md` |
-| dev | `/opt/sideserver-dev` | branche `dev`, idem |
-| tools | `/opt/sideserver-tools` | branche `main`, script de management uniquement |
+| **Dev** (maison / lab) | `dev` | rolling — `git pull origin dev` + rebuild à la demande |
+| **Prod** (cloud / serveur public) | `main` | release-based — `git checkout <tag>` + rebuild sur release GitHub |
+
+Les deux VM utilisent **la même configuration infra** (chemins, nom de conteneur, port 80, units systemd). La seule différence est la branche qui est clonée. Le script de management détecte automatiquement le mode (prod vs dev) en lisant la branche courante.
 
 ## Branches — règle absolue
 
 > **Tout développement sur `dev` uniquement. Ne jamais committer ni pusher directement sur `main`.**
 
-| Branche | Déploiement |
-|---|---|
-| `dev` | rolling — `website-management dev-update` |
-| `main` | release-based — release GitHub → `website-management prod-update` |
+Publier une release prod :
 
-## Déploiement initial (VM Debian)
+1. Merger `dev` → `main` (PR ou fast-forward)
+2. Créer une release GitHub avec un tag semver (ex `v1.2.0`) via l'UI ou `gh release create v1.2.0`
+3. L'UI admin détecte la MAJ → bouton "Appliquer" → le bootstrap de la VM prod checkout le tag et rebuild
 
-**Prérequis :**
-- MariaDB installé et `root@localhost` configuré
-- Variables exportées dans le shell avant d'exécuter le bootstrap :
+## Déploiement initial
 
-```bash
-export DB_PASS_PROD=<mot_de_passe_prod>
-export DB_PASS_DEV=<mot_de_passe_dev>
-export BASE_URL=http://<IP_SERVEUR>
-```
+Les scripts bootstrap sont auto-suffisants (`curl | bash`) : ils installent Docker, clonent le repo, configurent systemd, et démarrent le conteneur.
+
+### VM de prod (cloud)
 
 ```bash
-# Sur la VM, en root
-git clone https://github.com/MattTen/sideserver_website.git /tmp/bootstrap
-cd /tmp/bootstrap
-./deploy/bootstrap.sh
+# En root ou via sudo. Tout est auto : Docker, clone, systemd, conteneur.
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap-prod.sh | sudo bash
 ```
 
-Le bootstrap crée les BDD, les volumes, les fichiers env dans `/etc/ipastore/`, installe Docker, configure systemd, et monte les 3 clones sparse.
+### VM de dev (maison)
 
-**GitHub PAT requis** : pour que `prod-update` vérifie les releases, un token GitHub fine-grained (Contents : read-only) doit être déposé dans `/etc/ipastore/.git-credentials`. Sans lui, le check GitHub échoue silencieusement.
+```bash
+# Identique a bootstrap-prod.sh (paths, ports, systemd...) mais clone la branche dev.
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/dev/deploy/bootstrap-dev.sh | sudo bash
+```
 
-**Premier lancement** : ouvrir `http://<IP_SERVEUR>/` → redirige vers `/setup` pour créer le compte administrateur.
+### Variables optionnelles (env vars à passer à `sudo bash`)
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `BASE_URL` | *(vide)* | URL publique forcée. Si absent, l'app dérive l'URL depuis les headers HTTP (`X-Forwarded-*` via `--proxy-headers`) — c'est **recommandé** : changer d'IP ou ajouter un domaine ne nécessite pas de re-bootstrap. |
+| `BRANCH` | `main` (prod) / `dev` (dev) | Branche à cloner. |
+| `GITHUB_USER` | `MattTen` | Utilisateur Git pour l'auth du clone. |
+| `GITHUB_TOKEN` | *(vide)* | PAT GitHub seulement si le repo est privé. Le repo actuel étant public, laisser vide. |
+| `HOST_PORT` | `80` | Port HTTP hôte. |
+
+Exemple avec URL forcée :
+
+```bash
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap-prod.sh \
+  | sudo BASE_URL=https://store.mon-domaine.com bash
+```
+
+### Premier lancement
+
+1. Ouvrir `http://<IP_VM>/` → redirection automatique vers `/setup/database` pour saisir la connexion MySQL/MariaDB (host/port/user/password/database)
+2. Puis `/setup` pour créer le compte admin
+
+> **Note SSH** : le bootstrap ajoute le user applicatif au groupe `docker`, mais les sessions SSH ouvertes **avant** le bootstrap ne voient pas le nouveau groupe. Reconnecte-toi (`exit` + `ssh`) ou lance `newgrp docker` pour utiliser `docker` sans sudo.
 
 ## Intégration SideStore
 
 Dans SideStore (iOS) → Sources → Ajouter :
 
 ```
-http://<IP_SERVEUR>/source.json
+http://<IP_VM>/source.json
 ```
 
-C'est l'URL configurée dans `IPASTORE_BASE_URL`. Le feed `source.json` intègre cette adresse dans toutes les URLs de téléchargement (`downloadURL`, `iconURL`…) — SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
+Le feed `source.json` utilise l'URL publique de la requête (ou `IPASTORE_BASE_URL` si défini) pour générer les `downloadURL`, `iconURL` etc. — SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
 
 ## Administration
 
-Le script `tools/website-management.sh` est accessible via le symlink `/usr/local/bin/website-management`.
+Le script `tools/website-management.sh` est exposé via le symlink `/usr/local/bin/website-management`.
 
 ```bash
 website-management                  # menu interactif
-website-management --help           # aide détaillée
+website-management --help           # aide complète
 
-# Conteneurs
-website-management prod-start       # start/stop/restart/logs
-website-management dev-start
-website-management status
+# Conteneur
+website-management start / stop / restart / logs / status
 
-# Mise à jour du code
-website-management prod-update      # déploie la dernière release GitHub (si plus récente)
-website-management prod-check       # affiche current/latest/update_available
-website-management dev-update       # pull dev + rebuild (rolling)
-website-management self-update      # pull le script lui-même
+# Code
+website-management update           # prod : release-based / dev : rolling (auto-detect branche)
+website-management check            # machine-readable : current / latest / update_available
+website-management pull             # force pull HEAD de la branche courante (hotfix)
+website-management self-update      # pull ce script (git pull de /opt/sideserver-prod)
 
-# Données
-website-management sync             # copie TOTALE prod -> dev (BDD + fichiers, écrase dev)
-website-management prod-reset-users # purge users + prompt login/mdp
-website-management dev-reset-users
+# Admin
+website-management reset-users      # supprime tous les admins + en crée un nouveau (prompt login/mdp)
 ```
 
 ### Workflow release prod
 
 1. Merger `dev` → `main`
-2. Créer une release GitHub avec tag semver (`gh release create v1.2.0`)
-3. L'UI `/settings` détecte la MAJ toutes les 6 h et affiche le bouton "Appliquer"
-4. Le bouton écrit un flag-file → systemd path unit → `website-management prod-update`
+2. `gh release create v1.2.0`
+3. Sur la VM prod, l'UI `/settings` détecte la MAJ toutes les 6 h et affiche le bouton "Appliquer"
+4. Le bouton écrit un flag-file → `ipastore-update@prod.path` (systemd) → `website-management prod-update`
 
 ## Configuration
 
-Les conteneurs lisent leur config depuis `/etc/ipastore/prod.env` et `/etc/ipastore/dev.env` (voir [.env.example](.env.example)). Rien n'est hardcodé dans le code.
+Le conteneur lit sa config depuis `/etc/ipastore/prod.env`, écrit par le bootstrap. Voir [.env.example](.env.example) pour le détail.
 
 | Variable | Rôle |
 |---|---|
-| `IPASTORE_BASE_URL` | URL publique du serveur (entrée dans SideStore) |
-| `IPASTORE_STORE_DIR` | Racine des binaires (`/srv/store-prod` ou `/srv/store-dev`) |
-| `IPASTORE_SECRET_FILE` | Chemin vers la clé de signature des cookies |
-| `IPASTORE_ENV` | `prod` ou `dev` |
-| `IPASTORE_GITHUB_REPO` | Repo pour les releases (`MattTen/sideserver_website`) |
+| `IPASTORE_BASE_URL` | *(optionnel)* URL publique forcée. Si absent, l'app dérive depuis les headers HTTP. |
+| `IPASTORE_STORE_DIR` | Racine des binaires dans le conteneur (toujours `/srv/store`, monté depuis `/srv/store-prod` de l'hôte). |
+| `IPASTORE_SECRET_FILE` | Chemin vers la clé de signature des cookies. |
+| `IPASTORE_ENV` | `prod` (toujours `prod` dans le modèle mono-env, même sur la VM dev). |
+| `IPASTORE_GITHUB_REPO` | Repo GitHub pour le check de releases (`MattTen/sideserver_website`). |
 
-La connexion BDD (host/user/mdp/nom de base) n'est **plus** fournie en env var : elle est saisie via l'UI au premier démarrage (`/setup/database`) puis persistée dans `/etc/ipastore/db.json` (mode 600).
+La connexion BDD (host/user/mdp/nom de base) n'est **pas** fournie en env var : elle est saisie via l'UI au premier démarrage (`/setup/database`) puis persistée dans `/etc/ipastore/db.json` (mode 600).
 
 Voir [documentation/server.md](documentation/server.md) pour les détails complets.
 
@@ -116,9 +132,10 @@ Voir [documentation/server.md](documentation/server.md) pour les détails comple
 app/              # code Python (FastAPI)
 templates/        # Jinja2
 static/           # CSS + JS
-deploy/           # bootstrap.sh + systemd units (ipastore-update@.{path,service})
-tools/            # website-management.sh (clone sparse dédié)
-documentation/    # doc serveur + credentials
+patch/            # scripts de patch IPA (fix_ipa.py, etc.)
+deploy/           # bootstrap-prod.sh + bootstrap-dev.sh (curl | bash auto-suffisants)
+tools/            # website-management.sh + scinsta-builder/
+documentation/    # doc serveur + credentials (exclu du déploiement serveur via sparse-checkout)
 Dockerfile
 docker-compose.yml
 ```
