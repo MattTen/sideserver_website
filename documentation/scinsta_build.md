@@ -297,9 +297,10 @@ Le triple `(igver, scsha, patch)` détermine `build_version` côté BDD — perm
 ### Rebuild depuis zéro (sans cache)
 
 ```bash
-plink altuser@192.168.0.202 "docker build --no-cache \
+# SSH vers la VM dev/prod puis :
+docker build --no-cache \
     -t scinsta-builder:latest \
-    /opt/sideserver-dev/tools/scinsta-builder"
+    /opt/sideserver-prod/tools/scinsta-builder
 ```
 
 ~25 min (git-lfs pull du SDK domine). Rarement nécessaire — seul le changement de `build.py` ou du Dockerfile justifie ça.
@@ -307,14 +308,14 @@ plink altuser@192.168.0.202 "docker build --no-cache \
 ### Run manuel (hors systemd)
 
 ```bash
-plink altuser@192.168.0.202 "docker run --rm --name scinsta-builder-dev-manual \
+docker run --rm --name scinsta-builder-manual \
     -v /etc/ipastore:/etc/ipastore \
-    -v /srv/store-dev:/srv/store \
-    -e IPASTORE_ENV=dev \
-    scinsta-builder:latest"
+    -v /srv/store-prod:/srv/store \
+    -e IPASTORE_ENV=prod \
+    scinsta-builder:latest
 ```
 
-Utile pour reproduire un échec sans passer par l'UI (il faut juste avoir un `scinsta-upload-dev.ipa` et un `scinsta-build-requested-dev` en place).
+Utile pour reproduire un échec sans passer par l'UI (il faut juste avoir un `scinsta-upload-prod.ipa` et un `scinsta-build-requested-prod` en place).
 
 ### Log temps réel
 
