@@ -6,78 +6,70 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 
 ## 1. Vue d'ensemble
 
-- **Repo** : `github.com/MattTen/sideserver_website`
-- **Une seule codebase**, deux branches :
-  - `main` → déployée en **prod** (uniquement via releases GitHub)
-  - `dev`  → déployée en **dev** (rolling, à chaque push)
-- **VM** : Debian, IP `192.168.0.202`
-- **Stack** : FastAPI + Uvicorn dans Docker, MariaDB sur l'hôte (partagée entre les deux environnements via 2 schémas séparés)
-- **Deux conteneurs Docker** sur la même VM :
-  - `sidestore-website-prod` — port 80  → BDD `ipastore-prod`, store `/srv/store-prod`
-  - `sidestore-website-dev`  — port 8080 → BDD `ipastore-dev`,  store `/srv/store-dev`
+- **Repo** : `github.com/MattTen/sideserver_website` (public)
+- **Modèle mono-environnement** : **1 VM = 1 environnement**. Dev et prod vivent sur des machines séparées, pas côte-à-côte.
+  - VM **dev** (home lab) : clone `dev`, mode rolling
+  - VM **prod** (cloud) : clone `main` (checkout du tag de release), mode release-based
+- **Stack** : FastAPI + Uvicorn dans Docker, MySQL/MariaDB externe (sur la même VM ou distant)
+- Les deux VM utilisent des **paths strictement identiques** — seule la branche git diffère.
 
 ```
-┌────────────────────── VM 192.168.0.202 ─────────────────────────┐
-│                                                                  │
-│  MariaDB (hôte, 3306)                                           │
-│   ├── ipastore-prod                                             │
-│   └── ipastore-dev                                              │
-│                                                                  │
-│  Docker                                                          │
-│   ├── sidestore-website-prod  :80    → lit /etc/ipastore/prod.env│
-│   └── sidestore-website-dev   :8080  → lit /etc/ipastore/dev.env │
-│                                                                  │
-│  Filesystem                                                      │
-│   /srv/store-prod/{ipas,icons,screenshots}                      │
-│   /srv/store-dev/{ipas,icons,screenshots}                       │
-│   /etc/ipastore/{prod,dev}.env, secret_key.*, *.version, ...    │
-│   /opt/sideserver-prod   (git clone branche main, sparse)       │
-│   /opt/sideserver-dev    (git clone branche dev,  sparse)       │
-│   /opt/sideserver-tools  (git clone sparse -> tools/ seul)      │
-│                                                                  │
-│  systemd                                                         │
-│   ipastore-update@prod.path  watches update-requested-prod      │
-│   ipastore-update@dev.path   watches update-requested-dev       │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────── VM (dev OU prod) ─────────────────────────────┐
+│                                                              │
+│  MySQL/MariaDB (saisi via UI au premier démarrage)          │
+│                                                              │
+│  Docker                                                      │
+│   └── sidestore-website-prod  :80                            │
+│       env_file=/etc/ipastore/prod.env                        │
+│       volumes: /srv/store-prod:/srv/store, /etc/ipastore     │
+│                                                              │
+│  Filesystem                                                  │
+│   /srv/store-prod/{ipas,icons,screenshots,news}              │
+│   /etc/ipastore/{prod.env, db.json, secret_key, prod.version}│
+│   /opt/sideserver-prod  (git clone, branche selon VM)        │
+│                                                              │
+│  systemd                                                     │
+│   ipastore-update@prod.path         watches update-requested-prod  │
+│   ipastore-scinsta-build@prod.path  watches scinsta-build-requested-prod │
+│   ipastore-scinsta-cancel@prod.path watches scinsta-build-cancel-prod    │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+Le conteneur s'appelle toujours `sidestore-website-prod` et le store `/srv/store-prod` quel que soit l'environnement réel : le mode prod vs dev est détecté **dynamiquement par le script de management** via `git rev-parse --abbrev-ref HEAD` (branche `main` = prod, autre = dev).
 
 ---
 
 ## 2. Layout sur disque
 
-### Clones git
+### Clone git
 
-Tout vit sous `/opt/` :
+Un seul clone par VM : `/opt/sideserver-prod`. Aucun sparse-checkout côté serveur par défaut (l'ancien setup sparse excluait `tools/` et `documentation/` — à re-configurer manuellement si souhaité).
 
-| Chemin                   | Branche/Tag   | Sparse filter              | Contenu                   |
-|--------------------------|---------------|----------------------------|---------------------------|
-| `/opt/sideserver-prod`   | tag de release | `/*  !tools/  !documentation/` | Code de l'app prod        |
-| `/opt/sideserver-dev`    | `dev`         | `/*  !tools/  !documentation/` | Code de l'app dev         |
-| `/opt/sideserver-tools`  | `main`        | `tools/`                   | Script `website-management.sh` |
+La branche checkoutée détermine le mode :
+- `main` ou tag `vX.Y.Z` (HEAD détaché) → **prod**
+- `dev` (ou toute autre branche) → **dev**
 
-> `documentation/` est exclu des trois clones serveur via sparse-checkout (config locale git, le repo GitHub reste complet). Cela évite de déployer de la doc inutile sur la VM.
+Pour éviter "dubious ownership" si le clone est owned par un autre user que celui qui invoque git, `safe.directory` est configuré au bootstrap.
 
-Les trois clones sont **owned par `altuser`**. Pour éviter l'erreur "dubious ownership" quand root invoque git, `safe.directory` est configuré globalement.
-
-Le script de gestion existe en **un seul exemplaire** sur le disque, dans `/opt/sideserver-tools/tools/website-management.sh`, accessible via le symlink `/usr/local/bin/website-management`.
+Le script de management vit dans `/opt/sideserver-prod/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`.
 
 ### `/etc/ipastore/`
 
-Répertoire 750 owned par altuser. Monté en volume dans chaque conteneur (à `/etc/ipastore`). Contient :
+Répertoire 750 owned par l'app-user (uid 1000). Monté en volume dans le conteneur (à `/etc/ipastore`). Contient :
 
-| Fichier                         | Owner         | Mode  | Rôle                                              |
-|---------------------------------|---------------|-------|---------------------------------------------------|
-| `prod.env` / `dev.env`          | altuser       | 640   | Variables pour le conteneur (`IPASTORE_ENV`, `IPASTORE_BASE_URL`, `IPASTORE_STORE_DIR`, …). La connexion BDD n'y est PAS — voir `db.json`. |
-| `db.json`                       | uid 1000      | 600   | Config BDD (host, port, user, password, database) saisie via `/setup/database` au premier démarrage. |
-| `secret_key.prod` / `.dev`      | uid 1000      | 600   | Clé de signature cookies (lue par le conteneur)    |
-| `prod.version` / `dev.version`  | altuser       | 644   | Version déployée (écrite par le script, lue par l'UI) |
-| `.mysql.cnf`                    | altuser (root-safe) | 600 | `[client] user=root password=…` pour mysqldump (utilisé par `sync`) |
-| `.git-credentials`              | altuser       | 600   | Token GitHub pour pull privés                      |
-| `update-requested-prod` / `-dev`| (ipastore uid 1000 depuis conteneur) | 644 | Flag transitoire : présence = demande de maj |
+| Fichier | Owner | Mode | Rôle |
+|---|---|---|---|
+| `prod.env` | app-user | 640 | Variables du conteneur (`IPASTORE_STORE_DIR`, `IPASTORE_SECRET_FILE`, `IPASTORE_ENV`, `IPASTORE_GITHUB_REPO`, éventuellement `IPASTORE_BASE_URL`). **Pas la connexion BDD**. |
+| `db.json` | uid 1000 | 600 | Config BDD (host/port/user/password/database) saisie via `/setup/database` |
+| `secret_key` | uid 1000 | 600 | Clé signature cookies (64 octets, générée au 1er boot) |
+| `prod.version` | app-user | 644 | Version déployée (tag ou `rolling-<sha>`) |
+| `.git-credentials` | app-user | 600 | Token GitHub (optionnel — seulement si repo privé) |
+| `update-requested-prod` | uid 1000 | 644 | Flag transitoire : présence = demande de MAJ |
+| `scinsta-*-prod.{ipa,txt,json}` | uid 1000 | variés | I/O pipeline SCInsta |
 
-### `/srv/store-{prod,dev}/`
+### `/srv/store-prod/`
 
-Monté dans le conteneur à `/srv/store`. **Séparés** entre prod et dev pour ne jamais se marcher dessus. Sous-dossiers :
+Monté dans le conteneur à `/srv/store`. Sous-dossiers :
 
 - `ipas/` — binaires `.ipa` servis sur `/ipas/{filename}`
 - `icons/` — icônes d'apps + icône et header du store (`_store-<token>.png`, `_header-<token>.png`), servis sur `/icons/{filename}`
@@ -88,21 +80,22 @@ Monté dans le conteneur à `/srv/store`. **Séparés** entre prod et dev pour n
 
 ## 3. Configuration (env vars du conteneur)
 
-Toutes les vars sont injectées via `env_file: /etc/ipastore/{prod,dev}.env` dans `docker-compose.yml`.
+Toutes les vars sont injectées via `env_file: /etc/ipastore/prod.env` dans `docker-compose.yml`.
 
-| Variable                 | Exemple prod                          | Rôle                                  |
-|--------------------------|---------------------------------------|---------------------------------------|
-| `IPASTORE_STORE_DIR`     | `/srv/store`                          | Racine binaires (monté depuis `/srv/store-prod`) |
-| `IPASTORE_SECRET_FILE`   | `/etc/ipastore/secret_key.prod`       | Clé cookies (lue au boot)             |
-| `IPASTORE_BASE_URL`      | `http://<IP_SERVEUR>`                 | URL publique que SideStore utilise pour télécharger IPAs/icônes. C'est l'adresse que l'utilisateur entre dans SideStore pour ajouter la source — le feed `source.json` y intègre toutes les URLs absolues (ex: `http://<IP>/ipas/app.ipa`). Obligatoire derrière reverse proxy / Cloudflare Tunnel : `request.base_url` pointerait sinon sur le host interne (ex: `http://127.0.0.1:80`). `IPASTORE_BASE_URL` prime sur `request.base_url` quand la variable est définie, fallback sur la requête sinon (dev local). |
-| `IPASTORE_ENV`           | `prod` ou `dev`                       | Identifie l'environnement du conteneur (utilisé par le module updates) |
-| `IPASTORE_GITHUB_REPO`   | `MattTen/sideserver_website`          | Repo consulté pour les releases       |
+| Variable | Exemple | Rôle |
+|---|---|---|
+| `IPASTORE_STORE_DIR` | `/srv/store` | Racine binaires (monté depuis `/srv/store-prod`) |
+| `IPASTORE_SECRET_FILE` | `/etc/ipastore/secret_key` | Clé cookies (lue au boot) |
+| `IPASTORE_BASE_URL` | *(vide)* ou `http://store.mon-domaine.com` | URL publique forcée. **Si absent**, l'app dérive depuis `request.base_url` (via uvicorn `--proxy-headers --forwarded-allow-ips=*`). Ne définir que derrière un reverse proxy sans X-Forwarded correct. |
+| `IPASTORE_ENV` | `prod` | Toujours `prod` dans le modèle mono-env (utilisé par le module updates + noms de fichiers SCInsta). |
+| `IPASTORE_GITHUB_REPO` | `MattTen/sideserver_website` | Repo consulté pour les releases |
 
-**Connexion BDD** : elle n'est plus transmise par variable d'environnement. L'admin la saisit via l'UI (`/setup/database`) au premier démarrage — host, port, user, mot de passe, nom de base. La config est persistée dans `/etc/ipastore/db.json` (mode 600). Les credentials ne transitent donc jamais par GitHub ni par les fichiers `.env`. Fallback historique : si `IPASTORE_DB_URL` est défini dans l'env, il est utilisé tant que `db.json` n'existe pas (rétro-compat).
+**Connexion BDD** : saisie via `/setup/database` au premier démarrage puis persistée dans `/etc/ipastore/db.json`. Ne transite jamais par les fichiers `.env` ni par git.
 
-Le compose lui-même lit un `.env` local à chaque clone (`/opt/sideserver-prod/.env`, `/opt/sideserver-dev/.env`) :
+Le compose lui-même lit un `.env` local au clone (`/opt/sideserver-prod/.env`) — écrit par le bootstrap :
 
 ```
+IMAGE_TAG=local
 CONTAINER_NAME=sidestore-website-prod
 HOST_PORT=80
 ENV_FILE=/etc/ipastore/prod.env
@@ -113,7 +106,7 @@ STORE_PATH=/srv/store-prod
 
 ## 4. Script `website-management`
 
-Unique script de gestion : `/opt/sideserver-tools/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`.
+Unique script de gestion : `/opt/sideserver-prod/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`. Détection mono-env via `git rev-parse --abbrev-ref HEAD`.
 
 ### Usage
 
@@ -123,68 +116,50 @@ website-management <commande>       # commande unique
 website-management --help           # aide
 ```
 
-### Conteneurs
+### Commandes principales
 
-| Commande              | Action                                   |
-|-----------------------|------------------------------------------|
-| `prod-start` / `dev-start`     | Build + up (docker compose)     |
-| `prod-stop`  / `dev-stop`      | docker compose down             |
-| `prod-restart` / `dev-restart` | Rebuild + force-recreate        |
-| `prod-logs` / `dev-logs`       | Suit les logs (Ctrl+C pour sortir) |
-| `status`                       | État des 2 conteneurs + versions déployées |
+| Commande | Action |
+|---|---|
+| `start` / `stop` / `restart` / `logs` / `status` | Gestion du conteneur (docker compose) |
+| `update` | Prod (branche `main`) : checkout dernière release si > current, rebuild. No-op si déjà à jour. Écrit `/etc/ipastore/prod.version`. / Dev (autre branche) : `git pull` + rebuild. |
+| `check` | `current=…/latest=…/update_available=0|1` (machine-readable). En dev : toujours `update_available=0` (rolling). |
+| `pull` | URGENCE : `git pull` HEAD de la branche courante + rebuild (hotfix, bypass release). |
+| `self-update` | `git pull` dans `/opt/sideserver-prod` puis resymlink si le script a changé. |
+| `reset-users` | Supprime tous les admins + prompt création d'un nouveau (via `docker exec`, pas de client mysql sur l'hôte requis). |
 
-### Mise à jour du code
+### Aliases systemd (ne pas utiliser en CLI)
 
-| Commande         | Action                                                                 |
-|------------------|------------------------------------------------------------------------|
-| `prod-update`    | Récupère la dernière release GitHub, `git checkout <tag>`, rebuild. **No-op si déjà à jour.** Écrit `/etc/ipastore/prod.version` après succès. |
-| `prod-check`     | Affiche `current / latest / update_available` (machine-readable : `key=value`). |
-| `dev-update`     | `git pull origin dev` + rebuild (rolling).                             |
-| `dev-check`      | Retourne toujours `update_available=0` (dev est rolling).              |
-| `self-update`    | Met à jour **le script lui-même** (pull dans `/opt/sideserver-tools`). |
-
-### Données
-
-| Commande             | Action                                                                 |
-|----------------------|------------------------------------------------------------------------|
-| `sync`               | Clone TOTAL prod → dev (drop+recreate BDD dev + rsync --delete du store). **Écrase tout ce qui est dans dev.** |
-| `sync-to-prod`       | Clone TOTAL dev → prod (drop+recreate BDD prod + rsync --delete du store). **IRRÉVERSIBLE — écrase prod.** Double confirmation exigée. |
-| `sync-schema-to-prod`| Aligne la **structure** de la BDD prod sur celle de dev (tables + colonnes + index + FKs manquants). **Aucune donnée touchée** — opérations ADDITIVES uniquement (`CREATE TABLE`, `ADD COLUMN`, `ADD INDEX`, `ADD FOREIGN KEY`). Pas de `DROP`, pas de `MODIFY`. Les divergences de type sur colonnes existantes sont affichées en commentaire dans le plan pour revue manuelle. Génère un plan SQL via `tools/schema-sync.py`, l'affiche, demande confirmation avant application. |
-| `prod-reset-users`   | Prompt login/mdp, supprime tous les users prod, crée un nouvel admin.  |
-| `dev-reset-users`    | Idem sur dev.                                                          |
+Les units systemd sont nommées avec instance `prod` pour des raisons historiques : `ipastore-update@prod.service` appelle `website-management prod-update`, idem pour `prod-scinsta-build` et `prod-scinsta-cancel`. Ces aliases pointent vers les commandes ci-dessus (le script ignore l'instance `prod` et détecte le vrai mode via la branche).
 
 ---
 
-## 5. Mécanisme de mise à jour — prod
+## 5. Mécanisme de mise à jour
 
-### Principe
+### Mode prod (branche `main`)
 
-La prod n'avance qu'**à chaque release GitHub publiée**. Chaque release porte un tag (`v1.0.0`, potentiellement `v14.26.35.2664.32` — format libre de dotted-numeric, avec un `v` optionnel).
+La VM prod n'avance qu'à chaque release GitHub publiée. Chaque release porte un tag (`v1.0.0`, potentiellement `v14.26.35.2664.32` — format libre de dotted-numeric, avec un `v` optionnel).
 
 Trois sources de vérité :
-1. GitHub Releases (source de vérité du "dernière version disponible")
-2. `/etc/ipastore/prod.version` (source de vérité du "version actuellement déployée")
+1. GitHub Releases (source du "dernière version disponible")
+2. `/etc/ipastore/prod.version` (source du "version actuellement déployée")
 3. L'état du clone (`git rev-parse HEAD`, qui devrait matcher le tag)
 
-### Comparaison de versions
+Comparaison via `sort -V` (bash) ou tuple d'entiers (Python) : `v1.9 < v1.10`, `v1.0.0 < v1.0.1`. Le `v` initial est strippé avant comparaison.
 
-On utilise `sort -V` (bash) ou la comparaison par tuple d'entiers (Python). Ce qui supporte naturellement :
-- `v1.0.0 < v1.0.1`
-- `v1.9 < v1.10`
-- `v14.26.35.2664.32 > v14.26.35.2664.31`
+### Mode dev (toute autre branche)
 
-Le `v` initial est strippé avant comparaison.
+Rolling : pas de check de version. `update` fait `git pull` + rebuild. `/etc/ipastore/prod.version` contient `rolling-<sha court>`. `/settings/updates/check` côté dev renvoie toujours `rolling=true, update_available=false` → le bouton "Appliquer" reste grisé dans l'UI.
 
 ### Flux via CLI
 
 ```bash
-website-management prod-update
+website-management update
 ```
 
-Étapes :
+En mode prod :
 1. `curl api.github.com/repos/.../releases/latest` → tag_name
 2. Lit `/etc/ipastore/prod.version`
-3. Si tag ≤ version actuelle → no-op ("Prod déjà à jour")
+3. Si tag ≤ version actuelle → no-op
 4. `git fetch --tags && git checkout --force <tag>` dans `/opt/sideserver-prod` (HEAD détaché)
 5. `docker compose up -d --build`
 6. Écrit le tag dans `/etc/ipastore/prod.version`
@@ -196,18 +171,18 @@ L'UI ne peut pas `docker compose` elle-même (elle tourne dans le conteneur). El
 ```
 1. Utilisateur clique "Appliquer la mise à jour" dans /settings
    └─> POST /settings/updates/apply (FastAPI)
-       └─> écrit /etc/ipastore/update-requested-prod  (ce fichier est
-            monté en volume depuis le conteneur, donc visible par le host)
+       └─> écrit /etc/ipastore/update-requested-prod  (visible du host
+            via le volume /etc/ipastore monté)
 
 2. Sur le host, systemd path unit détecte le fichier :
    ipastore-update@prod.path  (PathExists=/etc/ipastore/update-requested-prod)
    └─> déclenche ipastore-update@prod.service :
        ExecStartPre=/bin/rm -f /etc/ipastore/update-requested-prod
        ExecStart=/usr/local/bin/website-management prod-update
-       User=altuser
+       User=<app-user>
 
-3. Le script fait son job (checkout + rebuild + up). Le conteneur prod
-   redémarre. La page UI attend ~30s puis se recharge.
+3. Le script fait son job (checkout + rebuild + up). Le conteneur redémarre.
+   La page UI attend ~30s puis se recharge.
 ```
 
 Le flag est supprimé **avant** l'update (`ExecStartPre`) pour éviter les boucles si l'update échoue.
@@ -229,48 +204,33 @@ Il met à jour le cache in-memory (`_cache` dans `app/updates.py`) et logge. L'U
 
 ---
 
-## 6. Mécanisme de mise à jour — dev
+## 6. Unités systemd
 
-Dev est **rolling** : chaque push sur `dev` doit pouvoir être testé vite, pas question de publier une release par commit.
+Toutes les units sont **embedded en heredoc dans les bootstraps** (`deploy/bootstrap-{prod,dev}.sh`) — elles ne sont plus stockées dans `deploy/systemd/` dans le repo. Instance toujours `prod` (mono-env).
 
-Conséquences :
-- `dev-update` = `git pull origin dev` + rebuild. Pas de check de version.
-- `/etc/ipastore/dev.version` contient `rolling-<sha court>`.
-- `/settings/updates/check` côté dev renvoie toujours `rolling=true, update_available=false` → le bouton "Appliquer" reste grisé dans l'UI dev. La présence du bouton est juste un artefact du fait qu'on a une seule codebase.
-- Le workflow côté dev est : push `dev` → sur la VM, `website-management dev-update`.
-
----
-
-## 7. Unités systemd
-
-Deux unités **templatisées** (un seul fichier pour prod et dev) :
-
-### `/etc/systemd/system/ipastore-update@.path`
+### `ipastore-update@.path` / `.service`
 
 ```ini
+# path
 [Unit]
 Description=Watch /etc/ipastore/update-requested-%i flag
-
 [Path]
 PathExists=/etc/ipastore/update-requested-%i
 Unit=ipastore-update@%i.service
-
 [Install]
 WantedBy=multi-user.target
 ```
 
-### `/etc/systemd/system/ipastore-update@.service`
-
 ```ini
+# service
 [Unit]
 Description=Apply update to %i environment
 After=docker.service
 Requires=docker.service
-
 [Service]
 Type=oneshot
-User=altuser
-Group=altuser
+User=<app-user>
+Group=<app-user>
 ExecStartPre=/bin/rm -f /etc/ipastore/update-requested-%i
 ExecStart=/usr/local/bin/website-management %i-update
 StandardOutput=journal
@@ -278,24 +238,17 @@ StandardError=journal
 TimeoutStartSec=600
 ```
 
-### Activation
+Activation : `systemctl enable --now ipastore-update@prod.path` (fait par le bootstrap).
 
-```bash
-systemctl enable --now ipastore-update@prod.path
-systemctl enable --now ipastore-update@dev.path
-```
+Logs : `journalctl -u ipastore-update@prod.service -f`.
 
-Logs :
-
-```bash
-journalctl -u ipastore-update@prod.service -f
-```
+Les units SCInsta (`ipastore-scinsta-build@.{path,service}` et `ipastore-scinsta-cancel@.{path,service}`) suivent le même modèle — voir [scinsta_builder.md](scinsta_builder.md).
 
 ---
 
-## 8. Workflow complet — exemple
+## 7. Workflow complet — exemple
 
-### Release de la v1.2.0
+### Release v1.2.0 (merge dev → main + tag)
 
 ```bash
 # Sur ta machine
@@ -304,11 +257,11 @@ git merge dev                         # récupère ce qui a été validé sur de
 git push origin main
 gh release create v1.2.0 --generate-notes
 
-# Sur la VM (rien à faire tout de suite — la prod reste sur v1.1.x)
+# Sur la VM prod (rien à faire tout de suite — elle reste sur v1.1.x)
 # Option 1 : ouvrir l'UI /settings et cliquer "Appliquer"
-# Option 2 : website-management prod-update
+# Option 2 : website-management update
 
-# Ou attendre le check auto 6h puis agir depuis l'UI
+# Ou attendre le check auto 6h puis agir depuis l'UI.
 ```
 
 ### Push dev
@@ -319,34 +272,30 @@ git checkout dev
 # … commit …
 git push origin dev
 
-# Sur la VM
-website-management dev-update    # rolling, pas de release
+# Sur la VM dev
+website-management update    # rolling, git pull + rebuild
 ```
 
-### Rollback rapide à la release précédente
+### Rollback à une release précédente (sur la VM prod)
 
 ```bash
-# Supprime le tag de la dernière release OU republie une release "v1.1.x" = v1.2.0
-# Plus simple : checkout manuel
 cd /opt/sideserver-prod
 git checkout --force v1.1.5
 docker compose up -d --build
-echo v1.1.5 > /etc/ipastore/prod.version
+echo v1.1.5 | sudo tee /etc/ipastore/prod.version
 ```
 
 ---
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 ### "Dubious ownership"
 
 ```bash
-git config --global --add safe.directory /opt/sideserver-prod
-git config --global --add safe.directory /opt/sideserver-dev
-git config --global --add safe.directory /opt/sideserver-tools
+sudo git config --global --add safe.directory /opt/sideserver-prod
 ```
 
-Déjà fait pour `root` et `altuser` lors du setup, à refaire par user si nouveau compte.
+Déjà fait par le bootstrap pour root et l'app-user. À refaire pour tout nouveau user amené à invoquer git dans `/opt/sideserver-prod`.
 
 ### Conteneur qui ne démarre pas après update
 
@@ -357,8 +306,8 @@ journalctl -u ipastore-update@prod.service -n 200
 ```
 
 Causes fréquentes :
-- `/etc/ipastore/prod.env` inaccessible (permissions) → `chown altuser:altuser /etc/ipastore/prod.env`
-- `secret_key.prod` non lisible par uid 1000 → `chown 1000:1000 /etc/ipastore/secret_key.prod`
+- `/etc/ipastore/prod.env` inaccessible → vérifier perms
+- `secret_key` non lisible par uid 1000 → `chown 1000:1000 /etc/ipastore/secret_key`
 - Migration BDD qui échoue au boot → voir logs
 
 ### Pull GitHub qui demande des credentials
@@ -397,12 +346,9 @@ bind-address = 0.0.0.0
 |-----------------------------------------------|-----------------------------------------------|
 | `Dockerfile`                                  | Image Python 3.13-slim, uid 1000              |
 | `docker-compose.yml`                          | Service paramétré via `.env` local            |
-| `deploy/bootstrap.sh`                         | Setup initial VM (paquets, BDD, env files, systemd units) |
-| `deploy/systemd/ipastore-update@.path`        | Watcher de flag-file                          |
-| `deploy/systemd/ipastore-update@.service`     | Exécuteur d'update                            |
-| `tools/website-management.sh`                 | Script de gestion historique (prod+dev sur la même VM) |
-| `tools/website-management-mono.sh`            | Script de gestion mono-env (1 machine = 1 conteneur, dev local OU prod cloud) |
-| `app/schema_migrate.py`                       | Migration additive du schéma BDD (ALTER ADD, CREATE INDEX) — appliquée au boot et via `db-migrate` |
+| `deploy/bootstrap-prod.sh` / `bootstrap-dev.sh` | Setup initial VM auto-suffisant (curl \| sudo bash). Units systemd embedded en heredoc. |
+| `tools/website-management.sh`                 | Script de gestion mono-env (détection via `git rev-parse --abbrev-ref HEAD`) |
+| `tools/schema-sync.py`                        | Tool standalone — plan SQL additif pour aligner 2 schémas BDD |
 | `app/config.py`                               | Vars d'env lues au boot                       |
 | `app/updates.py`                              | Logique check + flag-file                     |
 | `app/routes/updates.py`                       | Routes `/settings/updates/{check,apply}`      |
@@ -419,10 +365,7 @@ bind-address = 0.0.0.0
 | `templates/scinsta.html`                      | UI de l'onglet SCInsta                          |
 | `tools/scinsta-builder/Dockerfile`            | Image Theos + cyan + ipapatch + lief (builder one-shot) |
 | `tools/scinsta-builder/build.py`              | Pipeline : clone SCInsta main → `build.sh sideload` → patch optionnel → store |
-| `deploy/systemd/ipastore-scinsta-build@.path` | Watcher du flag-file de build SCInsta           |
-| `deploy/systemd/ipastore-scinsta-build@.service` | Exécuteur : lance `website-management {env}-scinsta-build` |
-| `deploy/systemd/ipastore-scinsta-cancel@.path` | Watcher du flag-file de cancel SCInsta         |
-| `deploy/systemd/ipastore-scinsta-cancel@.service` | Exécuteur : `docker stop -t 2 scinsta-builder-{env}` + result failed |
+| `deploy/bootstrap-prod.sh` / `bootstrap-dev.sh` | Bootstrap auto-suffisant (`curl \| sudo bash`) — installe Docker, clone, écrit les units systemd embedded, démarre le conteneur |
 
 ---
 
@@ -436,7 +379,7 @@ Au boot du conteneur, aucune inscription n'est nécessaire : chaque `.py` placé
 
 1. Créer `patch/mon_patch.py` dans le repo GitHub
 2. Merger sur `dev` (ou `main` pour prod via release)
-3. `website-management dev-update` (ou `prod-update`) → rebuild de l'image → le patch apparaît dans l'UI
+3. `website-management update` sur la VM cible → rebuild de l'image → le patch apparaît dans l'UI
 
 ### Contrat CLI des scripts
 
@@ -476,14 +419,12 @@ Les scripts de patch partagent le venv du conteneur (même `sys.executable`). Le
 
 Onglet dédié à la production de builds **Instagram + SCInsta** ([SoCuul/SCInsta](https://github.com/SoCuul/SCInsta)) directement depuis l'UI admin, avec bypass Cloudflare (via `curl_cffi`) pour le check de version et upload manuel pour l'IPA (Turnstile infranchissable sur le bouton de téléchargement).
 
-Commandes `website-management` associées (pilotées par la path unit `ipastore-scinsta-build@`, pas listées dans le menu interactif) :
+Commandes `website-management` associées (pilotées par les path units `ipastore-scinsta-build@prod.path` / `ipastore-scinsta-cancel@prod.path`, pas listées dans le menu interactif) :
 
 | Commande | Action |
 |---|---|
-| `prod-scinsta-build`  | Build + run du conteneur builder pour prod |
-| `dev-scinsta-build`   | Idem pour dev |
-| `prod-scinsta-cancel` | `docker stop -t 2 scinsta-builder-prod` + écrit un result failed (pilotée par `ipastore-scinsta-cancel@prod.path`) |
-| `dev-scinsta-cancel`  | Idem pour dev |
+| `prod-scinsta-build`  | Build + run du conteneur builder (alias systemd — le script détecte le vrai mode via la branche) |
+| `prod-scinsta-cancel` | `docker stop -t 2 scinsta-builder-prod` + écrit un result failed |
 
 **Doc complète** : [scinsta_builder.md](scinsta_builder.md) — flux utilisateur, pipeline systemd/Docker, bypass Cloudflare, URL source modifiable, routes API, clés settings, intégration BDD.
 
@@ -505,81 +446,11 @@ Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalid
 
 ---
 
-## 14. Déploiement mono-environnement (1 machine = 1 conteneur)
+## 14. Flux de promotion entre machines
 
-Architecture cible quand prod et dev tournent sur des **machines distinctes** (typiquement : dev local à la maison, prod dans le cloud) plutôt que cohabiter sur une seule VM :
+Les VM dev et prod sont **disjointes** — pas de sync physique BDD/store. Le cycle de promotion passe uniquement par git :
 
-- Un seul conteneur par machine, nommé `sidestore-website` (pas de suffixe `-prod`/`-dev`).
-- Un seul clone : `/opt/sideserver-website` (branche `main` côté prod, `dev` côté dev).
-- Un seul store : `/srv/store/`.
-- Un seul fichier de version : `/etc/ipastore/version`.
-- Un seul script de gestion : `tools/website-management-mono.sh`.
-
-L'intérêt : les environnements sont strictement identiques (chemins, noms docker, volumes, paths systemd). Une mise à jour déclenchée depuis l'UI dev exerce **réellement** le code-path qui sera utilisé en prod, sans branchements env-spécifiques.
-
-### Différences vs `website-management.sh` historique
-
-| Élément | Script historique | Script mono-env |
-|---|---|---|
-| Conteneurs | `sidestore-website-prod` + `sidestore-website-dev` | `sidestore-website` unique |
-| Fichier env | `/etc/ipastore/{prod,dev}.env` | `/etc/ipastore/<env>.env` (généré par bootstrap) |
-| Sync prod↔dev (`sync`, `sync-to-prod`, `sync-schema-to-prod`) | présents | **supprimés** (machines disjointes, pas de cycle physique de promotion) |
-| Migration de schéma | externe, via `tools/schema-sync.py` (compare 2 BDD live via `mysql` CLI) | intégrée dans l'app via `app/schema_migrate.py` (compare modèles SQLAlchemy ↔ BDD) ; déclenchée auto au boot + manuellement via `db-migrate` |
-| Reset users | utilise `/etc/ipastore/.mysql.cnf` + `mysql` CLI | `docker exec sidestore-website python` (lit `db.json` via l'app) — plus besoin de `.mysql.cnf` |
-| Commandes | `prod-*` / `dev-*` | sans préfixe (`start`, `stop`, `update`, `update-dev`, `pull`…) |
-
-### Commandes principales
-
-| Commande | Action |
-|---|---|
-| `start` / `stop` / `restart` / `logs` | Gestion docker compose |
-| `status` | Conteneur + version |
-| `update` | Déploie la dernière release GitHub (mode prod) |
-| `update-dev` | `git pull origin dev` + rebuild (mode dev rolling) |
-| `pull` | URGENCE : pull direct de `main` + rebuild (bypass release) |
-| `check` | `current=…/latest=…/update_available=0|1` machine-readable |
-| `db-migrate` | Dry-run + confirmation + apply des migrations additives |
-| `db-migrate-check` | Dry-run pur (sortie brute, sans interaction) |
-| `reset-users` | Purge users + crée un admin (via conteneur, sans `.mysql.cnf`) |
-| `scinsta-build` / `scinsta-cancel` | Pipeline SCInsta — conteneur builder nommé `scinsta-builder` |
-| `self-update` | Pull du script depuis `/opt/sideserver-tools` |
-
-### Migration de schéma BDD — `app/schema_migrate.py`
-
-Module appelé automatiquement à chaque `init_db()` (donc à chaque (re)démarrage du conteneur) et exposé en CLI via `python -m app.schema_migrate`.
-
-**Strictement additif** :
-- `CREATE TABLE` pour les tables manquantes (délégué à `metadata.create_all()`)
-- `ALTER TABLE … ADD COLUMN` pour les colonnes manquantes (avec gestion `NOT NULL` + default raisonnable selon le type SQL)
-- `CREATE [UNIQUE] INDEX` pour les indexes nommés manquants
-
-**Jamais** :
-- Pas de `DROP TABLE`/`DROP COLUMN`/`DROP INDEX`
-- Pas de `MODIFY COLUMN` (les divergences de type/nullability sont laissées telles quelles — visibles uniquement à la lecture du modèle vs `inspect()`)
-- Pas de `RENAME` (un rename = `ADD` du nouveau + nettoyage manuel de l'ancien)
-
-Conséquence : une release qui ajoute une table ou une colonne est appliquée automatiquement au prochain démarrage. Une release qui **supprime** ou **change le type** d'une colonne nécessite une migration manuelle (typiquement, ajouter le DDL dans `app/db.py::_legacy_migrate()`).
-
-**CLI** :
-
-```bash
-python -m app.schema_migrate              # applique
-python -m app.schema_migrate --dry-run    # liste sans appliquer
-python -m app.schema_migrate -v           # logs DEBUG
-```
-
-Côté script de gestion :
-
-```bash
-website-management-mono db-migrate-check  # dry-run rapide
-website-management-mono db-migrate        # interactif : dry-run → confirmation → apply
-```
-
-### Flux de promotion entre machines
-
-Pas de sync physique BDD/store dev → prod (les deux machines sont disjointes, sans réseau partagé). Le cycle de promotion passe par git :
-
-1. Développement sur la machine dev (branche `dev`, rolling via `update-dev`)
+1. Développement sur la VM dev (branche `dev`, rolling via `website-management update`)
 2. Validation dev OK → merge `dev` → `main` → push
-3. Tag GitHub release (ex `v1.4.0`) → CI publie la release
-4. Sur la machine prod : `update` détecte la release et déploie ; `init_db()` applique automatiquement les nouvelles tables/colonnes via `schema_migrate.py`
+3. Tag GitHub release (ex `v1.4.0`)
+4. Sur la VM prod : `website-management update` détecte la release et déploie ; `init_db()` applique automatiquement les nouvelles tables/colonnes manquantes (migrations additives — `ALTER TABLE ADD COLUMN`, `CREATE INDEX`, jamais de `DROP` ni `MODIFY`)

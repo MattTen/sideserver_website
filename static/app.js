@@ -109,7 +109,7 @@
         return;
       }
       if (s.rolling) {
-        showBanner('info', 'Environnement dev — pas de release. Mets à jour en CLI avec `website-management dev-update`.');
+        showBanner('info', 'Environnement dev (rolling) — pas de release. Mets à jour en CLI avec `website-management update`.');
         applyBtn.disabled = true;
         return;
       }
