@@ -40,7 +40,7 @@ USER ipastore
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8000/source.json >/dev/null || exit 1
+  CMD curl -fsS http://127.0.0.1:8000/healthz >/dev/null || exit 1
 
 # --proxy-headers + --forwarded-allow-ips=* : fait confiance a X-Forwarded-*
 # pour que request.base_url reflete l'URL publique (scheme + host) meme
