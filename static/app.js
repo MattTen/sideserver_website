@@ -165,10 +165,16 @@
     const okIcon = document.getElementById('toggle-srctoken-ok');
     const errBox = document.getElementById('toggle-srctoken-err');
     const errClose = document.getElementById('toggle-srctoken-err-close');
-    const block = document.getElementById('srctoken-block');
     const valBox = document.getElementById('srctoken-value');
     const copyBtn = document.getElementById('srctoken-copy-btn');
     const regenBtn = document.getElementById('srctoken-regen-btn');
+    const EMPTY_TXT = 'Aucun jeton généré. Activez la protection pour en créer un.';
+    function paint(token) {
+      const has = !!token;
+      if (valBox) valBox.textContent = has ? token : EMPTY_TXT;
+      if (copyBtn) copyBtn.disabled = !has;
+      if (regenBtn) regenBtn.disabled = !has;
+    }
     let okTimer = null;
     function showOk() {
       if (errBox) errBox.style.display = 'none';
@@ -193,13 +199,16 @@
         });
         if (!r.ok) { showErr(true); return; }
         const data = await r.json();
-        if (valBox) valBox.textContent = data.token || '';
-        if (block) block.style.display = data.enabled ? 'block' : 'none';
+        // En mode desactive on garde le dernier jeton genere s'il existe
+        // (l'utilisateur peut juste avoir desactive temporairement). Le
+        // back renvoie une chaine vide si rien n'a jamais ete genere.
+        paint(data.token || '');
         showOk();
       } catch (_) { showErr(true); }
     });
 
     if (copyBtn) copyBtn.addEventListener('click', async () => {
+      if (copyBtn.disabled) return;
       const text = valBox ? valBox.textContent.trim() : '';
       try {
         await navigator.clipboard.writeText(text);
@@ -219,6 +228,7 @@
     });
 
     if (regenBtn) regenBtn.addEventListener('click', async () => {
+      if (regenBtn.disabled) return;
       // Confirmation explicite : la regen casse tous les liens partages.
       if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
         return;
@@ -229,7 +239,7 @@
         });
         if (!r.ok) { showErr(false); return; }
         const data = await r.json();
-        if (valBox) valBox.textContent = data.token || '';
+        paint(data.token || '');
         showOk();
       } catch (_) { showErr(false); }
     });
