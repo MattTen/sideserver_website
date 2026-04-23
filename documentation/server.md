@@ -19,7 +19,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 │  MySQL/MariaDB (saisi via UI au premier démarrage)          │
 │                                                              │
 │  Docker                                                      │
-│   └── sidestore-website-prod  :80                            │
+│   └── ipastore-website  :80                                  │
 │       env_file=/etc/ipastore/prod.env                        │
 │       volumes: /srv/store-prod:/srv/store, /etc/ipastore     │
 │                                                              │
@@ -35,7 +35,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Le conteneur s'appelle toujours `sidestore-website-prod` et le store `/srv/store-prod` quel que soit l'environnement réel : le mode prod vs dev est détecté **dynamiquement par le script de management** via `git rev-parse --abbrev-ref HEAD` (branche `main` ou `HEAD` détaché sur un tag = prod ; `dev` = dev).
+Le conteneur s'appelle toujours `ipastore-website` et le store `/srv/store-prod` quel que soit l'environnement réel : le mode prod vs dev est détecté **dynamiquement par le script de management** via `git rev-parse --abbrev-ref HEAD` (branche `main` ou `HEAD` détaché sur un tag = prod ; `dev` = dev).
 
 ---
 
@@ -96,7 +96,7 @@ Le compose lui-même lit un `.env` local au clone (`/opt/sideserver-prod/.env`) 
 
 ```
 IMAGE_TAG=local
-CONTAINER_NAME=sidestore-website-prod
+CONTAINER_NAME=ipastore-website
 HOST_PORT=80
 ENV_FILE=/etc/ipastore/prod.env
 STORE_PATH=/srv/store-prod
@@ -312,7 +312,7 @@ Déjà fait par le bootstrap pour root et l'app-user. À refaire pour tout nouve
 ### Conteneur qui ne démarre pas après update
 
 ```bash
-docker logs sidestore-website-prod --tail 100
+docker logs ipastore-website --tail 100
 systemctl status ipastore-update@prod.service -l
 journalctl -u ipastore-update@prod.service -n 200
 ```

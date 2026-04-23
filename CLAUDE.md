@@ -41,8 +41,8 @@ Chaque VM héberge **un seul** environnement. Dev et prod vivent sur des machine
 /opt/sideserver-prod      ← git clone (branche selon VM)
 /srv/store-prod/          ← IPAs + icônes + screenshots
 /etc/ipastore/            ← credentials + version + flags
-sidestore-website-prod    ← nom du conteneur (toujours "prod" — le script détecte
-                            le vrai mode via la branche git checkoutée)
+ipastore-website          ← nom du conteneur (le script détecte le vrai mode
+                            via la branche git checkoutée)
 ```
 
 Les units systemd sont nommées `ipastore-update@prod.{path,service}` (instance toujours `prod`) car `website-management update` détermine dynamiquement le comportement depuis `git rev-parse --abbrev-ref HEAD`.

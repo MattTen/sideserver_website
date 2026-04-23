@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import re
 import secrets
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..auth import hash_password, require_user, verify_password
+from ..auth import hash_password, require_user, require_user_db_optional, verify_password
 from ..config import Config
 from ..db import get_db
 from ..models import User
 from .apps import TINT_COLORS, _TINT_PRESET_VALUES
+from ..seo import is_indexing_disabled, set_indexing_disabled
 from ..source_gen import get_setting, set_setting
 from ..templates import templates
 
@@ -50,6 +52,7 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "store_header_file": header_file if header_file and (Config.ICONS_DIR / header_file).exists() else "",
         "tint_colors": TINT_COLORS,
         "tint_preset_values": _TINT_PRESET_VALUES,
+        "indexing_disabled": is_indexing_disabled(),
         "msg": msg,
         "err": err,
         "active": "settings",
@@ -78,7 +81,7 @@ def settings_save(
     set_setting(db, "store_name", store_name.strip() or "Magasin Perso")
     set_setting(db, "store_subtitle", store_subtitle.strip())
     set_setting(db, "store_tint", tint)
-    return RedirectResponse("/settings", status_code=303)
+    return Response(status_code=204)
 
 
 async def _save_appearance_image(upload: UploadFile, prefix: str) -> str:
@@ -146,6 +149,16 @@ async def settings_upload_header(
     return RedirectResponse("/settings", status_code=303)
 
 
+@router.post("/settings/indexing")
+def settings_indexing(
+    disable_indexing: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    set_indexing_disabled(db, disable_indexing == "1")
+    return Response(status_code=204)
+
+
 @router.post("/settings/header/remove")
 def settings_remove_header(
     user: User = Depends(require_user),
@@ -154,6 +167,32 @@ def settings_remove_header(
     _drop_previous(db, "store_header_file")
     set_setting(db, "store_header_file", "")
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.get("/settings/logs")
+def settings_logs(
+    lines: int = Query(500, ge=1, le=5000),
+    _user_id: int = Depends(require_user_db_optional),
+):
+    """Retourne les dernieres lignes de /etc/ipastore/app.log (file handler
+    configure dans app.main._configure_logging).
+
+    Auth via require_user_db_optional : pleine verification BDD en temps
+    normal, degradation au cookie-signe seulement si la BDD est HS (sinon
+    le viewer se figerait au moment ou on veut justement voir les logs).
+    """
+    log_path = Path("/etc/ipastore/app.log")
+    if not log_path.exists():
+        return JSONResponse({"lines": [], "note": "Aucun log pour l'instant."})
+    with log_path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        # 400 octets par ligne en moyenne : on lit large, puis on tronque.
+        read_size = min(size, lines * 400)
+        f.seek(size - read_size)
+        chunk = f.read().decode("utf-8", errors="replace")
+    tail = chunk.splitlines()[-lines:]
+    return JSONResponse({"lines": tail})
 
 
 @router.post("/settings/password")
@@ -174,11 +213,7 @@ def settings_password(
         err = "Les mots de passe ne correspondent pas"
 
     if err:
-        return templates.TemplateResponse(
-            request, "settings.html",
-            _settings_context(db, user, err=err),
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
+        return JSONResponse({"error": err}, status_code=status.HTTP_400_BAD_REQUEST)
     user.password_hash = hash_password(new_password)
     db.commit()
-    return RedirectResponse("/settings", status_code=303)
+    return Response(status_code=204)
