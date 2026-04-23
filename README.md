@@ -36,7 +36,7 @@ Un **seul** script bootstrap auto-suffisant (`curl | bash`) : il installe Docker
 
 ```bash
 # En root ou via sudo. Tout est auto : Docker, clone, systemd, conteneur.
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/refs/heads/main/deploy/bootstrap.sh | sudo bash
 ```
 
 La VM démarre toujours en **env prod**. Pour basculer en dev après coup (ou revenir en prod), on utilise le script de management :
@@ -58,7 +58,7 @@ website-management switch-prod   # revient sur la derniere release (= update pro
 Exemple avec URL forcée :
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh \
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/refs/heads/main/deploy/bootstrap.sh \
   | sudo BASE_URL=https://store.mon-domaine.com bash
 ```
 
