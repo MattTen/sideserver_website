@@ -7,8 +7,10 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import OperationalError
 
 from .config import Config, ensure_dirs, load_secret_key
 from .news_bg import ensure_news_bg
@@ -26,10 +28,66 @@ from .routes import scinsta as scinsta_routes
 from .routes import settings as settings_routes
 from .routes import updates as updates_routes
 from .scinsta import consume_build_result, integrate_build_result
+from .seo import is_indexing_disabled, refresh_from_db as refresh_seo
 from .updates import get_status
 from .db import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+class _IpaFormatter(logging.Formatter):
+    """Format '[date] LEVEL name -- msg' avec 'uvicorn.error' remappe en
+    'uvicorn' : uvicorn utilise 'uvicorn.error' pour tous les messages non-access
+    (y compris startup/info), ce qui induit en erreur dans les logs."""
+
+    _RENAME = {"uvicorn.error": "uvicorn"}
+
+    def format(self, record: logging.LogRecord) -> str:
+        record.name = self._RENAME.get(record.name, record.name)
+        return super().format(record)
+
+
+LOG_FILE = Path("/etc/ipastore") / "app.log"
+
+
+def _configure_logging() -> None:
+    fmt = "[%(asctime)s] %(levelname)s %(name)s -- %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    formatter = _IpaFormatter(fmt, datefmt=datefmt)
+
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+    else:
+        for h in root.handlers:
+            h.setFormatter(formatter)
+
+    # RotatingFileHandler : 5 MB * 3 fichiers garde ~15 MB de logs max,
+    # consultables via /settings/logs sans sortir du conteneur.
+    try:
+        from logging.handlers import RotatingFileHandler
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+    except Exception:
+        logger.exception("RotatingFileHandler indisponible (logs UI desactives)")
+        file_handler = None
+
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        for h in lg.handlers:
+            h.setFormatter(formatter)
+        if file_handler is not None:
+            lg.addHandler(file_handler)
+
+
+_configure_logging()
 
 
 async def _wait_until_configured() -> None:
@@ -132,12 +190,38 @@ def create_app() -> FastAPI:
     if is_configured():
         try:
             init_db()
+            db = SessionLocal()
+            try:
+                refresh_seo(db)
+            finally:
+                db.close()
         except Exception:
             logger.exception("init_db() a échoué au boot — la page /setup/database restera accessible")
     static_dir = Path(__file__).resolve().parent.parent / "static"
     ensure_news_bg(static_dir)
 
     app = FastAPI(title="IPA Store", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    # BDD injoignable : on log UNE ligne courte ("BDD injoignable: timeout
+    # sur 192.168.0.212") plutot que le traceback SQLAlchemy complet (plus
+    # de 100 lignes par requete sinon). L'UI recoit un 503 clair.
+    @app.exception_handler(OperationalError)
+    async def _db_unreachable_handler(request: Request, exc: OperationalError):
+        orig = getattr(exc, "orig", None)
+        detail = None
+        if orig is not None and getattr(orig, "args", None):
+            a = orig.args
+            if len(a) >= 2 and isinstance(a[0], int):
+                detail = f"MySQL {a[0]}: {a[1]}"
+            else:
+                detail = str(orig)
+        else:
+            detail = str(exc).splitlines()[0]
+        logger.error("Database unavailable (%s %s) -- %s", request.method, request.url.path, detail)
+        return JSONResponse(
+            {"error": "Database unavailable", "detail": detail},
+            status_code=503,
+        )
 
     # Middleware de garde : tant que la BDD n'est pas configurée, seules les
     # routes publiques (static, setup/database) sont accessibles.
@@ -151,6 +235,16 @@ def create_app() -> FastAPI:
             return await call_next(request)
         from fastapi.responses import RedirectResponse
         return RedirectResponse("/setup/database", status_code=303)
+
+    # Ajoute X-Robots-Tag: noindex sur toutes les reponses quand l'option
+    # "desactiver l'indexation" est active dans Reglages. S'applique aussi
+    # aux static files, IPAs, icones, bref tout ce qui sort du conteneur.
+    @app.middleware("http")
+    async def _noindex_headers(request, call_next):
+        resp = await call_next(request)
+        if is_indexing_disabled():
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return resp
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

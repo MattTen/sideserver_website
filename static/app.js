@@ -72,6 +72,93 @@
     });
   }
 
+  // Formulaires async (OK vert si succes, boite rouge avec X sinon/timeout 2s)
+  document.querySelectorAll('form[data-async-form]').forEach(form => {
+    const okIcon = form.querySelector('[data-async-ok]');
+    const errBox = form.querySelector('[data-async-err]');
+    const errMsg = form.querySelector('[data-async-err-msg]');
+    const errClose = form.querySelector('[data-async-err-close]');
+    const resetOnSuccess = form.hasAttribute('data-reset-on-success');
+    const defaultErr = errMsg ? errMsg.textContent : 'Une erreur est survenue.';
+    let okTimer = null;
+    function showOk() {
+      if (errBox) errBox.style.display = 'none';
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function showErr(msg) {
+      if (okIcon) okIcon.classList.remove('show');
+      if (!errBox) return;
+      if (errMsg) errMsg.textContent = msg || defaultErr;
+      errBox.style.display = 'flex';
+    }
+    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      try {
+        const r = await fetch(form.action, {
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+        });
+        clearTimeout(timeout);
+        if (r.ok) {
+          if (resetOnSuccess) form.reset();
+          showOk();
+        } else {
+          let msg = null;
+          try { const j = await r.json(); msg = j.error || j.message; } catch (_) {}
+          showErr(msg);
+        }
+      } catch (_) {
+        clearTimeout(timeout);
+        showErr(null);
+      }
+    });
+  });
+
+  // Indexing toggle (settings page)
+  const indexingToggle = document.getElementById('toggle-indexing');
+  if (indexingToggle) {
+    const okIcon = document.getElementById('toggle-indexing-ok');
+    const errBox = document.getElementById('toggle-indexing-err');
+    const errClose = document.getElementById('toggle-indexing-err-close');
+    let okTimer = null;
+    function showOk() {
+      if (errBox) errBox.style.display = 'none';
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function showErr() {
+      if (okIcon) okIcon.classList.remove('show');
+      indexingToggle.checked = !indexingToggle.checked;
+      if (errBox) errBox.style.display = 'flex';
+    }
+    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
+    indexingToggle.addEventListener('change', async () => {
+      const fd = new FormData();
+      fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      try {
+        const r = await fetch('/settings/indexing', {
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+        });
+        clearTimeout(timeout);
+        if (r.ok) showOk();
+        else showErr();
+      } catch (_) {
+        clearTimeout(timeout);
+        showErr();
+      }
+    });
+  }
+
   // Update management (settings page)
   const updCard = document.getElementById('updates-card');
   if (updCard) {
@@ -81,6 +168,7 @@
     const banner = document.getElementById('upd-banner');
     const checkBtn = document.getElementById('upd-check-btn');
     const applyBtn = document.getElementById('upd-apply-btn');
+    const restartBtn = document.getElementById('upd-restart-btn');
 
     function showBanner(kind, msg) {
       banner.style.display = 'block';
@@ -158,9 +246,72 @@
       }
     }
 
+    async function restartNow() {
+      if (!confirm('Redémarrer le conteneur maintenant ? L\'interface sera indisponible quelques secondes.')) return;
+      restartBtn.disabled = true;
+      const prev = restartBtn.textContent;
+      restartBtn.textContent = 'Redémarrage...';
+      try {
+        const r = await fetch('/settings/updates/restart', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const j = await r.json();
+        if (j.ok) {
+          showBanner('success', j.message || 'Redémarrage lancé.');
+          setTimeout(() => { window.location.reload(); }, 8000);
+        } else {
+          showBanner('error', j.message || 'Erreur inconnue');
+          restartBtn.disabled = false;
+          restartBtn.textContent = prev;
+        }
+      } catch (e) {
+        // Une erreur reseau est attendue : le serveur quitte avant/pendant la reponse.
+        showBanner('success', 'Redémarrage en cours...');
+        setTimeout(() => { window.location.reload(); }, 8000);
+      }
+    }
+
     checkBtn.addEventListener('click', checkNow);
     applyBtn.addEventListener('click', applyNow);
+    if (restartBtn) restartBtn.addEventListener('click', restartNow);
     checkNow();
+  }
+
+  // Logs viewer (settings page)
+  const logsToggleBtn = document.getElementById('logs-toggle-btn');
+  const logsView = document.getElementById('logs-view');
+  const logsRefreshBtn = document.getElementById('logs-refresh-btn');
+  if (logsToggleBtn && logsView) {
+    let logsTimer = null;
+    async function fetchLogs() {
+      try {
+        const r = await fetch('/settings/logs?lines=500', { credentials: 'same-origin' });
+        if (!r.ok) { logsView.textContent = 'Erreur ' + r.status; return; }
+        const j = await r.json();
+        const lines = j.lines || [];
+        logsView.textContent = lines.length ? lines.join('\n') : (j.note || '(vide)');
+        logsView.scrollTop = logsView.scrollHeight;
+      } catch (e) {
+        logsView.textContent = 'Erreur réseau : ' + e.message;
+      }
+    }
+    logsToggleBtn.addEventListener('click', () => {
+      const open = logsView.style.display !== 'none';
+      if (open) {
+        logsView.style.display = 'none';
+        logsRefreshBtn.style.display = 'none';
+        logsToggleBtn.textContent = 'Voir les logs';
+        if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+      } else {
+        logsView.style.display = 'block';
+        logsRefreshBtn.style.display = 'inline-flex';
+        logsToggleBtn.textContent = 'Masquer les logs';
+        fetchLogs();
+        logsTimer = setInterval(fetchLogs, 3000);
+      }
+    });
+    if (logsRefreshBtn) logsRefreshBtn.addEventListener('click', fetchLogs);
   }
 
   // Copy source URL

@@ -20,20 +20,19 @@
   <div class="appearance-grid">
     <div class="appearance-block">
       <div class="appearance-label">Icône du store</div>
-      <div class="appearance-icon-wrap">
+      <form id="icon-form" method="post" action="/settings/icon" enctype="multipart/form-data">
+        <input type="file" name="icon" id="icon-input" accept="image/*" onchange="this.form.submit()" style="display:none;">
+        <div class="appearance-icon-wrap" id="icon-dropzone">
+          {% if store_icon_file %}
+          <img src="/icons/{{ store_icon_file }}" class="appearance-icon" alt="Icône du store">
+          {% else %}
+          <div class="appearance-icon appearance-icon-empty">+</div>
+          {% endif %}
+        </div>
         {% if store_icon_file %}
-        <img src="/icons/{{ store_icon_file }}" class="appearance-icon" alt="Icône du store">
-        {% else %}
-        <div class="appearance-icon appearance-icon-empty">—</div>
-        {% endif %}
-      </div>
-      <form method="post" action="/settings/icon" enctype="multipart/form-data" class="row-gap mt-4">
-        <label class="btn btn-sm" style="cursor:pointer;">
-          <input type="file" name="icon" accept="image/*" onchange="this.form.submit()" style="display:none;">
-          {{ 'Remplacer' if store_icon_file else 'Téléverser' }}
-        </label>
-        {% if store_icon_file %}
-        <button form="remove-icon-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+        <div class="row-gap mt-4" style="justify-content:center;">
+          <button form="remove-icon-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
+        </div>
         {% endif %}
       </form>
       {% if store_icon_file %}
@@ -44,6 +43,7 @@
     <div class="appearance-block">
       <div class="appearance-label">Bannière (header)</div>
       <form id="header-form" method="post" action="/settings/header" enctype="multipart/form-data">
+        <input type="file" name="header" id="header-input" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
         <div class="appearance-header-wrap" id="header-dropzone">
           {% if store_header_file %}
           <img src="/icons/{{ store_header_file }}" class="appearance-header" alt="Header">
@@ -51,15 +51,11 @@
           <div class="appearance-header appearance-header-empty">Déposer ou cliquer pour ajouter une bannière</div>
           {% endif %}
         </div>
+        {% if store_header_file %}
         <div class="row-gap mt-4">
-          <label class="btn btn-sm" style="cursor:pointer;">
-            <input type="file" name="header" id="header-input" accept="image/png,image/jpeg,image/webp" onchange="this.form.submit()" style="display:none;">
-            {{ 'Remplacer' if store_header_file else 'Téléverser' }}
-          </label>
-          {% if store_header_file %}
           <button form="remove-header-form" class="btn btn-sm btn-danger" type="submit">Retirer</button>
-          {% endif %}
         </div>
+        {% endif %}
       </form>
       {% if store_header_file %}
       <form id="remove-header-form" method="post" action="/settings/header/remove"></form>
@@ -72,7 +68,7 @@
   <div class="card">
     <h2>Métadonnées du magasin</h2>
     <p class="text-muted mb-4" style="font-size: 12.5px;">Ces champs sont publiés dans <code>source.json</code> et visibles dans SideStore.</p>
-    <form method="post" action="/settings">
+    <form method="post" action="/settings" id="metadata-form" data-async-form>
       <div class="field">
         <label>Nom</label>
         <input class="input" name="store_name" value="{{ store_name }}" required>
@@ -108,17 +104,29 @@
           <span class="text-muted input-mono" id="store-tint-label" style="font-size:12.5px;">#{{ store_tint.lower() }}</span>
         </div>
       </div>
-      <button class="btn btn-primary" type="submit">
-        {% include "_icons/check.svg" %}
-        <span>Enregistrer</span>
-      </button>
+      <div class="row-gap" style="gap:10px; align-items:center;">
+        <button class="btn btn-primary" type="submit">
+          {% include "_icons/check.svg" %}
+          <span>Enregistrer</span>
+        </button>
+        <span class="toggle-ok" data-async-ok aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 12.5l3 3 5-6"/>
+          </svg>
+        </span>
+      </div>
+      <div class="alert alert-error mt-4 alert-dismissible" data-async-err style="display:none;">
+        <span data-async-err-msg>Une erreur est survenue.</span>
+        <button type="button" class="alert-close" data-async-err-close aria-label="Fermer">&times;</button>
+      </div>
     </form>
   </div>
 
   <div class="card">
     <h2>Compte administrateur</h2>
     <p class="text-muted mb-4" style="font-size: 12.5px;">Changer le mot de passe de <strong>{{ user.username }}</strong>.</p>
-    <form method="post" action="/settings/password">
+    <form method="post" action="/settings/password" id="password-form" data-async-form data-reset-on-success>
       <div class="field">
         <label>Mot de passe actuel</label>
         <input class="input" type="password" name="current_password" required>
@@ -131,9 +139,59 @@
         <label>Confirmation</label>
         <input class="input" type="password" name="new_password_confirm" minlength="8" required>
       </div>
-      <button class="btn btn-primary" type="submit">Changer le mot de passe</button>
+      <div class="row-gap" style="gap:10px; align-items:center;">
+        <button class="btn btn-primary" type="submit">Changer le mot de passe</button>
+        <span class="toggle-ok" data-async-ok aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 12.5l3 3 5-6"/>
+          </svg>
+        </span>
+      </div>
+      <div class="alert alert-error mt-4 alert-dismissible" data-async-err style="display:none;">
+        <span data-async-err-msg>Une erreur est survenue.</span>
+        <button type="button" class="alert-close" data-async-err-close aria-label="Fermer">&times;</button>
+      </div>
     </form>
   </div>
+</div>
+
+<div class="card mt-8">
+  <h2>Confidentialité</h2>
+  <p class="text-muted mb-4" style="font-size: 12.5px;">
+    Empêche les moteurs de recherche d'indexer le site.
+  </p>
+  <label class="toggle-row">
+    <span class="row-gap" style="gap:8px;">
+      <span>Désactiver l'indexation d'IPA Store</span>
+      <span class="toggle-ok" id="toggle-indexing-ok" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12.5l3 3 5-6"/>
+        </svg>
+      </span>
+    </span>
+    <span class="toggle">
+      <input type="checkbox" id="toggle-indexing" {% if indexing_disabled %}checked{% endif %}>
+      <span class="toggle-slider"></span>
+    </span>
+  </label>
+  <div class="alert alert-error mt-4 alert-dismissible" id="toggle-indexing-err" style="display:none;">
+    <span>Une erreur est survenue.</span>
+    <button type="button" class="alert-close" id="toggle-indexing-err-close" aria-label="Fermer">&times;</button>
+  </div>
+</div>
+
+<div class="card mt-8" id="logs-card">
+  <h2>Logs du serveur</h2>
+  <p class="text-muted mb-4" style="font-size: 12.5px;">
+    Logs applicatifs. Rafraichi automatiquement toutes les 3 s tant que la zone est visible.
+  </p>
+  <div class="row-gap" id="logs-buttons">
+    <button class="btn" type="button" id="logs-toggle-btn">Voir les logs</button>
+    <button class="btn" type="button" id="logs-refresh-btn" style="display:none;">Rafraîchir</button>
+  </div>
+  <pre id="logs-view" style="display:none; max-height:420px; overflow:auto; background:#1a1309; color:#f5e6c8; padding:12px; border-radius:var(--radius); font-size:12px; line-height:1.45; margin:16px 0 0 0; white-space:pre-wrap; word-break:break-all;"></pre>
 </div>
 
 <div class="card mt-8" id="updates-card">
@@ -163,6 +221,9 @@
     <button class="btn btn-primary" type="button" id="upd-apply-btn" disabled>
       Appliquer la mise à jour
     </button>
+    <button class="btn btn-danger" type="button" id="upd-restart-btn">
+      Redémarrer
+    </button>
   </div>
   <p class="text-muted mt-4" style="font-size: 12.5px;">
     Vérification automatique toutes les 6 heures. Lors de l'application, le conteneur est reconstruit et redémarre — l'interface sera indisponible quelques secondes.
@@ -188,9 +249,9 @@ function storeTintCustom(hexWithHash) {
   document.getElementById('store-tint-label').textContent = '#' + val;
 }
 
-(function() {
-  const zone = document.getElementById('header-dropzone');
-  const input = document.getElementById('header-input');
+function wireDropzone(zoneId, inputId) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
   if (!zone || !input) return;
   zone.addEventListener('click', () => input.click());
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
@@ -205,6 +266,8 @@ function storeTintCustom(hexWithHash) {
     input.files = dt.files;
     input.dispatchEvent(new Event('change'));
   });
-})();
+}
+wireDropzone('header-dropzone', 'header-input');
+wireDropzone('icon-dropzone', 'icon-input');
 </script>
 {% endblock %}

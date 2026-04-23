@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Config
 from ..db import get_db
+from ..seo import is_indexing_disabled
 from ..source_gen import build_source
 
 router = APIRouter()
@@ -44,6 +45,12 @@ def source_json(request: Request, db: Session = Depends(get_db)):
             "Access-Control-Allow-Origin": "*",
         },
     )
+
+
+@router.get("/robots.txt")
+def robots_txt():
+    body = "User-agent: *\nDisallow: /\n" if is_indexing_disabled() else "User-agent: *\nAllow: /\n"
+    return Response(body, media_type="text/plain")
 
 
 @router.get("/qr.svg")
