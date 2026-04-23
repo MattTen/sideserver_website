@@ -29,6 +29,7 @@ from .routes import settings as settings_routes
 from .routes import updates as updates_routes
 from .scinsta import consume_build_result, integrate_build_result
 from .seo import is_indexing_disabled, refresh_from_db as refresh_seo
+from .source_token import refresh_from_db as refresh_source_token
 from .updates import get_status
 from .db import SessionLocal
 
@@ -193,6 +194,7 @@ def create_app() -> FastAPI:
             db = SessionLocal()
             try:
                 refresh_seo(db)
+                refresh_source_token(db)
             finally:
                 db.close()
         except Exception:
@@ -217,9 +219,9 @@ def create_app() -> FastAPI:
                 detail = str(orig)
         else:
             detail = str(exc).splitlines()[0]
-        logger.error("Database unavailable (%s %s) -- %s", request.method, request.url.path, detail)
+        logger.error("Une erreur est survenue (%s %s) -- %s", request.method, request.url.path, detail)
         return JSONResponse(
-            {"error": "Database unavailable", "detail": detail},
+            {"error": "Une erreur est survenue", "detail": detail},
             status_code=503,
         )
 

@@ -72,50 +72,77 @@
     });
   }
 
-  // Formulaires async (OK vert si succes, boite rouge avec X sinon/timeout 2s)
+  // Mecanisme partage : a 1s -> alerte jaune "Cela prend plus de temps que prevu"
+  // + spinner. On laisse la requete aller jusqu'au bout (vrai timeout TCP
+  // navigateur ou reponse finale) pour refleter la realite du backend.
+  const SLOW_MS = 1000;
+  const SLOW_TXT = 'Cela prend plus de temps que prévu';
+  function wireAlertBox(box, msgEl, spinnerEl, closeEl, fallbackErr) {
+    const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue');
+    function hide() {
+      if (spinnerEl) spinnerEl.style.display = 'none';
+      if (box) box.style.display = 'none';
+    }
+    function showSlow() {
+      if (!box) return;
+      box.classList.remove('alert-error');
+      box.classList.add('alert-warning');
+      if (msgEl) msgEl.textContent = SLOW_TXT;
+      if (spinnerEl) spinnerEl.style.display = 'inline-block';
+      box.style.display = 'flex';
+    }
+    function showFail(msg) {
+      if (!box) return;
+      box.classList.remove('alert-warning');
+      box.classList.add('alert-error');
+      if (spinnerEl) spinnerEl.style.display = 'none';
+      if (msgEl) msgEl.textContent = msg || defaultErr;
+      box.style.display = 'flex';
+    }
+    if (closeEl) closeEl.addEventListener('click', hide);
+    return { hide, showSlow, showFail };
+  }
+
+  // Formulaires async (OK vert si succes, slow jaune a 2s, rouge si echec final)
   document.querySelectorAll('form[data-async-form]').forEach(form => {
     const okIcon = form.querySelector('[data-async-ok]');
-    const errBox = form.querySelector('[data-async-err]');
-    const errMsg = form.querySelector('[data-async-err-msg]');
-    const errClose = form.querySelector('[data-async-err-close]');
+    const alert = wireAlertBox(
+      form.querySelector('[data-async-err]'),
+      form.querySelector('[data-async-err-msg]'),
+      form.querySelector('[data-async-err-spinner]'),
+      form.querySelector('[data-async-err-close]'),
+    );
     const resetOnSuccess = form.hasAttribute('data-reset-on-success');
-    const defaultErr = errMsg ? errMsg.textContent : 'Une erreur est survenue.';
     let okTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      alert.hide();
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
       okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
     }
-    function showErr(msg) {
-      if (okIcon) okIcon.classList.remove('show');
-      if (!errBox) return;
-      if (errMsg) errMsg.textContent = msg || defaultErr;
-      errBox.style.display = 'flex';
-    }
-    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch(form.action, {
-          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+          method: 'POST', body: fd, credentials: 'same-origin',
         });
-        clearTimeout(timeout);
+        clearTimeout(slowTimer);
         if (r.ok) {
           if (resetOnSuccess) form.reset();
           showOk();
         } else {
           let msg = null;
           try { const j = await r.json(); msg = j.error || j.message; } catch (_) {}
-          showErr(msg);
+          if (okIcon) okIcon.classList.remove('show');
+          alert.showFail(msg);
         }
       } catch (_) {
-        clearTimeout(timeout);
-        showErr(null);
+        clearTimeout(slowTimer);
+        if (okIcon) okIcon.classList.remove('show');
+        alert.showFail(null);
       }
     });
   });
@@ -125,36 +152,160 @@
   if (indexingToggle) {
     const okIcon = document.getElementById('toggle-indexing-ok');
     const errBox = document.getElementById('toggle-indexing-err');
-    const errClose = document.getElementById('toggle-indexing-err-close');
+    const alert = wireAlertBox(
+      errBox,
+      errBox ? errBox.querySelector('[data-msg]') : null,
+      errBox ? errBox.querySelector('[data-spinner]') : null,
+      document.getElementById('toggle-indexing-err-close'),
+    );
     let okTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      alert.hide();
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
       okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
     }
-    function showErr() {
+    function fail() {
       if (okIcon) okIcon.classList.remove('show');
       indexingToggle.checked = !indexingToggle.checked;
-      if (errBox) errBox.style.display = 'flex';
+      alert.showFail(null);
     }
-    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch('/settings/indexing', {
-          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+          method: 'POST', body: fd, credentials: 'same-origin',
         });
-        clearTimeout(timeout);
+        clearTimeout(slowTimer);
         if (r.ok) showOk();
-        else showErr();
+        else fail();
       } catch (_) {
-        clearTimeout(timeout);
-        showErr();
+        clearTimeout(slowTimer);
+        fail();
+      }
+    });
+  }
+
+  // Source token (settings page) : toggle + copy + regenerate
+  const srcTokenToggle = document.getElementById('toggle-srctoken');
+  if (srcTokenToggle) {
+    const okIcon = document.getElementById('toggle-srctoken-ok');
+    const errBox = document.getElementById('toggle-srctoken-err');
+    const alert = wireAlertBox(
+      errBox,
+      errBox ? errBox.querySelector('[data-msg]') : null,
+      errBox ? errBox.querySelector('[data-spinner]') : null,
+      document.getElementById('toggle-srctoken-err-close'),
+    );
+    const block = document.getElementById('srctoken-block');
+    const valBox = document.getElementById('srctoken-value');
+    const showBtn = document.getElementById('srctoken-show-btn');
+    const copyBtn = document.getElementById('srctoken-copy-btn');
+    const regenBtn = document.getElementById('srctoken-regen-btn');
+    const MASK = '••••••••••••••••••••••••••••••••';
+    function setToken(token) {
+      if (valBox) {
+        valBox.dataset.token = token || '';
+        valBox.textContent = MASK;
+      }
+      if (showBtn) showBtn.textContent = 'Afficher';
+    }
+    function setBlockVisible(v) {
+      if (block) block.style.display = v ? 'block' : 'none';
+      if (!v && showBtn) showBtn.textContent = 'Afficher';
+      if (!v && valBox) valBox.textContent = MASK;
+    }
+    let okTimer = null;
+    function showOk() {
+      alert.hide();
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function fail(revert) {
+      if (okIcon) okIcon.classList.remove('show');
+      if (revert) srcTokenToggle.checked = !srcTokenToggle.checked;
+      alert.showFail(null);
+    }
+
+    srcTokenToggle.addEventListener('change', async () => {
+      const fd = new FormData();
+      fd.append('enabled', srcTokenToggle.checked ? '1' : '0');
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      try {
+        const r = await fetch('/settings/source-token', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        clearTimeout(slowTimer);
+        if (!r.ok) { fail(true); return; }
+        const data = await r.json();
+        if (srcTokenToggle.checked) {
+          setToken(data.token || '');
+          setBlockVisible(true);
+        } else {
+          setBlockVisible(false);
+        }
+        showOk();
+      } catch (_) {
+        clearTimeout(slowTimer);
+        fail(true);
+      }
+    });
+
+    if (showBtn) showBtn.addEventListener('click', () => {
+      const token = valBox ? (valBox.dataset.token || '') : '';
+      if (!token) return;
+      const revealed = valBox.textContent !== MASK;
+      if (revealed) {
+        valBox.textContent = MASK;
+        showBtn.textContent = 'Afficher';
+      } else {
+        valBox.textContent = token;
+        showBtn.textContent = 'Masquer';
+      }
+    });
+
+    if (copyBtn) copyBtn.addEventListener('click', async () => {
+      const text = valBox ? (valBox.dataset.token || '') : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = 'Copié ✓';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      } catch (_) {
+        if (valBox) {
+          const range = document.createRange();
+          range.selectNodeContents(valBox);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          document.execCommand('copy');
+        }
+      }
+    });
+
+    if (regenBtn) regenBtn.addEventListener('click', async () => {
+      if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
+        return;
+      }
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      try {
+        const r = await fetch('/settings/source-token/regenerate', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        clearTimeout(slowTimer);
+        if (!r.ok) { fail(false); return; }
+        const data = await r.json();
+        setToken(data.token || '');
+        showOk();
+      } catch (_) {
+        clearTimeout(slowTimer);
+        fail(false);
       }
     });
   }
@@ -333,6 +484,34 @@
         window.getSelection().removeAllRanges();
         window.getSelection().addRange(sel);
       }
+    });
+  }
+
+  // QR modal (dashboard) : overlay centre au-dessus de la page, pas un
+  // nouvel onglet. Click sur la miniature ou bouton "QR plein ecran" pour
+  // ouvrir, click hors de la card / bouton X / Escape pour fermer.
+  const qrModal = document.getElementById('qr-modal');
+  if (qrModal) {
+    const openBtn = document.getElementById('qr-open-btn');
+    const thumb = document.getElementById('qr-thumb');
+    const closeBtn = document.getElementById('qr-modal-close');
+    function open() {
+      qrModal.classList.add('is-visible');
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      qrModal.classList.remove('is-visible');
+      document.body.style.overflow = '';
+    }
+    if (openBtn) openBtn.addEventListener('click', open);
+    if (thumb) thumb.addEventListener('click', open);
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    // Click sur le fond (mais pas sur la card) ferme
+    qrModal.addEventListener('click', (e) => {
+      if (e.target === qrModal) close();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && qrModal.classList.contains('is-visible')) close();
     });
   }
 })();

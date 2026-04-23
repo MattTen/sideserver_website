@@ -1,7 +1,7 @@
 # Compose generique : parametre via .env local (ecrit par le bootstrap).
 # Modele mono-env (1 VM = 1 environnement), paths toujours identiques :
-#   /opt/sideserver-prod/.env -> CONTAINER_NAME=ipastore-website,
-#                                HOST_PORT=80, ENV_FILE=/etc/ipastore/prod.env,
+#   /opt/ipaserver/.env -> CONTAINER_NAME=ipastore-website,
+#                                HOST_PORT=8000, ENV_FILE=/etc/ipastore/prod.env,
 #                                STORE_PATH=/srv/store-prod
 # La bascule dev <-> prod se fait uniquement via le ref git checkoute
 # (switch-dev / switch-prod dans website-management) : meme .env, meme conteneur.
@@ -28,7 +28,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/source.json"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

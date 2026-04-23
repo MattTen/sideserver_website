@@ -117,7 +117,10 @@
         </span>
       </div>
       <div class="alert alert-error mt-4 alert-dismissible" data-async-err style="display:none;">
-        <span data-async-err-msg>Une erreur est survenue.</span>
+        <span class="row-gap" style="gap:8px; align-items:center;">
+          <span class="spinner" data-async-err-spinner style="display:none;"></span>
+          <span data-async-err-msg>Une erreur est survenue</span>
+        </span>
         <button type="button" class="alert-close" data-async-err-close aria-label="Fermer">&times;</button>
       </div>
     </form>
@@ -149,7 +152,10 @@
         </span>
       </div>
       <div class="alert alert-error mt-4 alert-dismissible" data-async-err style="display:none;">
-        <span data-async-err-msg>Une erreur est survenue.</span>
+        <span class="row-gap" style="gap:8px; align-items:center;">
+          <span class="spinner" data-async-err-spinner style="display:none;"></span>
+          <span data-async-err-msg>Une erreur est survenue</span>
+        </span>
         <button type="button" class="alert-close" data-async-err-close aria-label="Fermer">&times;</button>
       </div>
     </form>
@@ -157,13 +163,14 @@
 </div>
 
 <div class="card mt-8">
-  <h2>Confidentialité</h2>
-  <p class="text-muted mb-4" style="font-size: 12.5px;">
-    Empêche les moteurs de recherche d'indexer le site.
-  </p>
+  <h2>Sécurité</h2>
+
   <label class="toggle-row">
     <span class="row-gap" style="gap:8px;">
       <span>Désactiver l'indexation d'IPA Store</span>
+      <span class="info-hint" tabindex="0" data-tip="Empêche les moteurs de recherche (Google, Bing…) d'indexer le site. Ajoute un en-tête X-Robots-Tag noindex et sert /robots.txt en Disallow.">
+        {% include "_icons/info.svg" %}
+      </span>
       <span class="toggle-ok" id="toggle-indexing-ok" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
@@ -177,8 +184,48 @@
     </span>
   </label>
   <div class="alert alert-error mt-4 alert-dismissible" id="toggle-indexing-err" style="display:none;">
-    <span>Une erreur est survenue.</span>
+    <span class="row-gap" style="gap:8px; align-items:center;">
+      <span class="spinner" data-spinner style="display:none;"></span>
+      <span data-msg>Une erreur est survenue</span>
+    </span>
     <button type="button" class="alert-close" id="toggle-indexing-err-close" aria-label="Fermer">&times;</button>
+  </div>
+
+  <label class="toggle-row mt-4">
+    <span class="row-gap" style="gap:8px;">
+      <span>Protéger l'accès au dépôt d'IPA</span>
+      <span class="info-hint" tabindex="0" data-tip="Ajoute un jeton secret (256 caractères) à l'URL du dépôt. Sans ce jeton, /source.json renvoie 404. Utile pour bloquer les bots de scraping et limiter l'accès aux personnes à qui vous avez donné le lien complet.">
+        {% include "_icons/info.svg" %}
+      </span>
+      <span class="toggle-ok" id="toggle-srctoken-ok" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M8 12.5l3 3 5-6"/>
+        </svg>
+      </span>
+    </span>
+    <span class="toggle">
+      <input type="checkbox" id="toggle-srctoken" {% if source_token_enabled %}checked{% endif %}>
+      <span class="toggle-slider"></span>
+    </span>
+  </label>
+
+  <div id="srctoken-block" style="margin-top:12px; display:{% if source_token_enabled %}block{% else %}none{% endif %};">
+    <label class="text-muted" style="font-size:12.5px; display:block; margin-bottom:4px;">Jeton actuel</label>
+    <div style="display:grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap:8px; align-items:stretch;">
+      <div class="readonly-mono" id="srctoken-value" data-token="{{ source_token_value }}">••••••••••••••••••••••••••••••••</div>
+      <button class="btn" type="button" id="srctoken-show-btn">Afficher</button>
+      <button class="btn" type="button" id="srctoken-copy-btn">Copier</button>
+      <button class="btn btn-danger" type="button" id="srctoken-regen-btn">Régénérer</button>
+    </div>
+  </div>
+
+  <div class="alert alert-error mt-4 alert-dismissible" id="toggle-srctoken-err" style="display:none;">
+    <span class="row-gap" style="gap:8px; align-items:center;">
+      <span class="spinner" data-spinner style="display:none;"></span>
+      <span data-msg>Une erreur est survenue</span>
+    </span>
+    <button type="button" class="alert-close" id="toggle-srctoken-err-close" aria-label="Fermer">&times;</button>
   </div>
 </div>
 
