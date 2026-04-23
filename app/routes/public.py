@@ -65,6 +65,16 @@ def source_json(
     )
 
 
+@router.get("/healthz")
+def healthz():
+    """Endpoint liveness pour le HEALTHCHECK Docker. Toujours ouvert (pas de
+    jeton, pas de BDD) : un 200 signifie uniquement que le process uvicorn
+    repond. La verif BDD est volontairement exclue pour que le conteneur ne
+    soit pas marque unhealthy pendant une coupure BDD (l'UI affiche deja 503
+    dans ce cas, pas besoin de redemarrer le conteneur)."""
+    return Response("ok", media_type="text/plain")
+
+
 @router.get("/robots.txt")
 def robots_txt():
     body = "User-agent: *\nDisallow: /\n" if is_indexing_disabled() else "User-agent: *\nAllow: /\n"
