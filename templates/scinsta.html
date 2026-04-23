@@ -64,6 +64,11 @@
     <div class="progress" id="sci-progress"><div class="progress-bar" id="sci-progress-bar"></div></div>
   </label>
 
+  <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+    <input type="url" class="input" id="sci-url-input" style="flex:1; min-width:0;" placeholder="…ou coller l'URL directe de l'IPA">
+    <button type="button" class="btn" id="sci-url-btn">Télécharger</button>
+  </div>
+
   <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
     <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
       <span>
@@ -518,6 +523,43 @@
 
   fileInput.addEventListener('change', () => {
     if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  // Upload depuis URL : le backend fait le GET (evite CORS cote client) et
+  // pose le fichier au meme endroit que l'upload direct. Pas de barre de
+  // progression (pas d'event upload-progress pour un download serveur).
+  const urlInput = document.getElementById('sci-url-input');
+  const urlBtn = document.getElementById('sci-url-btn');
+  urlBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setUploadMsg('URL http(s) requise.', 'error');
+      return;
+    }
+    urlBtn.disabled = true;
+    const originalText = urlBtn.textContent;
+    urlBtn.textContent = 'Téléchargement…';
+    setUploadMsg('Téléchargement en cours depuis l\'URL…', 'warning');
+    try {
+      const fd = new FormData();
+      fd.append('url', url);
+      const res = await fetch('/scinsta/upload-url', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setUploadMsg('Téléchargement échoué : ' + (data.detail || ('HTTP ' + res.status)), 'error');
+      } else {
+        setUploadMsg('IPA téléchargée (' + bytesToMb(data.size || 0) + ').');
+        urlInput.value = '';
+        const r = await fetch('/scinsta/status');
+        const s = await r.json();
+        render(s);
+        renderChangelog(s);
+      }
+    } catch (e) {
+      setUploadMsg('Erreur réseau : ' + e.message, 'error');
+    }
+    urlBtn.disabled = false;
+    urlBtn.textContent = originalText;
   });
   ['dragenter', 'dragover'].forEach(ev => {
     dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });

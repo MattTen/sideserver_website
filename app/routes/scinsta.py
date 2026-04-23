@@ -16,8 +16,9 @@ from ..patches import discover_patches, get_patch
 from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..scinsta import (
     _META_FIELDS, clear_build_log, clear_upload, dismiss_last_build_error,
-    get_state, read_build_log, request_build, request_cancel, run_check,
-    save_changelog, save_metadata_field, set_decrypt_url, upload_instagram_ipa,
+    download_instagram_ipa_from_url, get_state, read_build_log, request_build,
+    request_cancel, run_check, save_changelog, save_metadata_field,
+    set_decrypt_url, upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -156,6 +157,27 @@ async def scinsta_upload(
     path = upload_instagram_ipa(ipa.file)
     size = path.stat().st_size
     logger.info("scinsta IG upload received: %s (%d bytes)", path, size)
+    return JSONResponse({"ok": True, "size": size})
+
+
+@router.post("/upload-url")
+def scinsta_upload_url(
+    url: str = Form(...),
+    user: User = Depends(require_user),
+):
+    """Telecharge l'IPA Instagram depuis une URL directe vers le meme
+    emplacement que l'upload manuel. Utile quand decrypt.day fournit un lien
+    CDN et qu'on veut eviter le download local + re-upload."""
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL http(s) requise")
+    try:
+        path = download_instagram_ipa_from_url(url)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("scinsta URL download failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Téléchargement échoué : {e}")
+    size = path.stat().st_size
+    logger.info("scinsta IG download received: %s (%d bytes)", path, size)
     return JSONResponse({"ok": True, "size": size})
 
 
