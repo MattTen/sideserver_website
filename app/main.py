@@ -35,6 +35,31 @@ from .db import SessionLocal
 logger = logging.getLogger(__name__)
 
 
+def _configure_logging() -> None:
+    """Applique un format '[YYYY-MM-DD HH:MM:SS] LEVEL name -- message' a tous
+    les loggers, y compris ceux d'uvicorn (qui installent leurs propres
+    handlers avant create_app)."""
+    fmt = "[%(asctime)s] %(levelname)s %(name)s -- %(message)s"
+    datefmt = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(fmt, datefmt=datefmt)
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+    else:
+        for h in root.handlers:
+            h.setFormatter(formatter)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        lg = logging.getLogger(name)
+        for h in lg.handlers:
+            h.setFormatter(formatter)
+
+
+_configure_logging()
+
+
 async def _wait_until_configured() -> None:
     """Bloque tant que la BDD n'est pas configurée via /setup/database.
 
@@ -162,9 +187,9 @@ def create_app() -> FastAPI:
                 detail = str(orig)
         else:
             detail = str(exc).splitlines()[0]
-        logger.error("BDD injoignable (%s %s) -- %s", request.method, request.url.path, detail)
+        logger.error("Database unavailable (%s %s) -- %s", request.method, request.url.path, detail)
         return JSONResponse(
-            {"error": "Base de donnees injoignable", "detail": detail},
+            {"error": "Database unavailable", "detail": detail},
             status_code=503,
         )
 
