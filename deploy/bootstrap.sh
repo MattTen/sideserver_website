@@ -41,7 +41,7 @@ set -euo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Ce script doit etre lance en root." >&2
+  echo "This script must be run as root." >&2
   exit 1
 fi
 
@@ -52,13 +52,13 @@ HOST_PORT="${HOST_PORT:-80}"
 GITHUB_REPO="MattTen/sideserver_website"
 TARGET_DIR="/opt/sideserver-prod"
 
-echo "[bootstrap] Installation des paquets systeme..."
+echo "[bootstrap] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl gnupg rsync git
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "[bootstrap] Installation de Docker..."
+  echo "[bootstrap] Installing Docker..."
   # Le repo Docker differe selon l'OS (linux/debian vs linux/ubuntu).
   # Detection via /etc/os-release ID avec fallback debian.
   DOCKER_OS="$(. /etc/os-release && echo "$ID")"
@@ -102,7 +102,7 @@ fi
 
 IPASTORE_UID="$(id -u ipastore)"
 IPASTORE_GID="$(id -g ipastore)"
-echo "[bootstrap] User applicatif : ${APP_USER}:${APP_GROUP} (uid=${IPASTORE_UID} gid=${IPASTORE_GID})"
+echo "[bootstrap] App user: ${APP_USER}:${APP_GROUP} (uid=${IPASTORE_UID} gid=${IPASTORE_GID})"
 
 # Le user `ipastore` doit pouvoir piloter docker car les units systemd
 # (ExecStart=website-management) tournent sous cet user. L'user courant
@@ -111,7 +111,7 @@ if ! id -nG "$APP_USER" | tr ' ' '\n' | grep -qx docker; then
   usermod -aG docker "$APP_USER"
 fi
 
-echo "[bootstrap] Creation des repertoires..."
+echo "[bootstrap] Creating directories..."
 mkdir -p /srv/store-prod/{ipas,icons,screenshots}
 mkdir -p /etc/ipastore
 mkdir -p /var/lib/ipastore-sync
@@ -124,7 +124,7 @@ chown -R "${IPASTORE_UID}:${IPASTORE_GID}" /srv/store-prod
 chown "${IPASTORE_UID}:${IPASTORE_GID}" /etc/ipastore
 chmod 750 /etc/ipastore
 
-echo "[bootstrap] Configuration des credentials git..."
+echo "[bootstrap] Configuring git credentials..."
 # Si GITHUB_TOKEN fourni (repo prive), on stocke le PAT pour le clone.
 if [[ -n "${GITHUB_TOKEN}" ]]; then
   cat > /etc/ipastore/.git-credentials <<EOF
@@ -137,7 +137,7 @@ else
   GIT_CRED=()
 fi
 
-echo "[bootstrap] Clone du repo dans ${TARGET_DIR}..."
+echo "[bootstrap] Cloning repo into ${TARGET_DIR}..."
 # safe.directory=* : au re-run le dir est chowne APP_USER mais git tourne
 # en root ici -> sans cette config, git refuse avec "dubious ownership".
 GIT_SAFE=(-c "safe.directory=${TARGET_DIR}")
@@ -154,7 +154,7 @@ fi
 git "${GIT_SAFE[@]}" "${GIT_CRED[@]}" -C "${TARGET_DIR}" fetch --tags --prune origin
 
 # Recupere le tag de la derniere release via l'API GitHub.
-echo "[bootstrap] Recuperation de la derniere release..."
+echo "[bootstrap] Fetching latest release..."
 API_CURL=(-fsSL -H 'Accept: application/vnd.github+json')
 [[ -n "${GITHUB_TOKEN}" ]] && API_CURL+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
 LATEST_TAG="$(
@@ -166,11 +166,11 @@ LATEST_TAG="$(
 )"
 
 if [[ -n "${LATEST_TAG}" ]]; then
-  echo "[bootstrap] Checkout release ${LATEST_TAG} (HEAD detache)"
+  echo "[bootstrap] Checking out release ${LATEST_TAG} (detached HEAD)"
   git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force "${LATEST_TAG}"
   DEPLOYED_VERSION="${LATEST_TAG}"
 else
-  echo "[bootstrap] WARNING : aucune release publiee -- fallback sur la branche main"
+  echo "[bootstrap] WARNING: no release published -- falling back to branch main"
   git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" checkout --force main
   git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" reset --hard origin/main
   DEPLOYED_VERSION="rolling-main-$(git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" rev-parse --short HEAD)"
@@ -181,7 +181,7 @@ git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" sparse-checkout init --no-cone 2>/dev/nu
 git "${GIT_SAFE[@]}" -C "${TARGET_DIR}" sparse-checkout set '/*' '!documentation' '!CLAUDE.md' 2>/dev/null || true
 chown -R "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}"
 
-echo "[bootstrap] Ecriture du fichier d'environnement..."
+echo "[bootstrap] Writing environment file..."
 # IPASTORE_DB_URL n'est PAS defini ici : la connexion BDD est saisie via
 # l'UI (/setup/database) et persistee dans /etc/ipastore/db.json.
 # Si BASE_URL n'est pas fourni, on omet IPASTORE_BASE_URL : l'app retombe
@@ -201,7 +201,7 @@ echo "[bootstrap] Ecriture du fichier d'environnement..."
 chown "${IPASTORE_UID}:${IPASTORE_GID}" /etc/ipastore/prod.env
 chmod 640 /etc/ipastore/prod.env
 
-echo "[bootstrap] Generation de la cle de session si absente..."
+echo "[bootstrap] Generating session key if missing..."
 f=/etc/ipastore/secret_key.prod
 if [[ ! -f "$f" ]]; then
   head -c 64 /dev/urandom > "$f"
@@ -209,7 +209,7 @@ fi
 chown "${IPASTORE_UID}:${IPASTORE_GID}" "$f"
 chmod 600 "$f"
 
-echo "[bootstrap] Ecriture du fichier version (${DEPLOYED_VERSION})..."
+echo "[bootstrap] Writing version file (${DEPLOYED_VERSION})..."
 f="/etc/ipastore/prod.version"
 printf '%s\n' "${DEPLOYED_VERSION}" > "$f"
 # chown ipastore : website-management tourne en user `ipastore` et doit
@@ -218,7 +218,7 @@ printf '%s\n' "${DEPLOYED_VERSION}" > "$f"
 chown "${IPASTORE_UID}:${IPASTORE_GID}" "$f"
 chmod 644 "$f"
 
-echo "[bootstrap] Installation des units systemd (path + service templatises)..."
+echo "[bootstrap] Installing systemd units (templated path + service)..."
 # Les units sont embarquees dans ce script pour que curl | bash fonctionne
 # sans dependance a un clone local. User/Group substitues par ${APP_USER}
 # detecte plus haut (user uid 1000 existant).
@@ -318,13 +318,13 @@ systemctl enable --now \
   ipastore-scinsta-build@prod.path \
   ipastore-scinsta-cancel@prod.path
 
-echo "[bootstrap] Symlink website-management..."
+echo "[bootstrap] Symlinking website-management..."
 if [[ -f "${TARGET_DIR}/tools/website-management.sh" ]]; then
   ln -sf "${TARGET_DIR}/tools/website-management.sh" /usr/local/bin/website-management
   chmod +x "${TARGET_DIR}/tools/website-management.sh"
 fi
 
-echo "[bootstrap] Ecriture du .env docker-compose..."
+echo "[bootstrap] Writing docker-compose .env..."
 # IPASTORE_UID/GID sont passees au Dockerfile via build-args dans
 # docker-compose.yml : l'user interne du conteneur est ainsi cree avec
 # les memes uid/gid que l'user host `ipastore`, ce qui garantit que les
@@ -340,35 +340,35 @@ IPASTORE_GID=${IPASTORE_GID}
 EOF
 chown "${APP_USER}:${APP_GROUP}" "${TARGET_DIR}/.env"
 
-echo "[bootstrap] Build + start du conteneur..."
+echo "[bootstrap] Building + starting container..."
 ( cd "${TARGET_DIR}" && docker compose up -d --build )
 
 echo
-echo "[bootstrap] Termine."
-echo "  Version deployee : ${DEPLOYED_VERSION}"
+echo "[bootstrap] Done."
+echo "  Deployed version : ${DEPLOYED_VERSION}"
 if [[ -n "${BASE_URL}" ]]; then
-  echo "  URL admin        : ${BASE_URL}"
+  echo "  Admin URL        : ${BASE_URL}"
 else
-  echo "  URL admin        : http://<ip-de-cette-vm>:${HOST_PORT}"
+  echo "  Admin URL        : http://<this-vm-ip>:${HOST_PORT}"
 fi
-echo "  Premier acces    : /setup/database pour configurer la connexion MySQL/MariaDB"
-echo "  Puis             : /setup pour creer l'admin"
+echo "  First access     : /setup/database to configure the MySQL/MariaDB connection"
+echo "  Then             : /setup to create the admin account"
 echo
 echo "Management CLI    : /usr/local/bin/website-management"
-echo "  (sans argument = menu interactif)"
+echo "  (no argument = interactive menu)"
 echo
-echo "  Conteneur :"
+echo "  Container:"
 echo "    start / stop / restart / logs / status"
 echo
-echo "  Code :"
-echo "    update            dispatch auto selon env courant"
-echo "                      (prod = derniere release, dev = rolling HEAD)"
-echo "    choose-release    liste les 15 dernieres releases et en checkout une"
+echo "  Code:"
+echo "    update            auto dispatch based on current env"
+echo "                      (prod = latest release, dev = rolling HEAD)"
+echo "    choose-release    list the 15 latest releases and checkout one"
 echo "    pull-dev          checkout + pull origin/dev + rebuild"
 echo "    pull-main         checkout + pull origin/main + rebuild"
-echo "    self-update-dev   met a jour uniquement le script depuis origin/dev"
-echo "    check             machine-readable : current / latest / update_available"
+echo "    self-update-dev   update only the script from origin/dev"
+echo "    check             machine-readable: current / latest / update_available"
 echo
-echo "  Admin / BDD :"
-echo "    reset-users       supprime tous les admins + en cree un nouveau"
-echo "    schema-update     aligne la BDD sur app/models.py (additif uniquement)"
+echo "  Admin / DB:"
+echo "    reset-users       delete all admins + create a new one"
+echo "    schema-update     align the DB with app/models.py (additive only)"
