@@ -278,6 +278,42 @@
     checkNow();
   }
 
+  // Logs viewer (settings page)
+  const logsToggleBtn = document.getElementById('logs-toggle-btn');
+  const logsView = document.getElementById('logs-view');
+  const logsRefreshBtn = document.getElementById('logs-refresh-btn');
+  if (logsToggleBtn && logsView) {
+    let logsTimer = null;
+    async function fetchLogs() {
+      try {
+        const r = await fetch('/settings/logs?lines=500', { credentials: 'same-origin' });
+        if (!r.ok) { logsView.textContent = 'Erreur ' + r.status; return; }
+        const j = await r.json();
+        const lines = j.lines || [];
+        logsView.textContent = lines.length ? lines.join('\n') : (j.note || '(vide)');
+        logsView.scrollTop = logsView.scrollHeight;
+      } catch (e) {
+        logsView.textContent = 'Erreur réseau : ' + e.message;
+      }
+    }
+    logsToggleBtn.addEventListener('click', () => {
+      const open = logsView.style.display !== 'none';
+      if (open) {
+        logsView.style.display = 'none';
+        logsRefreshBtn.style.display = 'none';
+        logsToggleBtn.textContent = 'Voir les logs';
+        if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+      } else {
+        logsView.style.display = 'block';
+        logsRefreshBtn.style.display = 'inline-flex';
+        logsToggleBtn.textContent = 'Masquer les logs';
+        fetchLogs();
+        logsTimer = setInterval(fetchLogs, 3000);
+      }
+    });
+    if (logsRefreshBtn) logsRefreshBtn.addEventListener('click', fetchLogs);
+  }
+
   // Copy source URL
   const copyBtn = document.getElementById('copy-btn');
   const srcUrl = document.getElementById('src-url');

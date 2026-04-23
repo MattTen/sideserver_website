@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import re
 import secrets
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -166,6 +167,27 @@ def settings_remove_header(
     _drop_previous(db, "store_header_file")
     set_setting(db, "store_header_file", "")
     return RedirectResponse("/settings", status_code=303)
+
+
+@router.get("/settings/logs")
+def settings_logs(
+    lines: int = Query(500, ge=1, le=5000),
+    user: User = Depends(require_user),
+):
+    """Retourne les dernieres lignes de /etc/ipastore/app.log (file handler
+    configure dans app.main._configure_logging)."""
+    log_path = Path("/etc/ipastore/app.log")
+    if not log_path.exists():
+        return JSONResponse({"lines": [], "note": "Aucun log pour l'instant."})
+    with log_path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        # 400 octets par ligne en moyenne : on lit large, puis on tronque.
+        read_size = min(size, lines * 400)
+        f.seek(size - read_size)
+        chunk = f.read().decode("utf-8", errors="replace")
+    tail = chunk.splitlines()[-lines:]
+    return JSONResponse({"lines": tail})
 
 
 @router.post("/settings/password")
