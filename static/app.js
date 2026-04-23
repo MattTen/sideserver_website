@@ -165,15 +165,23 @@
     const okIcon = document.getElementById('toggle-srctoken-ok');
     const errBox = document.getElementById('toggle-srctoken-err');
     const errClose = document.getElementById('toggle-srctoken-err-close');
+    const block = document.getElementById('srctoken-block');
     const valBox = document.getElementById('srctoken-value');
+    const showBtn = document.getElementById('srctoken-show-btn');
     const copyBtn = document.getElementById('srctoken-copy-btn');
     const regenBtn = document.getElementById('srctoken-regen-btn');
-    const EMPTY_TXT = 'Aucun jeton généré. Activez la protection pour en créer un.';
-    function paint(token) {
-      const has = !!token;
-      if (valBox) valBox.textContent = has ? token : EMPTY_TXT;
-      if (copyBtn) copyBtn.disabled = !has;
-      if (regenBtn) regenBtn.disabled = !has;
+    const MASK = '••••••••••••••••••••••••••••••••';
+    function setToken(token) {
+      if (valBox) {
+        valBox.dataset.token = token || '';
+        valBox.textContent = MASK;
+      }
+      if (showBtn) showBtn.textContent = 'Afficher';
+    }
+    function setBlockVisible(v) {
+      if (block) block.style.display = v ? 'block' : 'none';
+      if (!v && showBtn) showBtn.textContent = 'Afficher';
+      if (!v && valBox) valBox.textContent = MASK;
     }
     let okTimer = null;
     function showOk() {
@@ -199,17 +207,32 @@
         });
         if (!r.ok) { showErr(true); return; }
         const data = await r.json();
-        // En mode desactive on garde le dernier jeton genere s'il existe
-        // (l'utilisateur peut juste avoir desactive temporairement). Le
-        // back renvoie une chaine vide si rien n'a jamais ete genere.
-        paint(data.token || '');
+        if (srcTokenToggle.checked) {
+          setToken(data.token || '');
+          setBlockVisible(true);
+        } else {
+          setBlockVisible(false);
+        }
         showOk();
       } catch (_) { showErr(true); }
     });
 
+    if (showBtn) showBtn.addEventListener('click', () => {
+      const token = valBox ? (valBox.dataset.token || '') : '';
+      if (!token) return;
+      const revealed = valBox.textContent !== MASK;
+      if (revealed) {
+        valBox.textContent = MASK;
+        showBtn.textContent = 'Afficher';
+      } else {
+        valBox.textContent = token;
+        showBtn.textContent = 'Masquer';
+      }
+    });
+
     if (copyBtn) copyBtn.addEventListener('click', async () => {
-      if (copyBtn.disabled) return;
-      const text = valBox ? valBox.textContent.trim() : '';
+      const text = valBox ? (valBox.dataset.token || '') : '';
+      if (!text) return;
       try {
         await navigator.clipboard.writeText(text);
         const old = copyBtn.textContent;
@@ -228,8 +251,6 @@
     });
 
     if (regenBtn) regenBtn.addEventListener('click', async () => {
-      if (regenBtn.disabled) return;
-      // Confirmation explicite : la regen casse tous les liens partages.
       if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
         return;
       }
@@ -239,7 +260,7 @@
         });
         if (!r.ok) { showErr(false); return; }
         const data = await r.json();
-        paint(data.token || '');
+        setToken(data.token || '');
         showOk();
       } catch (_) { showErr(false); }
     });

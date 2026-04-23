@@ -201,12 +201,13 @@
     </span>
   </label>
 
-  <div id="srctoken-block" style="margin-top:12px;">
+  <div id="srctoken-block" style="margin-top:12px; display:{% if source_token_enabled %}block{% else %}none{% endif %};">
     <label class="text-muted" style="font-size:12.5px; display:block; margin-bottom:4px;">Jeton actuel</label>
-    <div style="display:grid; grid-template-columns: minmax(0, 1fr) auto auto; gap:8px; align-items:stretch;">
-      <div class="readonly-mono" id="srctoken-value">{% if source_token_value %}{{ source_token_value }}{% else %}Aucun jeton généré. Activez la protection pour en créer un.{% endif %}</div>
-      <button class="btn" type="button" id="srctoken-copy-btn" {% if not source_token_value %}disabled{% endif %}>Copier</button>
-      <button class="btn btn-danger" type="button" id="srctoken-regen-btn" {% if not source_token_value %}disabled{% endif %}>Régénérer</button>
+    <div style="display:grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap:8px; align-items:stretch;">
+      <div class="readonly-mono" id="srctoken-value" data-token="{{ source_token_value }}">••••••••••••••••••••••••••••••••</div>
+      <button class="btn" type="button" id="srctoken-show-btn">Afficher</button>
+      <button class="btn" type="button" id="srctoken-copy-btn">Copier</button>
+      <button class="btn btn-danger" type="button" id="srctoken-regen-btn">Régénérer</button>
     </div>
     <p class="text-muted mt-4" style="font-size:12.5px;">
       Ajoutez <code>?t=&lt;jeton&gt;</code> à la fin de l'URL du dépôt lors de l'ajout dans SideStore. Régénérer invalide les liens précédemment partagés.
