@@ -65,21 +65,65 @@
   var overlay = document.getElementById('db-overlay');
   var phase = document.getElementById('db-overlay-phase');
   if (!form || !overlay || !phase) return;
-  // Phases cosmetiques : le POST est atomique, donc on ne connait pas
-  // le moment exact des transitions. Le cycle donne juste un feedback
-  // progressif pour que l'admin sache que la page travaille toujours.
-  var steps = [
-    { at: 0,    text: 'Test de la connexion' },
-    { at: 3500, text: 'Initialisation des tables' },
-    { at: 8000, text: 'Finalisation' }
-  ];
-  var timers = [];
-  form.addEventListener('submit', function () {
+
+  // Labels correspondant aux phases reelles emises par /setup/database?stream=1
+  var LABELS = {
+    test:  'Test de la connexion',
+    init:  'Initialisation des tables',
+    final: 'Finalisation'
+  };
+
+  function showError(msg) {
+    overlay.classList.remove('is-visible');
+    overlay.setAttribute('aria-hidden', 'true');
+    var box = document.querySelector('.alert.alert-error');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'alert alert-error';
+      form.parentNode.insertBefore(box, form);
+    }
+    box.textContent = msg || 'Une erreur est survenue.';
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
     overlay.classList.add('is-visible');
     overlay.setAttribute('aria-hidden', 'false');
-    steps.forEach(function (s) {
-      timers.push(setTimeout(function () { phase.textContent = s.text; }, s.at));
-    });
+    phase.textContent = LABELS.test; // phase initiale affichee pendant le RTT
+
+    var fd = new FormData(form);
+    fd.append('stream', '1');
+    try {
+      var r = await fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' });
+      if (!r.body) {
+        // Navigateur sans streaming : on fallback sur reload + rendu serveur.
+        location.reload();
+        return;
+      }
+      var reader = r.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop(); // derniere ligne potentiellement incomplete
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          var evt;
+          try { evt = JSON.parse(line); } catch (_) { continue; }
+          if (evt.error) { showError(evt.error); return; }
+          if (evt.phase && LABELS[evt.phase]) phase.textContent = LABELS[evt.phase];
+          if (evt.done && evt.redirect) { window.location.href = evt.redirect; return; }
+        }
+      }
+      // Stream termine sans done : rare, on retombe sur reload.
+      location.reload();
+    } catch (err) {
+      showError('Erreur réseau : ' + err.message);
+    }
   });
 })();
 </script>
