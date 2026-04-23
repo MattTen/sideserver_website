@@ -300,7 +300,7 @@ Le triple `(igver, scsha, patch)` détermine `build_version` côté BDD — perm
 # SSH vers la VM dev/prod puis :
 docker build --no-cache \
     -t scinsta-builder:latest \
-    /opt/sideserver-prod/tools/scinsta-builder
+    /opt/ipaserver/tools/scinsta-builder
 ```
 
 ~25 min (git-lfs pull du SDK domine). Rarement nécessaire — seul le changement de `build.py` ou du Dockerfile justifie ça.

@@ -50,7 +50,7 @@ GITHUB_USER="${GITHUB_USER:-MattTen}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 HOST_PORT="${HOST_PORT:-8000}"
 GITHUB_REPO="MattTen/sideserver_website"
-TARGET_DIR="/opt/sideserver-prod"
+TARGET_DIR="/opt/ipaserver"
 
 echo "[bootstrap] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive

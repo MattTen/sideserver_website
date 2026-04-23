@@ -223,9 +223,9 @@ def apply_optional_patch(ipa_path: Path, patch_filename: str) -> None:
     if not script.is_file():
         # Fallback : si le patch n'a pas ete synchronise, on recupere
         # le script depuis le repo de l'app clone cote hote via le
-        # volume standard /opt/sideserver-<env>/patch. Evite un echec
+        # volume standard /opt/ipaserver/patch. Evite un echec
         # silencieux sur un env ou la pre-sync n'a pas ete configuree.
-        alt = Path(f"/opt/sideserver-{ENV}/patch") / patch_filename
+        alt = Path("/opt/ipaserver/patch") / patch_filename
         if alt.is_file():
             script = alt
         else:
