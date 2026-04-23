@@ -7,8 +7,10 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import OperationalError
 
 from .config import Config, ensure_dirs, load_secret_key
 from .news_bg import ensure_news_bg
@@ -144,6 +146,27 @@ def create_app() -> FastAPI:
     ensure_news_bg(static_dir)
 
     app = FastAPI(title="IPA Store", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    # BDD injoignable : on log UNE ligne courte ("BDD injoignable: timeout
+    # sur 192.168.0.212") plutot que le traceback SQLAlchemy complet (plus
+    # de 100 lignes par requete sinon). L'UI recoit un 503 clair.
+    @app.exception_handler(OperationalError)
+    async def _db_unreachable_handler(request: Request, exc: OperationalError):
+        orig = getattr(exc, "orig", None)
+        detail = None
+        if orig is not None and getattr(orig, "args", None):
+            a = orig.args
+            if len(a) >= 2 and isinstance(a[0], int):
+                detail = f"MySQL {a[0]}: {a[1]}"
+            else:
+                detail = str(orig)
+        else:
+            detail = str(exc).splitlines()[0]
+        logger.error("BDD injoignable (%s %s) -- %s", request.method, request.url.path, detail)
+        return JSONResponse(
+            {"error": "Base de donnees injoignable", "detail": detail},
+            status_code=503,
+        )
 
     # Middleware de garde : tant que la BDD n'est pas configurée, seules les
     # routes publiques (static, setup/database) sont accessibles.
