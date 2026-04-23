@@ -27,14 +27,15 @@ CONTAINER_NAME="sidestore-website-prod"
 VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
-# Couleurs
-C_CYAN='\033[1;36m'
-C_GREEN='\033[1;32m'
-C_YELLOW='\033[1;33m'
-C_RED='\033[1;31m'
-C_DIM='\033[2m'
-C_BOLD='\033[1m'
-C_RESET='\033[0m'
+# Couleurs. Avec $'...' les escapes sont pre-expanses en ESC reel, pour que
+# docker ps --format (qui n'interprete pas \033) les affiche correctement.
+C_CYAN=$'\033[1;36m'
+C_GREEN=$'\033[1;32m'
+C_YELLOW=$'\033[1;33m'
+C_RED=$'\033[1;31m'
+C_DIM=$'\033[2m'
+C_BOLD=$'\033[1m'
+C_RESET=$'\033[0m'
 
 info()  { printf "${C_CYAN}[mgmt]${C_RESET} %s\n" "$*"; }
 ok()    { printf "${C_GREEN}[mgmt]${C_RESET} %s\n" "$*"; }
@@ -150,6 +151,10 @@ cmd_restart() {
 }
 
 cmd_logs() {
+  if ! docker ps --filter "name=$CONTAINER_NAME" --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+    err "Conteneur $CONTAINER_NAME non demarre. Lance-le d'abord (option Start)."
+    return 1
+  fi
   info "Logs (Ctrl+C pour sortir)"
   (cd "$APP_DIR" && docker compose logs -f --tail=200)
 }
@@ -304,19 +309,36 @@ cmd_schema_update() {
   local py_script='
 import sys
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.schema import CreateColumn
 
 import app.models  # noqa: F401  force limport de tous les modeles
 from app.db import Base, get_engine
 from app.db_config import is_configured
 
+
+def die(msg, code=1):
+    print(f"ERREUR: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
 if not is_configured():
-    print("BDD non configuree (ouvre /setup/database dabord)", file=sys.stderr)
-    sys.exit(1)
+    die("BDD non configuree (ouvre /setup/database dabord)")
 
 engine = get_engine()
-insp = inspect(engine)
-existing = set(insp.get_table_names())
+try:
+    insp = inspect(engine)
+    existing = set(insp.get_table_names())
+except OperationalError as e:
+    orig = getattr(e, "orig", None)
+    if orig is not None and getattr(orig, "args", None):
+        a = orig.args
+        if len(a) >= 2 and isinstance(a[0], int):
+            die(f"BDD injoignable -- MySQL {a[0]}: {a[1]}")
+        die(f"BDD injoignable -- {orig}")
+    die(f"BDD injoignable -- {e}")
+except Exception as e:
+    die(f"Inspection BDD echouee -- {type(e).__name__}: {e}")
 
 missing_tables = [t for t in Base.metadata.sorted_tables if t.name not in existing]
 missing_columns = []
@@ -355,10 +377,10 @@ for table, col in missing_columns:
         rc = 2
 sys.exit(rc)
 '
-  if docker exec -i "$CONTAINER_NAME" python -c "$py_script"; then
+  if docker exec -i "$CONTAINER_NAME" python -c "$py_script" 2>&1; then
     ok "Synchronisation schema terminee"
   else
-    err "Synchronisation schema echouee (voir erreurs ci-dessus)"
+    err "Synchronisation schema echouee (voir message ci-dessus)"
     return 1
   fi
 }
