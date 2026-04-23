@@ -18,7 +18,7 @@ Chaque VM héberge **un seul** environnement. Dev et prod vivent sur des machine
 | **Dev** (maison / lab) | `dev` | rolling — `git pull origin dev` + rebuild à la demande |
 | **Prod** (cloud / serveur public) | `main` | release-based — `git checkout <tag>` + rebuild sur release GitHub |
 
-Les deux VM utilisent **la même configuration infra** (chemins, nom de conteneur, port 80, units systemd). La seule différence est la branche qui est clonée. Le script de management détecte automatiquement le mode (prod vs dev) en lisant la branche courante.
+Les deux VM utilisent **la même configuration infra** (chemins, nom de conteneur, port 8000, units systemd). La seule différence est la branche qui est clonée. Le script de management détecte automatiquement le mode (prod vs dev) en lisant la branche courante.
 
 ## Branches — règle absolue
 
@@ -36,7 +36,7 @@ Un **seul** script bootstrap auto-suffisant (`curl | bash`) : il installe Docker
 
 ```bash
 # En root ou via sudo. Tout est auto : Docker, clone, systemd, conteneur.
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/refs/heads/main/deploy/bootstrap.sh | sudo bash
 ```
 
 La VM démarre toujours en **env prod**. Pour basculer en dev après coup (ou revenir en prod), on utilise le script de management :
@@ -53,12 +53,12 @@ website-management switch-prod   # revient sur la derniere release (= update pro
 | `BASE_URL` | *(vide)* | URL publique forcée. Si absent, l'app dérive l'URL depuis les headers HTTP (`X-Forwarded-*` via `--proxy-headers`) — c'est **recommandé** : changer d'IP ou ajouter un domaine ne nécessite pas de re-bootstrap. |
 | `GITHUB_USER` | `MattTen` | Utilisateur Git pour l'auth du clone. |
 | `GITHUB_TOKEN` | *(vide)* | PAT GitHub seulement si le repo est privé. Le repo actuel étant public, laisser vide. |
-| `HOST_PORT` | `80` | Port HTTP hôte. |
+| `HOST_PORT` | `8000` | Port HTTP hôte. |
 
 Exemple avec URL forcée :
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh \
+curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/refs/heads/main/deploy/bootstrap.sh \
   | sudo BASE_URL=https://store.mon-domaine.com bash
 ```
 
@@ -79,6 +79,25 @@ http://<IP_VM>/source.json
 
 Le feed `source.json` utilise l'URL publique de la requête (ou `IPASTORE_BASE_URL` si défini) pour générer les `downloadURL`, `iconURL` etc. — SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
 
+## Sécurité : protection du dépôt
+
+Par défaut, `source.json` est public : n'importe qui connaissant l'URL du serveur peut récupérer la liste des IPAs (et les télécharger). Pour limiter l'accès aux personnes à qui vous donnez le lien (et bloquer les bots de scraping), activez la protection par jeton dans **Réglages → Sécurité → "Protéger l'accès au dépôt d'IPA"**.
+
+Une fois activé :
+
+- Un jeton aléatoire de **256 caractères alphanumériques** est généré
+- `GET /source.json` et `GET /qr.svg` exigent `?t=<jeton>`. Sans ce jeton, le serveur répond `404` (volontairement opaque pour les bots de scraping)
+- L'URL du dépôt affichée sur le dashboard et le QR code intègrent automatiquement le jeton
+- Le bouton **Régénérer** crée un nouveau jeton (avec confirmation). Les anciens liens cessent immédiatement de fonctionner
+
+URL à coller dans SideStore quand la protection est activée :
+
+```
+http://<IP_VM>/source.json?t=<jeton-256-caracteres>
+```
+
+C'est un secret long plutôt qu'une authentification standard car SideStore ne sait pas envoyer de header custom : seul un `GET` avec query string est utilisable côté client iOS.
+
 ## Administration
 
 Le script `tools/website-management.sh` est exposé via le symlink `/usr/local/bin/website-management`.
@@ -94,7 +113,7 @@ website-management start / stop / restart / logs / status
 website-management update           # prod : release-based / dev : rolling (auto-detect branche)
 website-management check            # machine-readable : current / latest / update_available
 website-management pull             # force pull HEAD de la branche courante (dev uniquement)
-website-management self-update      # pull ce script (git pull de /opt/sideserver-prod)
+website-management self-update      # pull ce script (git pull de /opt/ipaserver)
 
 # Bascule d'environnement
 website-management switch-dev       # passe la VM en env dev (branche dev, rolling)

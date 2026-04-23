@@ -69,15 +69,23 @@
             {% include "_icons/copy.svg" %}
             <span>Copier</span>
           </button>
-          <a class="btn btn-sm" href="/source.json" target="_blank">Ouvrir JSON</a>
-          <a class="btn btn-sm" href="/qr.svg" target="_blank">QR plein écran</a>
+          <a class="btn btn-sm" href="{{ source_url }}" target="_blank">Ouvrir JSON</a>
+          <button class="btn btn-sm" type="button" id="qr-open-btn">QR plein écran</button>
         </div>
       </div>
-      <img src="/qr.svg" alt="QR code source" class="source-qr">
+      <img src="{{ qr_url }}" alt="QR code source" class="source-qr" id="qr-thumb">
     </div>
     <p class="text-muted mt-6" style="font-size: 12.5px;">
       Dans <strong>SideStore</strong> : onglet Sources, appuyez sur <code>+</code> et collez l'URL.
     </p>
+  </div>
+
+  <div class="qr-modal" id="qr-modal" role="dialog" aria-modal="true" aria-label="QR code du dépôt">
+    <div class="qr-modal-card">
+      <img src="{{ qr_url }}" alt="QR code du dépôt">
+      <div class="text-muted" style="font-size:12.5px; text-align:center;">Scannez avec l'appareil photo iOS pour ouvrir SideStore.</div>
+    </div>
+    <button type="button" class="qr-modal-close" id="qr-modal-close" aria-label="Fermer">&times;</button>
   </div>
 </div>
 
