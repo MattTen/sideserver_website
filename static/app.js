@@ -78,7 +78,7 @@
   const SLOW_MS = 1000;
   const SLOW_TXT = 'Cela prend plus de temps que prévu';
   function wireAlertBox(box, msgEl, spinnerEl, closeEl, fallbackErr) {
-    const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue.');
+    const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue');
     function hide() {
       if (spinnerEl) spinnerEl.style.display = 'none';
       if (box) box.style.display = 'none';
