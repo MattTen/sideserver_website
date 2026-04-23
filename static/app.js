@@ -201,10 +201,13 @@
     srcTokenToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('enabled', srcTokenToggle.checked ? '1' : '0');
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 2000);
       try {
         const r = await fetch('/settings/source-token', {
-          method: 'POST', body: fd, credentials: 'same-origin',
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
         });
+        clearTimeout(timeout);
         if (!r.ok) { showErr(true); return; }
         const data = await r.json();
         if (srcTokenToggle.checked) {
@@ -214,7 +217,10 @@
           setBlockVisible(false);
         }
         showOk();
-      } catch (_) { showErr(true); }
+      } catch (_) {
+        clearTimeout(timeout);
+        showErr(true);
+      }
     });
 
     if (showBtn) showBtn.addEventListener('click', () => {
