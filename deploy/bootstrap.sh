@@ -94,11 +94,20 @@ if ! getent group ipastore >/dev/null; then
 fi
 
 if ! id -u ipastore >/dev/null 2>&1; then
-  # -r : user systeme (uid dans la plage system, pas de fichier a la racine home)
-  # -M : pas de creation de /home/ipastore (pas besoin, c'est un user d'infra)
+  # -r : user systeme (uid dans la plage system)
+  # -m -d /home/ipastore : home dir necessaire pour docker CLI qui ecrit
+  #   $HOME/.docker/config.json + cache buildkit. Sans home, `docker build`
+  #   echoue avec "mkdir /home/ipastore: permission denied" quand il est
+  #   execute par le service systemd en tant que ipastore.
   # -s /usr/sbin/nologin : interdit l'ouverture de session interactive
-  useradd -r -M -g ipastore -s /usr/sbin/nologin ipastore
+  useradd -r -m -d /home/ipastore -g ipastore -s /usr/sbin/nologin ipastore
 fi
+
+# Idempotent : garantit le home dir meme si l'user existait deja sans
+# (cas des installs precedentes qui utilisaient -M).
+mkdir -p /home/ipastore
+chown ipastore:ipastore /home/ipastore
+chmod 750 /home/ipastore
 
 IPASTORE_UID="$(id -u ipastore)"
 IPASTORE_GID="$(id -g ipastore)"
