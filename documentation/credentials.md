@@ -48,13 +48,13 @@ Un seul user MySQL par VM — celui qu'utilise le conteneur pour lire/écrire sa
 | Base de données | libre (ex: `ipastore`) |
 | Droits | `ALL PRIVILEGES ON <db>.*` |
 | Où trouver le mot de passe | `/etc/ipastore/db.json` (champ `password`) |
-| Utilisé par | le conteneur `sidestore-website-prod` |
+| Utilisé par | le conteneur `ipastore-website` |
 
 **Saisie initiale** : la connexion est saisie via l'UI `/setup/database` au premier démarrage (host, port, user, password, database). Les valeurs sont testées (`SELECT 1` + tentative de `CREATE TABLE`) puis persistées dans `/etc/ipastore/db.json` (mode 600, owner uid 1000, format JSON).
 
 **Changer la connexion BDD** :
 - Soit via l'UI `/settings` (si exposé)
-- Soit directement : éditer `/etc/ipastore/db.json` puis `docker restart sidestore-website-prod`
+- Soit directement : éditer `/etc/ipastore/db.json` puis `docker restart ipastore-website`
 
 Il n'y a **plus** de user `ipastore-mgmt` ni de fichier `.mysql.cnf` — les opérations administratives (reset-users) passent par `docker exec` dans le conteneur, qui utilise la connexion applicative déjà configurée.
 
@@ -77,7 +77,7 @@ Il n'y a **plus** de user `ipastore-mgmt` ni de fichier `.mysql.cnf` — les op�
 sudo python3 -c "import secrets,sys; sys.stdout.buffer.write(secrets.token_bytes(64))" \
   | sudo tee /etc/ipastore/secret_key > /dev/null
 sudo chmod 600 /etc/ipastore/secret_key
-docker restart sidestore-website-prod
+docker restart ipastore-website
 ```
 
 ---

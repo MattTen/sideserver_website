@@ -23,7 +23,7 @@ set -euo pipefail
 APP_DIR="${SIDESERVER_APP_DIR:-/opt/sideserver-prod}"
 GITHUB_REPO="${SIDESERVER_REPO:-MattTen/sideserver_website}"
 STORE_DIR="/srv/store-prod"
-CONTAINER_NAME="sidestore-website-prod"
+CONTAINER_NAME="ipastore-website"
 VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
@@ -131,10 +131,29 @@ set_image_tag() {
   fi
 }
 
+# Transition : le conteneur a ete renomme sidestore-website-prod ->
+# ipastore-website. Sur une VM bootstrappee avec l'ancien nom, le .env
+# local contient encore CONTAINER_NAME=sidestore-website-prod : docker
+# compose up rebootera l'ancien nom tant qu'on ne le rewrite pas.
+_legacy_container_name="sidestore-website-prod"
+pre_compose_up() {
+  local env_file="$APP_DIR/.env"
+  if [[ -f "$env_file" ]] && grep -q "^CONTAINER_NAME=${_legacy_container_name}$" "$env_file"; then
+    info "Migration nom du conteneur -> ${CONTAINER_NAME} (reecriture .env)"
+    sed -i -E "s|^CONTAINER_NAME=.*|CONTAINER_NAME=${CONTAINER_NAME}|" "$env_file"
+  fi
+  if docker ps -a --filter "name=^${_legacy_container_name}\$" --format "{{.Names}}" \
+       | grep -q "^${_legacy_container_name}\$"; then
+    info "Suppression de l'ancien conteneur ${_legacy_container_name}"
+    docker rm -f "${_legacy_container_name}" >/dev/null || true
+  fi
+}
+
 # ────── Commandes conteneur ──────
 
 cmd_start() {
   info "Demarrage ($APP_DIR)"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build)
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
 }
@@ -146,6 +165,7 @@ cmd_stop() {
 
 cmd_restart() {
   info "Redemarrage (force-recreate)"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build --force-recreate)
   docker ps --filter "name=$CONTAINER_NAME" --format "  {{.Names}}  {{.Status}}  {{.Ports}}"
 }
@@ -207,6 +227,7 @@ cmd_pull_rolling() {
   local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
   local tag="rolling-${branch}-${sha}"
   set_image_tag "$tag"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$tag"
   ok "Mis a jour : $tag"
@@ -226,6 +247,7 @@ cmd_pull_branch() {
   local sha; sha="$(git "${GIT_SAFE[@]}" -C "$APP_DIR" rev-parse --short HEAD)"
   local tag="rolling-${branch}-${sha}"
   set_image_tag "$tag"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$tag"
   ok "Deploye : $tag"
@@ -274,6 +296,7 @@ cmd_choose_release() {
     && git_auth fetch --tags --prune origin \
     && git "${GIT_SAFE[@]}" checkout --force "$target")
   set_image_tag "$target"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$target"
   ok "Deploye : $target"
@@ -409,6 +432,7 @@ cmd_update_release() {
     && git_auth fetch --tags --prune origin \
     && git "${GIT_SAFE[@]}" checkout --force "$latest")
   set_image_tag "$latest"
+  pre_compose_up
   (cd "$APP_DIR" && docker compose up -d --build)
   write_version_file "$latest"
   ok "Deploye : $latest"
