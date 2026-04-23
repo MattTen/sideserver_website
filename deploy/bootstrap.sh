@@ -20,7 +20,7 @@
 #                  l'app utilise request.base_url dynamiquement.
 #   GITHUB_USER    user git pour le clone auth, defaut "MattTen"
 #   GITHUB_TOKEN   PAT GitHub si le repo est prive
-#   HOST_PORT      port HTTP hote, defaut 80
+#   HOST_PORT      port HTTP hote, defaut 8000
 #
 # La configuration BDD (host/user/mdp/nom de base) est saisie depuis l'UI admin
 # a la premiere connexion via /setup/database -- ce script ne cree pas de BDD
@@ -48,7 +48,7 @@ fi
 BASE_URL="${BASE_URL:-}"
 GITHUB_USER="${GITHUB_USER:-MattTen}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-HOST_PORT="${HOST_PORT:-80}"
+HOST_PORT="${HOST_PORT:-8000}"
 GITHUB_REPO="MattTen/sideserver_website"
 TARGET_DIR="/opt/sideserver-prod"
 
