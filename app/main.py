@@ -35,13 +35,26 @@ from .db import SessionLocal
 logger = logging.getLogger(__name__)
 
 
+class _IpaFormatter(logging.Formatter):
+    """Format '[date] LEVEL name -- msg' avec 'uvicorn.error' remappe en
+    'uvicorn' : uvicorn utilise 'uvicorn.error' pour tous les messages non-access
+    (y compris startup/info), ce qui induit en erreur dans les logs."""
+
+    _RENAME = {"uvicorn.error": "uvicorn"}
+
+    def format(self, record: logging.LogRecord) -> str:
+        record.name = self._RENAME.get(record.name, record.name)
+        return super().format(record)
+
+
+LOG_FILE = Path("/etc/ipastore") / "app.log"
+
+
 def _configure_logging() -> None:
-    """Applique un format '[YYYY-MM-DD HH:MM:SS] LEVEL name -- message' a tous
-    les loggers, y compris ceux d'uvicorn (qui installent leurs propres
-    handlers avant create_app)."""
     fmt = "[%(asctime)s] %(levelname)s %(name)s -- %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(fmt, datefmt=datefmt)
+    formatter = _IpaFormatter(fmt, datefmt=datefmt)
+
     root = logging.getLogger()
     if not root.handlers:
         handler = logging.StreamHandler()
@@ -51,10 +64,27 @@ def _configure_logging() -> None:
     else:
         for h in root.handlers:
             h.setFormatter(formatter)
+
+    # RotatingFileHandler : 5 MB * 3 fichiers garde ~15 MB de logs max,
+    # consultables via /settings/logs sans sortir du conteneur.
+    try:
+        from logging.handlers import RotatingFileHandler
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
+    except Exception:
+        logger.exception("RotatingFileHandler indisponible (logs UI desactives)")
+        file_handler = None
+
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         lg = logging.getLogger(name)
         for h in lg.handlers:
             h.setFormatter(formatter)
+        if file_handler is not None:
+            lg.addHandler(file_handler)
 
 
 _configure_logging()
