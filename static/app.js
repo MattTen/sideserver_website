@@ -159,6 +159,75 @@
     });
   }
 
+  // Source token (settings page) : toggle + copy + regenerate
+  const srcTokenToggle = document.getElementById('toggle-srctoken');
+  if (srcTokenToggle) {
+    const okIcon = document.getElementById('toggle-srctoken-ok');
+    const errBox = document.getElementById('toggle-srctoken-err');
+    const errClose = document.getElementById('toggle-srctoken-err-close');
+    const block = document.getElementById('srctoken-block');
+    const valInput = document.getElementById('srctoken-value');
+    const copyBtn = document.getElementById('srctoken-copy-btn');
+    const regenBtn = document.getElementById('srctoken-regen-btn');
+    let okTimer = null;
+    function showOk() {
+      if (errBox) errBox.style.display = 'none';
+      if (!okIcon) return;
+      okIcon.classList.add('show');
+      clearTimeout(okTimer);
+      okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
+    }
+    function showErr(revert) {
+      if (okIcon) okIcon.classList.remove('show');
+      if (revert) srcTokenToggle.checked = !srcTokenToggle.checked;
+      if (errBox) errBox.style.display = 'flex';
+    }
+    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
+
+    srcTokenToggle.addEventListener('change', async () => {
+      const fd = new FormData();
+      fd.append('enabled', srcTokenToggle.checked ? '1' : '0');
+      try {
+        const r = await fetch('/settings/source-token', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        if (!r.ok) { showErr(true); return; }
+        const data = await r.json();
+        if (valInput) valInput.value = data.token || '';
+        if (block) block.style.display = data.enabled ? 'block' : 'none';
+        showOk();
+      } catch (_) { showErr(true); }
+    });
+
+    if (copyBtn) copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(valInput.value);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = 'Copié ✓';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      } catch (_) {
+        valInput.select();
+        document.execCommand('copy');
+      }
+    });
+
+    if (regenBtn) regenBtn.addEventListener('click', async () => {
+      // Confirmation explicite : la regen casse tous les liens partages.
+      if (!confirm("Régénérer le token ?\n\nTous les liens contenant l'ancien token cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
+        return;
+      }
+      try {
+        const r = await fetch('/settings/source-token/regenerate', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (!r.ok) { showErr(false); return; }
+        const data = await r.json();
+        if (valInput) valInput.value = data.token || '';
+        showOk();
+      } catch (_) { showErr(false); }
+    });
+  }
+
   // Update management (settings page)
   const updCard = document.getElementById('updates-card');
   if (updCard) {

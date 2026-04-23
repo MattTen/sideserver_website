@@ -16,6 +16,7 @@ from ..models import User
 from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..seo import is_indexing_disabled, set_indexing_disabled
 from ..source_gen import get_setting, set_setting
+from .. import source_token
 from ..templates import templates
 
 router = APIRouter()
@@ -53,6 +54,8 @@ def _settings_context(db: Session, user: User, msg: str | None = None, err: str 
         "tint_colors": TINT_COLORS,
         "tint_preset_values": _TINT_PRESET_VALUES,
         "indexing_disabled": is_indexing_disabled(),
+        "source_token_enabled": source_token.is_enabled(),
+        "source_token_value": source_token.get_token(),
         "msg": msg,
         "err": err,
         "active": "settings",
@@ -157,6 +160,30 @@ def settings_indexing(
 ):
     set_indexing_disabled(db, disable_indexing == "1")
     return Response(status_code=204)
+
+
+@router.post("/settings/source-token")
+def settings_source_token(
+    enabled: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Active/desactive la protection du feed source.json. Renvoie le token
+    courant pour que l'UI l'affiche immediatement (a l'activation, le token
+    est genere a la volee s'il n'existait pas)."""
+    token = source_token.set_enabled(db, enabled == "1")
+    return JSONResponse({"enabled": enabled == "1", "token": token})
+
+
+@router.post("/settings/source-token/regenerate")
+def settings_source_token_regenerate(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Regenere un nouveau token (256 chars). Invalide tous les liens
+    precedemment partages -- la confirmation est cote UI."""
+    new = source_token.regenerate(db)
+    return JSONResponse({"token": new})
 
 
 @router.post("/settings/header/remove")
