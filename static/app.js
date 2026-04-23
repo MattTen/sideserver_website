@@ -213,7 +213,7 @@
 
     if (regenBtn) regenBtn.addEventListener('click', async () => {
       // Confirmation explicite : la regen casse tous les liens partages.
-      if (!confirm("Régénérer le token ?\n\nTous les liens contenant l'ancien token cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
+      if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
         return;
       }
       try {
