@@ -18,7 +18,7 @@ Chaque VM héberge **un seul** environnement. Dev et prod vivent sur des machine
 | **Dev** (maison / lab) | `dev` | rolling — `git pull origin dev` + rebuild à la demande |
 | **Prod** (cloud / serveur public) | `main` | release-based — `git checkout <tag>` + rebuild sur release GitHub |
 
-Les deux VM utilisent **la même configuration infra** (chemins, nom de conteneur, port 80, units systemd). La seule différence est la branche qui est clonée. Le script de management détecte automatiquement le mode (prod vs dev) en lisant la branche courante.
+Les deux VM utilisent **la même configuration infra** (chemins, nom de conteneur, port 8000, units systemd). La seule différence est la branche qui est clonée. Le script de management détecte automatiquement le mode (prod vs dev) en lisant la branche courante.
 
 ## Branches — règle absolue
 
@@ -53,7 +53,7 @@ website-management switch-prod   # revient sur la derniere release (= update pro
 | `BASE_URL` | *(vide)* | URL publique forcée. Si absent, l'app dérive l'URL depuis les headers HTTP (`X-Forwarded-*` via `--proxy-headers`) — c'est **recommandé** : changer d'IP ou ajouter un domaine ne nécessite pas de re-bootstrap. |
 | `GITHUB_USER` | `MattTen` | Utilisateur Git pour l'auth du clone. |
 | `GITHUB_TOKEN` | *(vide)* | PAT GitHub seulement si le repo est privé. Le repo actuel étant public, laisser vide. |
-| `HOST_PORT` | `80` | Port HTTP hôte. |
+| `HOST_PORT` | `8000` | Port HTTP hôte. |
 
 Exemple avec URL forcée :
 

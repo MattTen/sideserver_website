@@ -19,7 +19,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 │  MySQL/MariaDB (saisi via UI au premier démarrage)          │
 │                                                              │
 │  Docker                                                      │
-│   └── ipastore-website  :80                                  │
+│   └── ipastore-website  :8000                                │
 │       env_file=/etc/ipastore/prod.env                        │
 │       volumes: /srv/store-prod:/srv/store, /etc/ipastore     │
 │                                                              │
@@ -97,7 +97,7 @@ Le compose lui-même lit un `.env` local au clone (`/opt/sideserver-prod/.env`) 
 ```
 IMAGE_TAG=local
 CONTAINER_NAME=ipastore-website
-HOST_PORT=80
+HOST_PORT=8000
 ENV_FILE=/etc/ipastore/prod.env
 STORE_PATH=/srv/store-prod
 ```

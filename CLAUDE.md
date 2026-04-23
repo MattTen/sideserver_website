@@ -57,7 +57,7 @@ Un **seul** script `deploy/bootstrap.sh` auto-suffisant : `curl | sudo bash` ins
 curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/main/deploy/bootstrap.sh | sudo bash
 ```
 
-Vars optionnelles : `BASE_URL` (si absent, l'app dérive via `--proxy-headers`), `GITHUB_USER`, `GITHUB_TOKEN` (seulement si repo privé), `HOST_PORT` (défaut `80`).
+Vars optionnelles : `BASE_URL` (si absent, l'app dérive via `--proxy-headers`), `GITHUB_USER`, `GITHUB_TOKEN` (seulement si repo privé), `HOST_PORT` (défaut `8000`).
 
 La VM démarre toujours en **env prod** (dernière release). Pour basculer après coup :
 
