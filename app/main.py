@@ -29,6 +29,7 @@ from .routes import settings as settings_routes
 from .routes import updates as updates_routes
 from .scinsta import consume_build_result, integrate_build_result
 from .seo import is_indexing_disabled, refresh_from_db as refresh_seo
+from .source_token import refresh_from_db as refresh_source_token
 from .updates import get_status
 from .db import SessionLocal
 
@@ -193,6 +194,7 @@ def create_app() -> FastAPI:
             db = SessionLocal()
             try:
                 refresh_seo(db)
+                refresh_source_token(db)
             finally:
                 db.close()
         except Exception:

@@ -11,6 +11,7 @@ from ..config import Config
 from ..db import get_db
 from ..models import App, Version
 from ..templates import templates
+from .. import source_token
 
 router = APIRouter()
 
@@ -40,6 +41,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     # cohérent avec ce que SideStore voit (utile derrière reverse proxy).
     base_url = (Config.DEFAULT_BASE_URL or str(request.base_url)).rstrip("/")
 
+    # Si la protection est active, le lien partageable et le QR doivent
+    # contenir ?t=<token> sinon SideStore se prendra un 404 a l'ajout.
+    token_qs = ""
+    if source_token.is_enabled():
+        tok = source_token.get_token()
+        if tok:
+            token_qs = f"?t={tok}"
+
     return templates.TemplateResponse(
         request, "dashboard.html",
         {
@@ -49,7 +58,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             "total_size": total_size,
             "recent": recent,
             "base_url": base_url,
-            "source_url": f"{base_url}/source.json",
+            "source_url": f"{base_url}/source.json{token_qs}",
+            "qr_url": f"/qr.svg{token_qs}",
             "active": "dashboard",
         },
     )

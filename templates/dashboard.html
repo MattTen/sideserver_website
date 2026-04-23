@@ -69,11 +69,11 @@
             {% include "_icons/copy.svg" %}
             <span>Copier</span>
           </button>
-          <a class="btn btn-sm" href="/source.json" target="_blank">Ouvrir JSON</a>
-          <a class="btn btn-sm" href="/qr.svg" target="_blank">QR plein écran</a>
+          <a class="btn btn-sm" href="{{ source_url }}" target="_blank">Ouvrir JSON</a>
+          <a class="btn btn-sm" href="{{ qr_url }}" target="_blank">QR plein écran</a>
         </div>
       </div>
-      <img src="/qr.svg" alt="QR code source" class="source-qr">
+      <img src="{{ qr_url }}" alt="QR code source" class="source-qr">
     </div>
     <p class="text-muted mt-6" style="font-size: 12.5px;">
       Dans <strong>SideStore</strong> : onglet Sources, appuyez sur <code>+</code> et collez l'URL.
