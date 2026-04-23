@@ -187,11 +187,11 @@
   <p class="text-muted mb-4" style="font-size: 12.5px;">
     Logs applicatifs (uvicorn + app). Rafraichi automatiquement toutes les 3 s tant que la zone est visible.
   </p>
-  <div class="row-gap mb-4">
+  <div class="row-gap" id="logs-buttons">
     <button class="btn" type="button" id="logs-toggle-btn">Voir les logs</button>
     <button class="btn" type="button" id="logs-refresh-btn" style="display:none;">Rafraîchir</button>
   </div>
-  <pre id="logs-view" style="display:none; max-height:420px; overflow:auto; background:#1a1309; color:#f5e6c8; padding:12px; border-radius:var(--radius); font-size:12px; line-height:1.45; margin:0; white-space:pre-wrap; word-break:break-all;"></pre>
+  <pre id="logs-view" style="display:none; max-height:420px; overflow:auto; background:#1a1309; color:#f5e6c8; padding:12px; border-radius:var(--radius); font-size:12px; line-height:1.45; margin:16px 0 0 0; white-space:pre-wrap; word-break:break-all;"></pre>
 </div>
 
 <div class="card mt-8" id="updates-card">

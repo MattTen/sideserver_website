@@ -330,7 +330,7 @@ echo "[bootstrap] Ecriture du .env docker-compose..."
 # les memes uid/gid que l'user host `ipastore`, ce qui garantit que les
 # fichiers ecrits via volumes montes ont les bonnes permissions.
 cat > "${TARGET_DIR}/.env" <<EOF
-CONTAINER_NAME=sidestore-website-prod
+CONTAINER_NAME=ipastore-website
 HOST_PORT=${HOST_PORT}
 ENV_FILE=/etc/ipastore/prod.env
 STORE_PATH=/srv/store-prod
