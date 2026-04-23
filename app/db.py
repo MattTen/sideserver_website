@@ -34,7 +34,16 @@ def _build_engine() -> Engine:
     # ~8h par défaut, ce qui causerait des "MySQL has gone away" sans ce flag.
     # pool_recycle : renouvelle les connexions après 1h, bien en dessous du
     # wait_timeout MySQL (28800s), pour éviter les erreurs en production longue durée.
-    return create_engine(url, pool_pre_ping=True, pool_recycle=3600)
+    # connect_args.connect_timeout=3 : sans ca PyMySQL attend le timeout TCP
+    # par defaut (~75s sous Linux) si la BDD est injoignable, ce qui gele
+    # toutes les requetes le temps du timeout. 3s laisse le temps a un reseau
+    # lent, court assez pour ne pas bloquer l'UI.
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        connect_args={"connect_timeout": 3},
+    )
 
 
 def get_engine() -> Engine:
