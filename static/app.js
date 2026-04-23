@@ -166,7 +166,7 @@
     const errBox = document.getElementById('toggle-srctoken-err');
     const errClose = document.getElementById('toggle-srctoken-err-close');
     const block = document.getElementById('srctoken-block');
-    const valInput = document.getElementById('srctoken-value');
+    const valBox = document.getElementById('srctoken-value');
     const copyBtn = document.getElementById('srctoken-copy-btn');
     const regenBtn = document.getElementById('srctoken-regen-btn');
     let okTimer = null;
@@ -193,21 +193,28 @@
         });
         if (!r.ok) { showErr(true); return; }
         const data = await r.json();
-        if (valInput) valInput.value = data.token || '';
+        if (valBox) valBox.textContent = data.token || '';
         if (block) block.style.display = data.enabled ? 'block' : 'none';
         showOk();
       } catch (_) { showErr(true); }
     });
 
     if (copyBtn) copyBtn.addEventListener('click', async () => {
+      const text = valBox ? valBox.textContent.trim() : '';
       try {
-        await navigator.clipboard.writeText(valInput.value);
+        await navigator.clipboard.writeText(text);
         const old = copyBtn.textContent;
         copyBtn.textContent = 'Copié ✓';
         setTimeout(() => { copyBtn.textContent = old; }, 1200);
       } catch (_) {
-        valInput.select();
-        document.execCommand('copy');
+        if (valBox) {
+          const range = document.createRange();
+          range.selectNodeContents(valBox);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          document.execCommand('copy');
+        }
       }
     });
 
@@ -222,7 +229,7 @@
         });
         if (!r.ok) { showErr(false); return; }
         const data = await r.json();
-        if (valInput) valInput.value = data.token || '';
+        if (valBox) valBox.textContent = data.token || '';
         showOk();
       } catch (_) { showErr(false); }
     });
@@ -402,6 +409,34 @@
         window.getSelection().removeAllRanges();
         window.getSelection().addRange(sel);
       }
+    });
+  }
+
+  // QR modal (dashboard) : overlay centre au-dessus de la page, pas un
+  // nouvel onglet. Click sur la miniature ou bouton "QR plein ecran" pour
+  // ouvrir, click hors de la card / bouton X / Escape pour fermer.
+  const qrModal = document.getElementById('qr-modal');
+  if (qrModal) {
+    const openBtn = document.getElementById('qr-open-btn');
+    const thumb = document.getElementById('qr-thumb');
+    const closeBtn = document.getElementById('qr-modal-close');
+    function open() {
+      qrModal.classList.add('is-visible');
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      qrModal.classList.remove('is-visible');
+      document.body.style.overflow = '';
+    }
+    if (openBtn) openBtn.addEventListener('click', open);
+    if (thumb) thumb.addEventListener('click', open);
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    // Click sur le fond (mais pas sur la card) ferme
+    qrModal.addEventListener('click', (e) => {
+      if (e.target === qrModal) close();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && qrModal.classList.contains('is-visible')) close();
     });
   }
 })();
