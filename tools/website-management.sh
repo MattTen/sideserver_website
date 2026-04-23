@@ -2,7 +2,7 @@
 # website-management.sh — Gestion mono-env de sideserver_website.
 #
 # Modele mono-env : une VM = un seul environnement (prod OU dev), distingue
-# uniquement par la branche checkoutee dans /opt/sideserver-prod :
+# uniquement par la branche checkoutee dans /opt/ipaserver :
 #   main / HEAD detache (tag release) -> prod (release-based)
 #   dev                                -> dev  (rolling sur HEAD de la branche)
 # Les chemins, nom de conteneur, fichier .env, units systemd restent
@@ -20,8 +20,8 @@
 set -euo pipefail
 
 # ────── Config ──────
-APP_DIR="${SIDESERVER_APP_DIR:-/opt/sideserver-prod}"
-GITHUB_REPO="${SIDESERVER_REPO:-MattTen/sideserver_website}"
+APP_DIR="${IPASERVER_APP_DIR:-/opt/ipaserver}"
+GITHUB_REPO="${IPASERVER_REPO:-MattTen/sideserver_website}"
 STORE_DIR="/srv/store-prod"
 CONTAINER_NAME="ipastore-website"
 VERSION_FILE="/etc/ipastore/prod.version"
@@ -588,7 +588,7 @@ cmd_scinsta_build() {
     -e IPASTORE_ENV="$env" \
     -v /etc/ipastore:/etc/ipastore \
     -v "${STORE_DIR}:/srv/store" \
-    -v "${APP_DIR}:/opt/sideserver-${env}:ro" \
+    -v "${APP_DIR}:/opt/ipaserver:ro" \
     --network host \
     "$SCINSTA_BUILDER_IMAGE"
   ok "Build termine (env=$env)"

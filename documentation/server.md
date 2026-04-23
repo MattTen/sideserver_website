@@ -26,7 +26,7 @@ Doc de référence du déploiement : ce qui tourne sur la VM, comment c'est orga
 │  Filesystem                                                  │
 │   /srv/store-prod/{ipas,icons,screenshots,news}              │
 │   /etc/ipastore/{prod.env, db.json, secret_key, prod.version}│
-│   /opt/sideserver-prod  (git clone ; ref selon env courant)  │
+│   /opt/ipaserver  (git clone ; ref selon env courant)  │
 │                                                              │
 │  systemd                                                     │
 │   ipastore-update@prod.path         watches update-requested-prod  │
@@ -43,7 +43,7 @@ Le conteneur s'appelle toujours `ipastore-website` et le store `/srv/store-prod`
 
 ### Clone git
 
-Un seul clone par VM : `/opt/sideserver-prod`. Aucun sparse-checkout côté serveur par défaut (l'ancien setup sparse excluait `tools/` et `documentation/` — à re-configurer manuellement si souhaité).
+Un seul clone par VM : `/opt/ipaserver`. Aucun sparse-checkout côté serveur par défaut (l'ancien setup sparse excluait `tools/` et `documentation/` — à re-configurer manuellement si souhaité).
 
 La branche checkoutée détermine le mode :
 - `main` ou tag `vX.Y.Z` (HEAD détaché) → **prod**
@@ -51,7 +51,7 @@ La branche checkoutée détermine le mode :
 
 Pour éviter "dubious ownership" si le clone est owned par un autre user que celui qui invoque git, `safe.directory` est configuré au bootstrap.
 
-Le script de management vit dans `/opt/sideserver-prod/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`.
+Le script de management vit dans `/opt/ipaserver/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`.
 
 ### `/etc/ipastore/`
 
@@ -92,7 +92,7 @@ Toutes les vars sont injectées via `env_file: /etc/ipastore/prod.env` dans `doc
 
 **Connexion BDD** : saisie via `/setup/database` au premier démarrage puis persistée dans `/etc/ipastore/db.json`. Ne transite jamais par les fichiers `.env` ni par git.
 
-Le compose lui-même lit un `.env` local au clone (`/opt/sideserver-prod/.env`) — écrit par le bootstrap :
+Le compose lui-même lit un `.env` local au clone (`/opt/ipaserver/.env`) — écrit par le bootstrap :
 
 ```
 IMAGE_TAG=local
@@ -106,7 +106,7 @@ STORE_PATH=/srv/store-prod
 
 ## 4. Script `website-management`
 
-Unique script de gestion : `/opt/sideserver-prod/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`. Détection mono-env via `git rev-parse --abbrev-ref HEAD`.
+Unique script de gestion : `/opt/ipaserver/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`. Détection mono-env via `git rev-parse --abbrev-ref HEAD`.
 
 ### Usage
 
@@ -124,7 +124,7 @@ website-management --help           # aide
 | `update` | Prod (HEAD détaché sur tag ou branche `main`) : checkout dernière release si > current, rebuild. No-op si déjà à jour. Écrit `/etc/ipastore/prod.version`. / Dev (branche `dev`) : `git pull` + rebuild. |
 | `check` | `current=…/latest=…/update_available=0|1` (machine-readable). En dev : toujours `update_available=0` (rolling). |
 | `pull` | `git pull` HEAD de la branche courante + rebuild (dev uniquement — refuse sur HEAD détaché). |
-| `self-update` | `git pull` dans `/opt/sideserver-prod` (dev) ou re-checkout de la dernière release (prod). |
+| `self-update` | `git pull` dans `/opt/ipaserver` (dev) ou re-checkout de la dernière release (prod). |
 | `switch-dev` | Bascule la VM en env dev : `git checkout dev` + `git reset --hard origin/dev` + rebuild. Écrit `rolling-dev-<sha>` dans `prod.version`. |
 | `switch-prod` | Revient en env prod : `git checkout <latest-release-tag>` + rebuild. Équivalent à `update` forcé depuis une autre branche. |
 | `reset-users` | Supprime tous les admins + prompt création d'un nouveau (via `docker exec`, pas de client mysql sur l'hôte requis). |
@@ -162,7 +162,7 @@ En mode prod :
 1. `curl api.github.com/repos/.../releases/latest` → tag_name
 2. Lit `/etc/ipastore/prod.version`
 3. Si tag ≤ version actuelle → no-op
-4. `git fetch --tags && git checkout --force <tag>` dans `/opt/sideserver-prod` (HEAD détaché)
+4. `git fetch --tags && git checkout --force <tag>` dans `/opt/ipaserver` (HEAD détaché)
 5. `docker compose up -d --build`
 6. Écrit le tag dans `/etc/ipastore/prod.version`
 
@@ -291,7 +291,7 @@ website-management switch-prod
 ### Rollback à une release précédente (sur la VM prod)
 
 ```bash
-cd /opt/sideserver-prod
+cd /opt/ipaserver
 git checkout --force v1.1.5
 docker compose up -d --build
 echo v1.1.5 | sudo tee /etc/ipastore/prod.version
@@ -304,10 +304,10 @@ echo v1.1.5 | sudo tee /etc/ipastore/prod.version
 ### "Dubious ownership"
 
 ```bash
-sudo git config --global --add safe.directory /opt/sideserver-prod
+sudo git config --global --add safe.directory /opt/ipaserver
 ```
 
-Déjà fait par le bootstrap pour root et l'app-user. À refaire pour tout nouveau user amené à invoquer git dans `/opt/sideserver-prod`.
+Déjà fait par le bootstrap pour root et l'app-user. À refaire pour tout nouveau user amené à invoquer git dans `/opt/ipaserver`.
 
 ### Conteneur qui ne démarre pas après update
 
@@ -329,7 +329,7 @@ cat /etc/ipastore/.git-credentials
 # Doit contenir : https://MattTen:<TOKEN>@github.com
 
 # Vérifier que les repos l'utilisent :
-git -C /opt/sideserver-prod config credential.helper
+git -C /opt/ipaserver config credential.helper
 # doit afficher : store --file=/etc/ipastore/.git-credentials
 ```
 

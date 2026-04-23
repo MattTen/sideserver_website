@@ -38,7 +38,7 @@ Chaque VM héberge **un seul** environnement. Dev et prod vivent sur des machine
 **Les deux VM utilisent des paths strictement identiques** — seule la branche git clonée diffère :
 
 ```
-/opt/sideserver-prod      ← git clone (branche selon VM)
+/opt/ipaserver      ← git clone (branche selon VM)
 /srv/store-prod/          ← IPAs + icônes + screenshots
 /etc/ipastore/            ← credentials + version + flags
 ipastore-website          ← nom du conteneur (le script détecte le vrai mode
@@ -146,7 +146,7 @@ requirements.txt
 
 ## Script de management (`website-management`)
 
-Auto-détection du mode via `git rev-parse --abbrev-ref HEAD` dans `/opt/sideserver-prod` :
+Auto-détection du mode via `git rev-parse --abbrev-ref HEAD` dans `/opt/ipaserver` :
 - `main` ou `HEAD` (détaché sur un tag de release) = mode **prod** (release-based)
 - `dev` = mode **dev** (rolling sur HEAD de la branche)
 
@@ -294,4 +294,4 @@ Via sparse-checkout (config locale git sur la VM, pas dans .gitignore) :
 - `documentation/` — doc technique, inutile sur le serveur
 - `CLAUDE.md` — ce fichier
 
-Pour vérifier : `git sparse-checkout list` dans `/opt/sideserver-prod`.
+Pour vérifier : `git sparse-checkout list` dans `/opt/ipaserver`.

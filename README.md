@@ -113,7 +113,7 @@ website-management start / stop / restart / logs / status
 website-management update           # prod : release-based / dev : rolling (auto-detect branche)
 website-management check            # machine-readable : current / latest / update_available
 website-management pull             # force pull HEAD de la branche courante (dev uniquement)
-website-management self-update      # pull ce script (git pull de /opt/sideserver-prod)
+website-management self-update      # pull ce script (git pull de /opt/ipaserver)
 
 # Bascule d'environnement
 website-management switch-dev       # passe la VM en env dev (branche dev, rolling)

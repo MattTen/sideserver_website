@@ -33,7 +33,7 @@ d'une IPA Instagram décryptée fournie manuellement par l'admin.
 | `/etc/ipastore/scinsta-build-requested-<env>` | in | Flag JSON `{patch,requested_at}` |
 | `/etc/ipastore/scinsta-upload-<env>.ipa` | in | IPA Instagram officielle |
 | `/etc/ipastore/patches-<env>/` | in | Scripts de patch (sync depuis l'app) |
-| `/opt/sideserver-<env>/patch/` | in (fallback) | Patchs depuis le clone hôte |
+| `/opt/ipaserver/patch/` | in (fallback) | Patchs depuis le clone hôte |
 | `/srv/store/ipas/` | out | IPA final |
 | `/etc/ipastore/scinsta-build-progress-<env>` | out | Progression JSON |
 | `/etc/ipastore/scinsta-build-result-<env>` | out | Résultat JSON final |
