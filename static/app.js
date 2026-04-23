@@ -73,8 +73,11 @@
   }
 
   // Mecanisme partage : a 2s -> alerte jaune "Cela prend plus de temps que prevu"
-  // + spinner ; a l'echec final -> alerte rouge "Une erreur est survenue".
+  // + spinner ; a 15s on coupe la requete -> alerte rouge "Une erreur est
+  // survenue" (sans ce hard cap, un backend qui hang laisserait le spinner
+  // tourner indefiniment cote navigateur).
   const SLOW_MS = 2000;
+  const HARD_TIMEOUT_MS = 15000;
   const SLOW_TXT = 'Cela prend plus de temps que prévu';
   function wireAlertBox(box, msgEl, spinnerEl, closeEl, fallbackErr) {
     const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue.');
@@ -123,12 +126,15 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
+      const ctrl = new AbortController();
       const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      const hardTimer = setTimeout(() => ctrl.abort(), HARD_TIMEOUT_MS);
       try {
         const r = await fetch(form.action, {
-          method: 'POST', body: fd, credentials: 'same-origin',
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
         });
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         if (r.ok) {
           if (resetOnSuccess) form.reset();
           showOk();
@@ -140,6 +146,7 @@
         }
       } catch (_) {
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         if (okIcon) okIcon.classList.remove('show');
         alert.showFail(null);
       }
@@ -173,16 +180,20 @@
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
+      const ctrl = new AbortController();
       const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      const hardTimer = setTimeout(() => ctrl.abort(), HARD_TIMEOUT_MS);
       try {
         const r = await fetch('/settings/indexing', {
-          method: 'POST', body: fd, credentials: 'same-origin',
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
         });
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         if (r.ok) showOk();
         else fail();
       } catch (_) {
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         fail();
       }
     });
@@ -234,12 +245,15 @@
     srcTokenToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('enabled', srcTokenToggle.checked ? '1' : '0');
+      const ctrl = new AbortController();
       const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      const hardTimer = setTimeout(() => ctrl.abort(), HARD_TIMEOUT_MS);
       try {
         const r = await fetch('/settings/source-token', {
-          method: 'POST', body: fd, credentials: 'same-origin',
+          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
         });
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         if (!r.ok) { fail(true); return; }
         const data = await r.json();
         if (srcTokenToggle.checked) {
@@ -251,6 +265,7 @@
         showOk();
       } catch (_) {
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         fail(true);
       }
     });
@@ -292,18 +307,22 @@
       if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
         return;
       }
+      const ctrl = new AbortController();
       const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
+      const hardTimer = setTimeout(() => ctrl.abort(), HARD_TIMEOUT_MS);
       try {
         const r = await fetch('/settings/source-token/regenerate', {
-          method: 'POST', credentials: 'same-origin',
+          method: 'POST', credentials: 'same-origin', signal: ctrl.signal,
         });
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         if (!r.ok) { fail(false); return; }
         const data = await r.json();
         setToken(data.token || '');
         showOk();
       } catch (_) {
         clearTimeout(slowTimer);
+        clearTimeout(hardTimer);
         fail(false);
       }
     });
