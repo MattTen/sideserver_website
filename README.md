@@ -79,24 +79,24 @@ http://<IP_VM>/source.json
 
 Le feed `source.json` utilise l'URL publique de la requête (ou `IPASTORE_BASE_URL` si défini) pour générer les `downloadURL`, `iconURL` etc. — SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
 
-## Sécurité — protection du dépôt
+## Sécurité : protection du dépôt
 
-Par défaut, `source.json` est public : n'importe qui connaissant l'URL du serveur peut récupérer la liste des IPAs (et les télécharger). Pour limiter l'accès aux personnes à qui vous donnez le lien (et bloquer les bots de scraping), activez la protection par token dans **Réglages → Sécurité → "Protéger l'accès au dépôt d'IPA"**.
+Par défaut, `source.json` est public : n'importe qui connaissant l'URL du serveur peut récupérer la liste des IPAs (et les télécharger). Pour limiter l'accès aux personnes à qui vous donnez le lien (et bloquer les bots de scraping), activez la protection par jeton dans **Réglages → Sécurité → "Protéger l'accès au dépôt d'IPA"**.
 
 Une fois activé :
 
-- Un token aléatoire de **256 caractères alphanumériques** est généré
-- `GET /source.json` et `GET /qr.svg` exigent `?t=<token>` — sans ce token, le serveur répond `404` (volontairement opaque pour les bots de scraping)
-- L'URL du dépôt affichée sur le dashboard et le QR code intègrent automatiquement le token
-- Le bouton **Régénérer** crée un nouveau token (avec confirmation) — les anciens liens cessent immédiatement de fonctionner
+- Un jeton aléatoire de **256 caractères alphanumériques** est généré
+- `GET /source.json` et `GET /qr.svg` exigent `?t=<jeton>`. Sans ce jeton, le serveur répond `404` (volontairement opaque pour les bots de scraping)
+- L'URL du dépôt affichée sur le dashboard et le QR code intègrent automatiquement le jeton
+- Le bouton **Régénérer** crée un nouveau jeton (avec confirmation). Les anciens liens cessent immédiatement de fonctionner
 
 URL à coller dans SideStore quand la protection est activée :
 
 ```
-http://<IP_VM>/source.json?t=<token-256-caracteres>
+http://<IP_VM>/source.json?t=<jeton-256-caracteres>
 ```
 
-C'est un secret long plutôt qu'une authentification standard car SideStore ne sait pas envoyer de header custom — seul un `GET` avec query string est utilisable côté client iOS.
+C'est un secret long plutôt qu'une authentification standard car SideStore ne sait pas envoyer de header custom : seul un `GET` avec query string est utilisable côté client iOS.
 
 ## Administration
 
