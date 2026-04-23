@@ -81,6 +81,28 @@ def require_user(
     return user
 
 
+def require_session(request: Request) -> int:
+    """Dependance plus legere que require_user : valide UNIQUEMENT la signature
+    du cookie (HMAC via itsdangerous) sans charger l'User depuis la BDD.
+    A utiliser pour les routes qui doivent rester dispo meme si la BDD est HS
+    (typiquement /settings/logs : on veut voir les logs justement parce que
+    la BDD est tombee).
+    """
+    token = request.cookies.get(Config.SESSION_COOKIE)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/login"},
+        )
+    user_id = parse_session_token(token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            headers={"Location": "/login"},
+        )
+    return user_id
+
+
 def has_any_user(db: Session) -> bool:
     """Retourne True si au moins un utilisateur existe en base (évite la page de setup répétée)."""
     return db.execute(select(User.id).limit(1)).first() is not None
