@@ -72,10 +72,10 @@
     });
   }
 
-  // Mecanisme partage : a 2s -> alerte jaune "Cela prend plus de temps que prevu"
+  // Mecanisme partage : a 1s -> alerte jaune "Cela prend plus de temps que prevu"
   // + spinner. On laisse la requete aller jusqu'au bout (vrai timeout TCP
   // navigateur ou reponse finale) pour refleter la realite du backend.
-  const SLOW_MS = 2000;
+  const SLOW_MS = 1000;
   const SLOW_TXT = 'Cela prend plus de temps que prévu';
   function wireAlertBox(box, msgEl, spinnerEl, closeEl, fallbackErr) {
     const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue.');
