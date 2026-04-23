@@ -81,13 +81,23 @@ def require_user(
     return user
 
 
-def require_session(request: Request) -> int:
-    """Dependance plus legere que require_user : valide UNIQUEMENT la signature
-    du cookie (HMAC via itsdangerous) sans charger l'User depuis la BDD.
-    A utiliser pour les routes qui doivent rester dispo meme si la BDD est HS
-    (typiquement /settings/logs : on veut voir les logs justement parce que
-    la BDD est tombee).
+def require_user_db_optional(request: Request) -> int:
+    """Comme require_user MAIS tolerant a une BDD injoignable.
+
+    Normalement : charge l'User depuis la BDD, ce qui invalide immediatement
+    les cookies d'admins supprimes (ex. via reset-users).
+    Si la BDD est HS : on degrade au cookie-only (signature HMAC + timestamp
+    verifies via itsdangerous, zero acces BDD). L'attaquant ne peut toujours
+    pas forger de cookie sans /etc/ipastore/secret_key. Le seul relachement
+    c'est qu'un admin supprime garde l'acces a cette route tant que son
+    cookie n'a pas expire (30 j max) ET que la BDD est down.
+
+    A reserver aux routes qui doivent rester dispo hors-BDD, typiquement
+    /settings/logs : on veut voir les logs justement parce que la BDD est HS.
     """
+    from sqlalchemy.exc import OperationalError
+    from .db import _get_session_factory
+
     token = request.cookies.get(Config.SESSION_COOKIE)
     if not token:
         raise HTTPException(
@@ -100,6 +110,25 @@ def require_session(request: Request) -> int:
             status_code=status.HTTP_307_TEMPORARY_REDIRECT,
             headers={"Location": "/login"},
         )
+
+    db = _get_session_factory()()
+    try:
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                headers={"Location": "/login"},
+            )
+    except OperationalError:
+        # BDD HS : on se rabat sur la validation cookie-only deja faite
+        # ci-dessus. Loggue quand meme pour que ca reste visible.
+        import logging
+        logging.getLogger(__name__).warning(
+            "require_user_db_optional: BDD HS, fallback cookie-only pour user_id=%s",
+            user_id,
+        )
+    finally:
+        db.close()
     return user_id
 
 
