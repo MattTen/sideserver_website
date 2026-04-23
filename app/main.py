@@ -219,9 +219,9 @@ def create_app() -> FastAPI:
                 detail = str(orig)
         else:
             detail = str(exc).splitlines()[0]
-        logger.error("Database unavailable (%s %s) -- %s", request.method, request.url.path, detail)
+        logger.error("Une erreur est survenue (%s %s) -- %s", request.method, request.url.path, detail)
         return JSONResponse(
-            {"error": "Database unavailable", "detail": detail},
+            {"error": "Une erreur est survenue", "detail": detail},
             status_code=503,
         )
 
