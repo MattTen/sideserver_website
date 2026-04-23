@@ -38,11 +38,20 @@ def _build_engine() -> Engine:
     # par defaut (~75s sous Linux) si la BDD est injoignable, ce qui gele
     # toutes les requetes le temps du timeout. 3s laisse le temps a un reseau
     # lent, court assez pour ne pas bloquer l'UI.
+    # read_timeout / write_timeout : sans ca une requete posee sur une connexion
+    # qui ne repond plus (firewall qui drop sans RST, crash BDD entre 2 paquets)
+    # bloque le worker FastAPI indefiniment -- l'UI reste figee sur "slow" sans
+    # jamais recevoir d'erreur. 10s coupe la requete, remonte une OperationalError,
+    # logguee par uvicorn et renvoyee en 500 au client.
     return create_engine(
         url,
         pool_pre_ping=True,
         pool_recycle=3600,
-        connect_args={"connect_timeout": 3},
+        connect_args={
+            "connect_timeout": 3,
+            "read_timeout": 10,
+            "write_timeout": 10,
+        },
     )
 
 
