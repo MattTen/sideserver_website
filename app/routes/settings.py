@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..auth import hash_password, require_session, require_user, verify_password
+from ..auth import hash_password, require_user, require_user_db_optional, verify_password
 from ..config import Config
 from ..db import get_db
 from ..models import User
@@ -172,14 +172,14 @@ def settings_remove_header(
 @router.get("/settings/logs")
 def settings_logs(
     lines: int = Query(500, ge=1, le=5000),
-    _user_id: int = Depends(require_session),
+    _user_id: int = Depends(require_user_db_optional),
 ):
     """Retourne les dernieres lignes de /etc/ipastore/app.log (file handler
     configure dans app.main._configure_logging).
 
-    Auth volontairement allegee (require_session au lieu de require_user)
-    pour rester dispo meme si la BDD est HS : on veut pouvoir consulter les
-    logs justement quand quelque chose ne va pas cote BDD.
+    Auth via require_user_db_optional : pleine verification BDD en temps
+    normal, degradation au cookie-signe seulement si la BDD est HS (sinon
+    le viewer se figerait au moment ou on veut justement voir les logs).
     """
     log_path = Path("/etc/ipastore/app.log")
     if not log_path.exists():
