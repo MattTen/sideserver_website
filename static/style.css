@@ -460,15 +460,23 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
 /* === Source URL box === */
 .source-box {
   display: grid;
-  grid-template-columns: 1fr auto;
+  /* minmax(0, 1fr) au lieu de 1fr : par defaut un grid track 1fr a un
+     min-content implicite qui empeche le shrink quand l'enfant deborde
+     (URL de 256 chars + boutons). Sans ca, le track grossit, deborde sous
+     le QR de droite et les boutons passent par-dessus. */
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: center;
 }
-/* Sans min-width:0, le grid track 1fr ne peut pas etre plus etroit que le
-   min-content de son enfant -- avec un jeton de 256 chars dans .source-url,
-   ca explose la largeur de la carte. min-width:0 autorise le shrink, et
-   l'overflow-x:auto de .source-url prend alors le relais (scroll horizontal). */
 .source-box > div { min-width: 0; }
+/* Boutons sous l'URL : autoriser le wrap pour ne pas deborder sous le QR
+   quand la carte est etroite. */
+.source-box .row-gap { flex-wrap: wrap; }
+/* Mobile / cartes etroites : QR sous l'URL plutot qu'a cote, sinon il ne
+   reste plus assez de place pour rien voir. */
+@media (max-width: 720px) {
+  .source-box { grid-template-columns: 1fr; justify-items: start; }
+}
 .source-url {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -538,20 +546,27 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
 .qr-modal-close:hover { background: var(--bg-hover); }
 
 /* Affichage en lecture seule d'une longue valeur (ex: jeton de protection).
-   Pas un input pour eviter le curseur "edition" trompeur, mais on garde le
-   scroll horizontal pour les valeurs trop longues. */
+   On ressemble au texte de donnee (.mono des autres cartes) plutot qu'a un
+   input : pas de bordure de champ, juste un fond legerement contraste pour
+   delimiter la zone et le curseur "text" est neutralise (cursor:default).
+   Scroll horizontal pour les valeurs trop longues, curseur "grab" implicite
+   via overflow auto. */
 .readonly-mono {
   background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: var(--radius);
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--text);
+  color: var(--text-muted);
   overflow-x: auto;
   white-space: nowrap;
   min-width: 0;
   user-select: all;
+  cursor: default;
+  /* Met le contenu en bas comme une ligne de log : align-items du parent
+     gere la hauteur, on aligne juste le texte verticalement au centre via
+     line-height. */
+  line-height: 1.6;
 }
 
 /* === App detail layout === */
