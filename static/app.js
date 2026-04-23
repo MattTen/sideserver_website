@@ -72,50 +72,76 @@
     });
   }
 
-  // Formulaires async (OK vert si succes, boite rouge avec X sinon/timeout 2s)
+  // Mecanisme partage : a 2s -> alerte jaune "Cela prend plus de temps que prevu"
+  // + spinner ; a l'echec final -> alerte rouge "Une erreur est survenue".
+  const SLOW_MS = 2000;
+  const SLOW_TXT = 'Cela prend plus de temps que prévu';
+  function wireAlertBox(box, msgEl, spinnerEl, closeEl, fallbackErr) {
+    const defaultErr = fallbackErr || (msgEl ? msgEl.textContent : 'Une erreur est survenue.');
+    function hide() {
+      if (spinnerEl) spinnerEl.style.display = 'none';
+      if (box) box.style.display = 'none';
+    }
+    function showSlow() {
+      if (!box) return;
+      box.classList.remove('alert-error');
+      box.classList.add('alert-warning');
+      if (msgEl) msgEl.textContent = SLOW_TXT;
+      if (spinnerEl) spinnerEl.style.display = 'inline-block';
+      box.style.display = 'flex';
+    }
+    function showFail(msg) {
+      if (!box) return;
+      box.classList.remove('alert-warning');
+      box.classList.add('alert-error');
+      if (spinnerEl) spinnerEl.style.display = 'none';
+      if (msgEl) msgEl.textContent = msg || defaultErr;
+      box.style.display = 'flex';
+    }
+    if (closeEl) closeEl.addEventListener('click', hide);
+    return { hide, showSlow, showFail };
+  }
+
+  // Formulaires async (OK vert si succes, slow jaune a 2s, rouge si echec final)
   document.querySelectorAll('form[data-async-form]').forEach(form => {
     const okIcon = form.querySelector('[data-async-ok]');
-    const errBox = form.querySelector('[data-async-err]');
-    const errMsg = form.querySelector('[data-async-err-msg]');
-    const errClose = form.querySelector('[data-async-err-close]');
+    const alert = wireAlertBox(
+      form.querySelector('[data-async-err]'),
+      form.querySelector('[data-async-err-msg]'),
+      form.querySelector('[data-async-err-spinner]'),
+      form.querySelector('[data-async-err-close]'),
+    );
     const resetOnSuccess = form.hasAttribute('data-reset-on-success');
-    const defaultErr = errMsg ? errMsg.textContent : 'Une erreur est survenue.';
     let okTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      alert.hide();
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
       okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
     }
-    function showErr(msg) {
-      if (okIcon) okIcon.classList.remove('show');
-      if (!errBox) return;
-      if (errMsg) errMsg.textContent = msg || defaultErr;
-      errBox.style.display = 'flex';
-    }
-    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch(form.action, {
-          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+          method: 'POST', body: fd, credentials: 'same-origin',
         });
-        clearTimeout(timeout);
+        clearTimeout(slowTimer);
         if (r.ok) {
           if (resetOnSuccess) form.reset();
           showOk();
         } else {
           let msg = null;
           try { const j = await r.json(); msg = j.error || j.message; } catch (_) {}
-          showErr(msg);
+          if (okIcon) okIcon.classList.remove('show');
+          alert.showFail(msg);
         }
       } catch (_) {
-        clearTimeout(timeout);
-        showErr(null);
+        clearTimeout(slowTimer);
+        if (okIcon) okIcon.classList.remove('show');
+        alert.showFail(null);
       }
     });
   });
@@ -125,36 +151,39 @@
   if (indexingToggle) {
     const okIcon = document.getElementById('toggle-indexing-ok');
     const errBox = document.getElementById('toggle-indexing-err');
-    const errClose = document.getElementById('toggle-indexing-err-close');
+    const alert = wireAlertBox(
+      errBox,
+      errBox ? errBox.querySelector('[data-msg]') : null,
+      errBox ? errBox.querySelector('[data-spinner]') : null,
+      document.getElementById('toggle-indexing-err-close'),
+    );
     let okTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      alert.hide();
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
       okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
     }
-    function showErr() {
+    function fail() {
       if (okIcon) okIcon.classList.remove('show');
       indexingToggle.checked = !indexingToggle.checked;
-      if (errBox) errBox.style.display = 'flex';
+      alert.showFail(null);
     }
-    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
     indexingToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('disable_indexing', indexingToggle.checked ? '1' : '0');
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch('/settings/indexing', {
-          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+          method: 'POST', body: fd, credentials: 'same-origin',
         });
-        clearTimeout(timeout);
+        clearTimeout(slowTimer);
         if (r.ok) showOk();
-        else showErr();
+        else fail();
       } catch (_) {
-        clearTimeout(timeout);
-        showErr();
+        clearTimeout(slowTimer);
+        fail();
       }
     });
   }
@@ -164,7 +193,12 @@
   if (srcTokenToggle) {
     const okIcon = document.getElementById('toggle-srctoken-ok');
     const errBox = document.getElementById('toggle-srctoken-err');
-    const errClose = document.getElementById('toggle-srctoken-err-close');
+    const alert = wireAlertBox(
+      errBox,
+      errBox ? errBox.querySelector('[data-msg]') : null,
+      errBox ? errBox.querySelector('[data-spinner]') : null,
+      document.getElementById('toggle-srctoken-err-close'),
+    );
     const block = document.getElementById('srctoken-block');
     const valBox = document.getElementById('srctoken-value');
     const showBtn = document.getElementById('srctoken-show-btn');
@@ -185,30 +219,28 @@
     }
     let okTimer = null;
     function showOk() {
-      if (errBox) errBox.style.display = 'none';
+      alert.hide();
       if (!okIcon) return;
       okIcon.classList.add('show');
       clearTimeout(okTimer);
       okTimer = setTimeout(() => okIcon.classList.remove('show'), 1500);
     }
-    function showErr(revert) {
+    function fail(revert) {
       if (okIcon) okIcon.classList.remove('show');
       if (revert) srcTokenToggle.checked = !srcTokenToggle.checked;
-      if (errBox) errBox.style.display = 'flex';
+      alert.showFail(null);
     }
-    if (errClose) errClose.addEventListener('click', () => { errBox.style.display = 'none'; });
 
     srcTokenToggle.addEventListener('change', async () => {
       const fd = new FormData();
       fd.append('enabled', srcTokenToggle.checked ? '1' : '0');
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 2000);
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch('/settings/source-token', {
-          method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal,
+          method: 'POST', body: fd, credentials: 'same-origin',
         });
-        clearTimeout(timeout);
-        if (!r.ok) { showErr(true); return; }
+        clearTimeout(slowTimer);
+        if (!r.ok) { fail(true); return; }
         const data = await r.json();
         if (srcTokenToggle.checked) {
           setToken(data.token || '');
@@ -218,8 +250,8 @@
         }
         showOk();
       } catch (_) {
-        clearTimeout(timeout);
-        showErr(true);
+        clearTimeout(slowTimer);
+        fail(true);
       }
     });
 
@@ -260,15 +292,20 @@
       if (!confirm("Régénérer le jeton ?\n\nTous les liens contenant l'ancien jeton cesseront de fonctionner. Vous devrez re-partager le nouveau lien aux utilisateurs autorisés.")) {
         return;
       }
+      const slowTimer = setTimeout(alert.showSlow, SLOW_MS);
       try {
         const r = await fetch('/settings/source-token/regenerate', {
           method: 'POST', credentials: 'same-origin',
         });
-        if (!r.ok) { showErr(false); return; }
+        clearTimeout(slowTimer);
+        if (!r.ok) { fail(false); return; }
         const data = await r.json();
         setToken(data.token || '');
         showOk();
-      } catch (_) { showErr(false); }
+      } catch (_) {
+        clearTimeout(slowTimer);
+        fail(false);
+      }
     });
   }
 

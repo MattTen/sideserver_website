@@ -403,6 +403,17 @@ table.data .mono-sm { font-family: var(--mono); font-size: 12px; color: var(--te
 .alert-dismissible {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .alert-close {
   background: none; border: none; color: inherit; cursor: pointer;
   font-size: 20px; line-height: 1; padding: 0 4px;
