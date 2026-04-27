@@ -55,7 +55,11 @@ TARGET_DIR="/opt/ipaserver"
 echo "[bootstrap] Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gnupg rsync git
+# qemu-user-static + binfmt-support : requis sur les hotes ARM64 (Oracle
+# Ampere) pour executer les binaires x86_64 du builder SCInsta (toolchain
+# L1ghtmann + ipapatch ne sont pas distribues en arm64). Sur un hote x86_64
+# c'est inutile mais inoffensif. apt resout les deps automatiquement.
+apt-get install -y ca-certificates curl gnupg rsync git qemu-user-static binfmt-support
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[bootstrap] Installing Docker..."
