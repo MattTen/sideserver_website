@@ -39,6 +39,7 @@ import datetime as dt
 import json
 import logging
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -607,30 +608,62 @@ def upload_instagram_ipa(stream, total_size_hint: Optional[int] = None) -> Path:
     return final
 
 
+# ── Telechargement async avec suivi de progression ──────────────────────────
+# L'UI poll /scinsta/upload-url-progress pendant le download pour afficher les
+# octets recus (et le total si le serveur l'a envoye). Etat en RAM, suffisant
+# pour un seul worker uvicorn (workers=1 dans le Dockerfile).
+
+_url_download_lock = threading.Lock()
+_url_download_state: dict = {
+    "status": "idle",          # idle | downloading | done | error
+    "bytes_downloaded": 0,
+    "bytes_total": 0,           # 0 si Content-Length absent (chunked)
+    "error": None,
+    "started_at": None,
+    "completed_at": None,
+}
+
+
+def get_url_download_state() -> dict:
+    with _url_download_lock:
+        return dict(_url_download_state)
+
+
+def _set_url_download_state(**kwargs) -> None:
+    with _url_download_lock:
+        _url_download_state.update(kwargs)
+
+
 def download_instagram_ipa_from_url(url: str) -> Path:
     """Telecharge un IPA depuis une URL HTTP(S) et le pose au meme endroit
     que l'upload direct. Meme dance temp + rename atomique.
 
-    On utilise curl_cffi si dispo (certains CDN font du fingerprinting),
-    fallback urllib sinon. Timeout large (300s) : un IPA de 300 Mo sur un
-    CDN lent prend quelques minutes.
+    Met a jour `_url_download_state` au fur et a mesure pour permettre
+    l'affichage en direct cote UI. On utilise curl_cffi si dispo (certains CDN
+    font du fingerprinting), fallback urllib sinon. Timeout large (600s) : un
+    IPA de 300 Mo sur un CDN lent prend quelques minutes.
     """
     Config.IPASTORE_ETC.mkdir(parents=True, exist_ok=True)
     final = _upload_file()
     tmp = final.with_suffix(".ipa.tmp")
 
+    downloaded = 0
+    chunk_size = 1 * 1024 * 1024  # 1 Mo : assez petit pour rafraichir l'UI souvent
+
     try:
         from curl_cffi import requests as cffi_requests  # type: ignore
-        # curl_cffi.Response n'implemente pas le context manager protocol --
-        # on close() explicitement dans le finally.
-        resp = cffi_requests.get(url, impersonate="chrome", timeout=300, stream=True)
+        resp = cffi_requests.get(url, impersonate="chrome", timeout=600, stream=True)
         try:
             if resp.status_code != 200:
                 raise RuntimeError(f"HTTP {resp.status_code}")
+            total = int(resp.headers.get("content-length") or 0)
+            _set_url_download_state(bytes_total=total)
             with tmp.open("wb") as f:
-                for chunk in resp.iter_content(8 * 1024 * 1024):
+                for chunk in resp.iter_content(chunk_size):
                     if chunk:
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        _set_url_download_state(bytes_downloaded=downloaded)
         finally:
             resp.close()
     except ImportError:
@@ -644,19 +677,53 @@ def download_instagram_ipa_from_url(url: str) -> Path:
                 ),
             },
         )
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=600) as resp:
             if resp.status != 200:
                 tmp.unlink(missing_ok=True)
                 raise RuntimeError(f"HTTP {resp.status}")
+            total = int(resp.headers.get("content-length") or 0)
+            _set_url_download_state(bytes_total=total)
             with tmp.open("wb") as f:
                 while True:
-                    chunk = resp.read(8 * 1024 * 1024)
+                    chunk = resp.read(chunk_size)
                     if not chunk:
                         break
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    _set_url_download_state(bytes_downloaded=downloaded)
 
     tmp.replace(final)
     return final
+
+
+def run_url_download_async(url: str) -> None:
+    """Lance le download dans un thread dedie. La route POST retourne
+    immediatement et l'UI suit via /scinsta/upload-url-progress.
+    """
+    def _runner() -> None:
+        _set_url_download_state(
+            status="downloading",
+            bytes_downloaded=0,
+            bytes_total=0,
+            error=None,
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            completed_at=None,
+        )
+        try:
+            download_instagram_ipa_from_url(url)
+            _set_url_download_state(
+                status="done",
+                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("scinsta URL download failed: %s", e)
+            _set_url_download_state(
+                status="error",
+                error=str(e),
+                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 def clear_upload() -> None:
