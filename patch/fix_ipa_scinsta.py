@@ -121,11 +121,27 @@ def patch(ipa_path):
                     print(f"    SKIP {os.path.relpath(p, app_bundle)}: {e}")
         print(f"[+] {n} binaires patches")
 
-        tmp_ipa = os.path.join(workdir, 'out.ipa')
+        # On ecrit le temp IPA dans le MEME dir que la destination pour que
+        # os.replace soit atomique (rename(2) sans cross-device fallback) ET
+        # qu'il puisse overwrite un fichier dont on n'est pas owner -- seul
+        # le parent dir doit etre writable. Sans ca, sur les builds
+        # precedents (scinsta-builder en root, web-app en uid ipastore), le
+        # patch echouait avec PermissionError sur shutil.move.
+        out_dir = os.path.dirname(ipa_path) or '.'
+        tmp_fd, tmp_ipa = tempfile.mkstemp(
+            prefix='.fix-ipa-scinsta-', suffix='.ipa.tmp', dir=out_dir,
+        )
+        os.close(tmp_fd)
         print(f"[+] repack...")
-        repack_ipa(extract_dir, tmp_ipa)
-
-        shutil.move(tmp_ipa, ipa_path)
+        try:
+            repack_ipa(extract_dir, tmp_ipa)
+            os.replace(tmp_ipa, ipa_path)
+        except Exception:
+            try:
+                os.unlink(tmp_ipa)
+            except OSError:
+                pass
+            raise
         print(f"[+] remplace en place: {ipa_path}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
