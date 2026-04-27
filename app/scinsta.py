@@ -621,13 +621,18 @@ def download_instagram_ipa_from_url(url: str) -> Path:
 
     try:
         from curl_cffi import requests as cffi_requests  # type: ignore
-        with cffi_requests.get(url, impersonate="chrome", timeout=300, stream=True) as resp:
+        # curl_cffi.Response n'implemente pas le context manager protocol --
+        # on close() explicitement dans le finally.
+        resp = cffi_requests.get(url, impersonate="chrome", timeout=300, stream=True)
+        try:
             if resp.status_code != 200:
                 raise RuntimeError(f"HTTP {resp.status_code}")
             with tmp.open("wb") as f:
                 for chunk in resp.iter_content(8 * 1024 * 1024):
                     if chunk:
                         f.write(chunk)
+        finally:
+            resp.close()
     except ImportError:
         req = urllib.request.Request(
             url,
