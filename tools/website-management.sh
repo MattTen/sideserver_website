@@ -579,12 +579,33 @@ cmd_scinsta_build() {
   : > "$log_file"
   exec > >(tee -a "$log_file") 2>&1
 
+  # L'image est amd64-only (toolchain iOS + ipapatch pas distribues en arm64).
+  # Sur un hote ARM64, on force la plateforme amd64 -> Docker passe par
+  # qemu-user-static (installe par bootstrap) pour emuler les binaires x86_64.
+  # Sur amd64, build natif sans surcouche.
+  local host_arch
+  host_arch="$(uname -m)"
+  local platform_args=()
+  case "$host_arch" in
+    x86_64|amd64)
+      info "Hote amd64 detecte -> build natif sans emulation"
+      ;;
+    aarch64|arm64)
+      info "Hote ARM64 detecte -> build amd64 via qemu (--platform=linux/amd64)"
+      platform_args=(--platform=linux/amd64)
+      ;;
+    *)
+      err "Architecture hote non supportee : $host_arch (attendu: x86_64 ou aarch64)"
+      exit 1
+      ;;
+  esac
+
   info "Build image Docker $SCINSTA_BUILDER_IMAGE"
-  docker build --progress=plain -t "$SCINSTA_BUILDER_IMAGE" "$dir"
+  docker build --progress=plain "${platform_args[@]}" -t "$SCINSTA_BUILDER_IMAGE" "$dir"
 
   local cname="scinsta-builder-${env}"
   info "Run scinsta-builder env=$env (container=$cname)"
-  docker run --rm --name "$cname" \
+  docker run --rm --name "$cname" "${platform_args[@]}" \
     -e IPASTORE_ENV="$env" \
     -v /etc/ipastore:/etc/ipastore \
     -v "${STORE_DIR}:/srv/store" \

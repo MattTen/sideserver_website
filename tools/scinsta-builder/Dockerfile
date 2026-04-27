@@ -11,12 +11,12 @@
 # L'image est volontairement grosse (Theos + SDK + clang) : c'est un outil de
 # build non execute en continu, rebuild uniquement quand la pipeline evolue.
 
-# --platform=linux/amd64 force toute l'image en x86_64. Necessaire car la
-# toolchain L1ghtmann (iOSToolchain) et ipapatch ne sont distribues qu'en
-# amd64. Sur un hote ARM64 (Oracle Ampere), l'execution passe par
-# qemu-user-static : ~3-4x plus lent au build mais transparent. Sur un hote
-# amd64, aucune emulation -- le flag est no-op.
-FROM --platform=linux/amd64 debian:bookworm-slim
+# Image construite uniquement en amd64 : la toolchain L1ghtmann (iOSToolchain)
+# et ipapatch ne sont pas distribues en arm64. La selection de la plateforme
+# est faite en amont par website-management.sh (qui passe --platform=linux/amd64
+# explicitement uniquement quand l'hote est ARM64) -- pas de hardcode ici pour
+# permettre le build natif sur un hote amd64 sans surcharge.
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
