@@ -607,6 +607,53 @@ def upload_instagram_ipa(stream, total_size_hint: Optional[int] = None) -> Path:
     return final
 
 
+def download_instagram_ipa_from_url(url: str) -> Path:
+    """Telecharge un IPA depuis une URL HTTP(S) et le pose au meme endroit
+    que l'upload direct. Meme dance temp + rename atomique.
+
+    On utilise curl_cffi si dispo (certains CDN font du fingerprinting),
+    fallback urllib sinon. Timeout large (300s) : un IPA de 300 Mo sur un
+    CDN lent prend quelques minutes.
+    """
+    Config.IPASTORE_ETC.mkdir(parents=True, exist_ok=True)
+    final = _upload_file()
+    tmp = final.with_suffix(".ipa.tmp")
+
+    try:
+        from curl_cffi import requests as cffi_requests  # type: ignore
+        with cffi_requests.get(url, impersonate="chrome", timeout=300, stream=True) as resp:
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}")
+            with tmp.open("wb") as f:
+                for chunk in resp.iter_content(8 * 1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+    except ImportError:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            if resp.status != 200:
+                tmp.unlink(missing_ok=True)
+                raise RuntimeError(f"HTTP {resp.status}")
+            with tmp.open("wb") as f:
+                while True:
+                    chunk = resp.read(8 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+
+    tmp.replace(final)
+    return final
+
+
 def clear_upload() -> None:
     _upload_file().unlink(missing_ok=True)
 
