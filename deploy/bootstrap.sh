@@ -309,9 +309,8 @@ StandardOutput=journal
 StandardError=journal
 # Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min en natif amd64.
 # Sur hote ARM64, qemu-user-static emule x86_64 et ralentit le build d'un
-# facteur 3-4 -- on prevoit large pour ne pas se faire couper en plein build
-# (FLEX + SCInsta + ipapatch peuvent depasser 1h sous emulation).
-TimeoutStartSec=7200
+# facteur 3-4 -- 1h couvre largement FLEX + SCInsta + ipapatch sous emulation.
+TimeoutStartSec=3600
 EOF
 
 cat > /etc/systemd/system/ipastore-scinsta-cancel@.path <<EOF
