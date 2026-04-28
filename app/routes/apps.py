@@ -2,24 +2,31 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 import shutil
 import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_user
 from ..categories import get_categories
 from ..config import Config
-from ..db import get_db
+from ..db import _get_session_factory, get_db
 from ..ipa import parse_ipa, sha256_of_file
 from ..models import App, User, Version
 from ..templates import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -189,6 +196,199 @@ async def apps_upload(
         raise
 
     return RedirectResponse(f"/apps/{app.bundle_id}", status_code=303)
+
+
+# ── Upload depuis une URL directe (background + polling) ───────────────────
+# Meme pattern que /scinsta/upload-url : le serveur fait le GET (evite la
+# limite Cloudflare 100 Mo cote upload client) et l'UI poll la progression
+# pendant le download. Etat en RAM, suffisant pour un seul worker uvicorn.
+
+_apps_url_dl_lock = threading.Lock()
+_apps_url_dl_state: dict = {
+    "status": "idle",          # idle | downloading | processing | done | error
+    "bytes_downloaded": 0,
+    "bytes_total": 0,
+    "error": None,
+    "started_at": None,
+    "completed_at": None,
+    "redirect_url": None,       # /apps/{bundle_id} a la fin pour que l'UI redirige
+}
+
+
+def _get_apps_url_dl_state() -> dict:
+    with _apps_url_dl_lock:
+        return dict(_apps_url_dl_state)
+
+
+def _set_apps_url_dl_state(**kwargs) -> None:
+    with _apps_url_dl_lock:
+        _apps_url_dl_state.update(kwargs)
+
+
+def _stream_url_to_path(url: str, target: Path) -> None:
+    """Telecharge `url` vers `target` en mettant a jour la progression.
+
+    curl_cffi prioritaire (TLS impersonation Chrome -- certains CDN refusent
+    les UA Python par defaut), fallback urllib si dep absente.
+    """
+    chunk_size = 1 * 1024 * 1024
+    downloaded = 0
+    try:
+        from curl_cffi import requests as cffi_requests  # type: ignore
+        resp = cffi_requests.get(url, impersonate="chrome", timeout=600, stream=True)
+        try:
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}")
+            total = int(resp.headers.get("content-length") or 0)
+            _set_apps_url_dl_state(bytes_total=total)
+            with target.open("wb") as f:
+                for chunk in resp.iter_content(chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        _set_apps_url_dl_state(bytes_downloaded=downloaded)
+        finally:
+            resp.close()
+    except ImportError:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )},
+        )
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"HTTP {resp.status}")
+            total = int(resp.headers.get("content-length") or 0)
+            _set_apps_url_dl_state(bytes_total=total)
+            with target.open("wb") as f:
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    _set_apps_url_dl_state(bytes_downloaded=downloaded)
+
+
+def _process_downloaded_ipa(tmp_path: Path) -> str:
+    """Parse l'IPA, cree App + Version en BDD, deplace vers IPAS_DIR.
+
+    Le thread n'a pas de session FastAPI (dependances request-scoped) -- on
+    ouvre la session via la factory directement.
+    Retourne le bundle_id pour la redirection UI.
+    """
+    db = _get_session_factory()()
+    try:
+        info = parse_ipa(tmp_path)
+        if info is None:
+            raise RuntimeError("IPA invalide : Info.plist introuvable")
+
+        app = db.query(App).filter_by(bundle_id=info.bundle_id).one_or_none()
+        if app is None:
+            app = App(bundle_id=info.bundle_id, name=info.name)
+            db.add(app)
+            db.flush()
+
+        existing = db.query(Version).filter_by(
+            app_id=app.id, version=info.version, build_version=info.build_version,
+        ).one_or_none()
+        if existing is not None:
+            raise RuntimeError(
+                f"Version {info.version} build {info.build_version} déjà présente"
+            )
+
+        final_name = _safe_filename(info.bundle_id, info.version, info.build_version)
+        final_path = Config.IPAS_DIR / final_name
+        tmp_path.replace(final_path)
+
+        sha = sha256_of_file(final_path)
+        size = final_path.stat().st_size
+
+        if info.icon_bytes and not app.icon_path:
+            app.icon_path = _save_icon(info.icon_bytes, info.bundle_id)
+
+        version = Version(
+            app_id=app.id,
+            ipa_filename=final_name,
+            version=info.version,
+            build_version=info.build_version,
+            size=size,
+            sha256=sha,
+            min_os_version=info.min_os_version,
+        )
+        db.add(version)
+        db.commit()
+        return info.bundle_id
+    finally:
+        db.close()
+
+
+def _run_apps_url_download_async(url: str) -> None:
+    """Lance le download + integration BDD dans un thread dedie."""
+    def _runner() -> None:
+        _set_apps_url_dl_state(
+            status="downloading",
+            bytes_downloaded=0,
+            bytes_total=0,
+            error=None,
+            redirect_url=None,
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            completed_at=None,
+        )
+        # Tempfile dans STORE_DIR pour rester sur le meme filesystem que
+        # IPAS_DIR (rename atomique sans cross-device fallback).
+        tmp_handle = tempfile.NamedTemporaryFile(
+            dir=Config.STORE_DIR, prefix=".upload-url-", suffix=".ipa", delete=False,
+        )
+        tmp_handle.close()
+        tmp_path = Path(tmp_handle.name)
+        try:
+            _stream_url_to_path(url, tmp_path)
+            _set_apps_url_dl_state(status="processing")
+            bundle_id = _process_downloaded_ipa(tmp_path)
+            _set_apps_url_dl_state(
+                status="done",
+                redirect_url=f"/apps/{bundle_id}",
+                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("apps URL download failed: %s", e)
+            tmp_path.unlink(missing_ok=True)
+            _set_apps_url_dl_state(
+                status="error",
+                error=str(e),
+                completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+@router.post("/apps/upload-url")
+def apps_upload_url(
+    url: str = Form(...),
+    user: User = Depends(require_user),
+):
+    """Lance le telechargement d'un IPA depuis une URL en background.
+
+    Retourne 202 immediatement -- l'UI poll /apps/upload-url-progress pour
+    afficher l'avancement et recuperer redirect_url a la fin."""
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL http(s) requise")
+    state = _get_apps_url_dl_state()
+    if state["status"] in ("downloading", "processing"):
+        raise HTTPException(status_code=409, detail="Un téléchargement est déjà en cours")
+    _run_apps_url_download_async(url)
+    return JSONResponse({"ok": True}, status_code=202)
+
+
+@router.get("/apps/upload-url-progress")
+def apps_upload_url_progress(user: User = Depends(require_user)):
+    """Etat courant du telechargement URL (poll par l'UI toutes les ~1s)."""
+    return JSONResponse(_get_apps_url_dl_state())
 
 
 @router.get("/apps/{bundle_id}")

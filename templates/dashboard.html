@@ -57,6 +57,12 @@
         </button>
       </div>
     </form>
+
+    <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+      <input type="url" class="input" id="apps-url-input" style="flex:1; min-width:0;" placeholder="…ou coller l'URL directe d'un IPA">
+      <button type="button" class="btn" id="apps-url-btn">Télécharger</button>
+    </div>
+    <div id="apps-url-msg" style="display:none; margin-top:10px;"></div>
   </div>
 
   <div class="card">
@@ -135,4 +141,110 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+(function() {
+  const urlInput = document.getElementById('apps-url-input');
+  const urlBtn = document.getElementById('apps-url-btn');
+  const msgEl = document.getElementById('apps-url-msg');
+  if (!urlInput || !urlBtn || !msgEl) return;
+
+  const STYLES = {
+    success: { bg: 'rgba(126,179,138,0.12)', border: 'var(--success)', color: '#9dcfa7' },
+    warning: { bg: 'rgba(234,179,8,0.10)',   border: '#ca8a04',        color: '#fbbf24' },
+    error:   { bg: 'var(--danger-soft)',      border: 'var(--danger)',  color: '#e89d91' },
+  };
+  function setMsg(text, kind) {
+    if (!text) { msgEl.style.display = 'none'; msgEl.textContent = ''; return; }
+    const s = STYLES[kind || 'success'];
+    msgEl.style.cssText = `display:block; margin-top:10px; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    msgEl.textContent = text;
+  }
+
+  function bytesToMb(n) { return (n / 1024 / 1024).toFixed(1) + ' Mo'; }
+
+  function progressLabel(s) {
+    const dl = bytesToMb(s.bytes_downloaded || 0);
+    if (s.bytes_total) {
+      const total = bytesToMb(s.bytes_total);
+      const pct = ((s.bytes_downloaded / s.bytes_total) * 100).toFixed(1);
+      return `Téléchargement : ${dl} / ${total} (${pct} %)`;
+    }
+    return `Téléchargement : ${dl} reçus…`;
+  }
+
+  async function poll(originalText) {
+    try {
+      const r = await fetch('/apps/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading') {
+        setMsg(progressLabel(s), 'warning');
+        setTimeout(() => poll(originalText), 1000);
+      } else if (s.status === 'processing') {
+        setMsg('Traitement de l\'IPA (extraction métadonnées + DB)…', 'warning');
+        setTimeout(() => poll(originalText), 1000);
+      } else if (s.status === 'done') {
+        setMsg('IPA importée. Redirection…', 'success');
+        if (s.redirect_url) {
+          window.location.href = s.redirect_url;
+        } else {
+          window.location.reload();
+        }
+      } else if (s.status === 'error') {
+        setMsg('Échec : ' + (s.error || 'erreur inconnue'), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      } else {
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      }
+    } catch (e) {
+      setTimeout(() => poll(originalText), 2000);
+    }
+  }
+
+  urlBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setMsg('URL http(s) requise.', 'error');
+      return;
+    }
+    urlBtn.disabled = true;
+    const originalText = urlBtn.textContent;
+    urlBtn.textContent = 'Téléchargement…';
+    setMsg('Initialisation du téléchargement…', 'warning');
+    try {
+      const fd = new FormData();
+      fd.append('url', url);
+      const res = await fetch('/apps/upload-url', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMsg('Échec : ' + (data.detail || ('HTTP ' + res.status)), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+        return;
+      }
+    } catch (e) {
+      setMsg('Erreur réseau : ' + e.message, 'error');
+      urlBtn.disabled = false;
+      urlBtn.textContent = originalText;
+      return;
+    }
+    setTimeout(() => poll(originalText), 300);
+  });
+
+  // Reprise auto si on recharge la page pendant un download en cours
+  (async () => {
+    try {
+      const r = await fetch('/apps/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading' || s.status === 'processing') {
+        urlBtn.disabled = true;
+        urlBtn.textContent = 'Téléchargement…';
+        poll('Télécharger');
+      }
+    } catch (_) { /* ignore */ }
+  })();
+})();
+</script>
 {% endblock %}
