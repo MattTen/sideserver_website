@@ -102,9 +102,16 @@ def _stream_upload_to_tmp(upload: UploadFile) -> Path:
 
 
 def _save_icon(icon_bytes: bytes, bundle_id: str) -> str:
-    """Save icon PNG and return the basename."""
+    """Save icon PNG and return the basename.
+
+    Le nom embarque un token aleatoire pour invalider le cache HTTP du
+    navigateur ET de SideStore : sans ca, /icons/<bundle_id>.png reste
+    cache cote client meme apres remplacement du fichier cote serveur.
+    Le caller doit supprimer l'ancien `app.icon_path` avant d'appeler
+    cette fonction pour eviter d'accumuler les fichiers orphelins.
+    """
     safe = _SAFE_NAME.sub("-", bundle_id)
-    filename = f"{safe}.png"
+    filename = f"{safe}-{secrets.token_hex(6)}.png"
     (Config.ICONS_DIR / filename).write_bytes(icon_bytes)
     return filename
 
@@ -460,6 +467,12 @@ async def app_icon(
     data = await icon.read()
     if not data:
         raise HTTPException(status_code=400, detail="Icône vide")
+    # Supprime l'ancien fichier avant d'ecrire le nouveau (evite que ICONS_DIR
+    # se remplisse de fichiers orphelins, vu que le nom porte maintenant un
+    # token et change a chaque upload).
+    old_icon = app.icon_path
+    if old_icon:
+        (Config.ICONS_DIR / old_icon).unlink(missing_ok=True)
     app.icon_path = _save_icon(data, bundle_id)
     db.commit()
     return RedirectResponse(f"/apps/{bundle_id}", status_code=303)
