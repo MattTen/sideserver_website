@@ -40,12 +40,33 @@ def _find_app_dir(zf: zipfile.ZipFile) -> Optional[str]:
     return None
 
 
+def _is_standard_png(data: bytes) -> bool:
+    """Filtre les PNG qui peuvent etre rendus par un navigateur desktop.
+
+    Xcode optimise les icones d'app iOS en format Apple "CgBI" (BGR au lieu
+    de RGB + chunk 'CgBI' ajoute avant IHDR). Ces PNG sont valides cote iOS
+    (SideStore les rend nativement) mais Firefox/Chrome/Safari desktop les
+    affichent en image cassee ou vide. On les detecte pour skipper et
+    essayer un autre candidat ou retomber sur l'icone par defaut.
+
+    Standard PNG : magic + chunk IHDR en premier.
+    CgBI PNG     : magic + chunk CgBI + chunk IHDR.
+    """
+    if len(data) < 16:
+        return False
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        return False
+    return data[12:16] == b'IHDR'
+
+
 def _extract_icon(zf: zipfile.ZipFile, app_dir: str, plist: dict) -> Optional[bytes]:
     """Extraction best-effort de l'icône principale.
 
     Stratégie : d'abord les noms déclarés dans CFBundleIcons > CFBundlePrimaryIcon
     (avec suffixes @3x, @2x, .png), puis une liste de noms génériques courants
-    dans les IPA modernes et anciens. Retourne les bytes du premier fichier trouvé.
+    dans les IPA modernes et anciens. On skipe les fichiers en format Apple
+    CgBI (illisibles cote desktop) pour essayer un candidat alternatif.
+    Retourne None si aucun candidat n'est un PNG standard.
     """
     candidates: list[str] = []
 
@@ -78,9 +99,15 @@ def _extract_icon(zf: zipfile.ZipFile, app_dir: str, plist: dict) -> Optional[by
         for n in names:
             if n.startswith(app_dir) and n.endswith(c):
                 try:
-                    return zf.read(n)
+                    data = zf.read(n)
                 except KeyError:
                     continue
+                if _is_standard_png(data):
+                    return data
+                # Pas un PNG standard (probablement CgBI iOS) -- on continue
+                # a chercher un autre candidat. Si tout est CgBI, on retourne
+                # None et l'admin uploadera l'icone manuellement.
+                break
     return None
 
 
