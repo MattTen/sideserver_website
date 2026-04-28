@@ -17,11 +17,8 @@
 </div>
 
 <div class="app-detail-head">
-  {% if app.icon_path %}
-  <img src="/icons/{{ app.icon_path }}" class="app-icon app-icon-xl" alt="">
-  {% else %}
-  <div class="app-icon app-icon-xl"></div>
-  {% endif %}
+  <img src="{% if app.icon_path %}/icons/{{ app.icon_path }}{% else %}/static/default-app.png{% endif %}" class="app-icon app-icon-xl" alt="">
+
   <div>
     <h2 class="title">{{ app.name }}</h2>
     <div class="dev">{{ app.developer_name }}{% if app.subtitle %} — {{ app.subtitle }}{% endif %}</div>

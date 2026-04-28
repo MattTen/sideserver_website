@@ -109,11 +109,8 @@
         <tr>
           <td>
             <div class="app-cell">
-              {% if app.icon_path %}
-              <img src="/icons/{{ app.icon_path }}" class="app-icon" alt="">
-              {% else %}
-              <div class="app-icon"></div>
-              {% endif %}
+              <img src="{% if app.icon_path %}/icons/{{ app.icon_path }}{% else %}/static/default-app.png{% endif %}" class="app-icon" alt="">
+
               <div>
                 <div>{{ app.name }}</div>
                 <div class="mono-sm">{{ app.bundle_id }}</div>
