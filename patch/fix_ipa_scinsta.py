@@ -135,6 +135,10 @@ def patch(ipa_path):
         print(f"[+] repack...")
         try:
             repack_ipa(extract_dir, tmp_ipa)
+            # mkstemp cree en 0600. On rend lisible par tous les uid du
+            # conteneur web (static file serving, parse_ipa via docker exec
+            # avec uid different, etc.). 0644 = rw-r--r--.
+            os.chmod(tmp_ipa, 0o644)
             os.replace(tmp_ipa, ipa_path)
         except Exception:
             try:
