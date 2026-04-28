@@ -305,6 +305,10 @@ Group=${APP_GROUP}
 # Le flag est lu PUIS supprime par build.py (read_flag_payload) : ne PAS le
 # supprimer ici sinon le payload JSON est perdu avant lecture.
 ExecStart=/usr/local/bin/website-management %i-scinsta-build
+# Safety net : si systemd SIGKILL le processus (timeout depasse, le trap
+# bash dans cmd_scinsta_build n'aura pas tourne), on supprime les flags
+# residuels pour que le path unit puisse re-trigger au prochain build.
+ExecStopPost=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i /etc/ipastore/scinsta-build-cancel-%i
 StandardOutput=journal
 StandardError=journal
 # Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min en natif amd64.

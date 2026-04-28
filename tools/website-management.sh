@@ -574,6 +574,17 @@ cmd_scinsta_build() {
   local dir="$APP_DIR/tools/scinsta-builder"
   [[ -d "$dir" ]] || { err "Builder introuvable : $dir (relance 'update' ?)"; exit 1; }
 
+  # Cleanup automatique des flags peu importe comment le script sort :
+  # success, set -e exit, kill systemd (timeout 2h), SIGTERM/SIGKILL...
+  # Sans ca, un docker build foire laissait scinsta-build-requested-${env}
+  # sur disque et le PathExists= du systemd path unit ne retriggerait plus
+  # (transition absent->present requise).
+  # build.py unlinke deja le request flag des qu'il l'a lu cote conteneur,
+  # donc le trap ne fait rien en path nominal -- il sert de safety net.
+  local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
+  local cancel_flag="/etc/ipastore/scinsta-build-cancel-${env}"
+  trap 'rm -f "$req_flag" "$cancel_flag"' EXIT
+
   # Tee toute la sortie vers le fichier log poll par l'UI.
   local log_file="/etc/ipastore/scinsta-build-log-${env}.txt"
   : > "$log_file"
