@@ -64,20 +64,68 @@ curl -sSL https://raw.githubusercontent.com/MattTen/sideserver_website/refs/head
 
 ### Premier lancement
 
-1. Ouvrir `http://<IP_VM>/` → redirection automatique vers `/setup/database` pour saisir la connexion MySQL/MariaDB (host/port/user/password/database)
+1. Ouvrir `http://<IP_VM>:8000/` → redirection automatique vers `/setup/database` pour saisir la connexion MySQL/MariaDB (host/port/user/password/database)
 2. Puis `/setup` pour créer le compte admin
 
 > **Note SSH** : le bootstrap ajoute le user applicatif au groupe `docker`, mais les sessions SSH ouvertes **avant** le bootstrap ne voient pas le nouveau groupe. Reconnecte-toi (`exit` + `ssh`) ou lance `newgrp docker` pour utiliser `docker` sans sudo.
+
+### Architecture ARM64
+
+Le bootstrap détecte `uname -m` et installe `qemu-user-static` + `binfmt-support` sur les hôtes ARM64 (Oracle Ampere, Raspberry Pi…). Le builder SCInsta (toolchain iOS L1ghtmann + ipapatch, distribués uniquement en amd64) tourne alors en émulation x86_64 transparente. Sur amd64 le bootstrap saute cet install (qemu inutile). Aucune intervention manuelle.
+
+## Exposition publique (HTTPS)
+
+Le conteneur écoute sur `HOST_PORT` (défaut `8000`). Trois options pour le rendre accessible en HTTPS :
+
+### Cloudflare Tunnel (recommandé pour la prod)
+
+`cloudflared` se connecte en **sortant** vers Cloudflare (pas de port entrant à ouvrir, IP serveur masquée, pas de limite d'upload contrairement au proxy DNS classique limité à 100 Mo sur le plan Free). Setup :
+
+1. `curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-<arch>.deb -o cf.deb && sudo dpkg -i cf.deb`
+2. `cloudflared tunnel login` → autorise ton domaine
+3. `cloudflared tunnel create ipastore`
+4. Config `/etc/cloudflared/config.yml` :
+   ```yaml
+   tunnel: <UUID>
+   credentials-file: /etc/cloudflared/<UUID>.json
+   ingress:
+     - hostname: ipastore.<ton-domaine>
+       service: http://127.0.0.1:8000   # ou via HAProxy:80 si tu en utilises un
+       originRequest:
+         httpHostHeader: ipastore.<ton-domaine>
+     - service: http_status:404
+   ```
+5. `cloudflared tunnel route dns ipastore ipastore.<ton-domaine>` → crée le CNAME automatiquement
+6. `sudo cloudflared service install && sudo systemctl enable --now cloudflared`
+
+> **Oracle Cloud / autres clouds avec firewall strict** : ouvrir l'**egress** UDP/TCP vers `7844` (et idéalement *all protocols* en sortie). cloudflared négocie en QUIC (UDP) avec fallback HTTP/2 (TCP). Sans ouverture, le tunnel échoue silencieusement.
+
+### Reverse proxy local (HAProxy / nginx / Caddy)
+
+Bind le proxy sur `127.0.0.1:80`, route le vhost vers `127.0.0.1:8000` (le conteneur). Healthcheck applicatif via `GET /healthz`. Si tu mets cloudflared **devant** ton reverse proxy, garde le bind interne (`127.0.0.1`) — pas d'exposition publique nécessaire.
+
+### Direct (déconseillé en prod)
+
+Ouvre `HOST_PORT` sur ton firewall + cert SSL géré par un reverse proxy local. Expose ton IP publique au scraping.
 
 ## Intégration SideStore
 
 Dans SideStore (iOS) → Sources → Ajouter :
 
 ```
-http://<IP_VM>/source.json
+https://ipastore.<ton-domaine>/source.json
 ```
 
 Le feed `source.json` utilise l'URL publique de la requête (ou `IPASTORE_BASE_URL` si défini) pour générer les `downloadURL`, `iconURL` etc. — SideStore effectuant des requêtes HTTP indépendantes depuis l'app iOS, des chemins relatifs ne suffisent pas.
+
+## Upload des IPAs
+
+Deux options dans l'UI admin :
+
+- **Drag-and-drop** dans la dropzone du dashboard → upload XHR direct depuis le navigateur. Sujet à la limite Cloudflare 100 Mo si proxy DNS orange (passe sans souci via Tunnel).
+- **Champ URL** (à côté de la dropzone) → le serveur télécharge depuis l'URL fournie (litterbox.catbox.moe, 0x0.st, n'importe quel CDN HTTPS direct). Évite la limite CF côté upload client. Polling temps réel des Mo reçus.
+
+Idem dans l'onglet **SCInsta** pour l'IPA Instagram source — utile parce que les IPAs Instagram font 250-300 Mo (au-dessus de la limite CF Free).
 
 ## Sécurité : protection du dépôt
 

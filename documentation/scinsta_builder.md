@@ -37,7 +37,29 @@ Juste après Métadonnées. Affiche la note qui sera utilisée au prochain build
 - Intégré dans `integrate_build_result` : `read_changelog` retourne le texte final ; si c'est un override personnalisé, `Version.changelog` le prend verbatim ; sinon auto-génération `Instagram <v> + SCInsta`.
 
 ### Carte "1. Upload de l'IPA Instagram"
-Dropzone HTML5 (drag-and-drop ou clic) qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Une alerte "IPA prête : V{version}" s'affiche quand un upload est en attente (la version est lue depuis `CFBundleShortVersionString` de l'Info.plist), avec un bouton `Supprimer`.
+
+**Deux options** pour fournir l'IPA Instagram source :
+
+#### a) Drag-and-drop / sélection fichier
+
+Dropzone HTML5 qui streame le fichier vers `/scinsta/upload` via XHR avec barre de progression upload. Le fichier est écrit atomiquement dans `/etc/ipastore/scinsta-upload-<env>.ipa` (`.tmp` puis rename). Sujet à la **limite Cloudflare 100 Mo** sur le plan Free quand le proxy DNS est actif (l'IPA Instagram fait 250-300 Mo) — passe sans souci via Cloudflare Tunnel (cf. server.md §12.5).
+
+#### b) Champ URL (background + polling)
+
+Sous la dropzone, un champ URL + bouton "Télécharger". L'admin colle un lien direct (litterbox.catbox.moe, 0x0.st, n'importe quel CDN HTTPS) :
+
+1. `POST /scinsta/upload-url` (form `url=...`) → lance un thread daemon, retourne 202 immédiatement
+2. Le thread télécharge via `curl_cffi` (impersonation Chrome — certains CDN fingerprint les requêtes Python natives), fallback `urllib`. Stream chunks de 1 Mo dans `<final>.tmp`, met à jour `_url_download_state` (RAM, protected par `threading.Lock`)
+3. UI poll `GET /scinsta/upload-url-progress` toutes les 1s : `{status, bytes_downloaded, bytes_total, error, started_at, completed_at}`
+4. Affichage temps réel : `Téléchargement : 42 Mo / 280 Mo (15.0 %)`. Si `Content-Length` absent (chunked), juste `42 Mo reçus…`
+5. À la fin → `tmp.replace(final)` atomique → state passe à `done` → l'UI recharge `/scinsta/status` et active le bouton Build
+6. Si l'admin **recharge la page** pendant le download, le polling reprend automatiquement (lit le state RAM)
+
+**Pas de limite Cloudflare** : le download ne traverse pas le tunnel — c'est la VM qui se connecte au CDN externe. Solution propre pour les IPAs > 100 Mo.
+
+#### Affichage commun
+
+Une fois l'IPA en place (peu importe la méthode), une alerte verte "IPA prête : Instagram V{version}" s'affiche, avec un bouton `Supprimer` qui supprime `scinsta-upload-<env>.ipa` et reset l'état.
 
 ### Carte "2. Patch optionnel"
 `<select>` peuplé dynamiquement depuis les scripts auto-découverts dans `patch/` (mêmes que l'onglet Patch). Si sélectionné, le script sera appliqué par le builder **après** l'injection SCInsta.
@@ -48,6 +70,39 @@ Bouton `Builder maintenant`. Désactivé tant qu'aucun upload n'est prêt ou qu'
 Bouton `Annuler le build` (visible uniquement pendant un build, style `btn-danger`). Écrit `/etc/ipastore/scinsta-build-cancel-<env>`, déclenche le path unit `ipastore-scinsta-cancel@<env>.path` → service host-side qui `docker stop -t 2 scinsta-builder-<env>` puis écrit un `scinsta-build-result-<env>` avec status `failed` et message "Build annule par l'admin". Le watcher lifespan bascule alors le state en `failed` côté UI.
 
 > **Pourquoi `docker stop` et pas `docker kill --signal=SIGTERM`** : `build.py` est PID 1 dans le container. Le kernel Linux ignore les signaux sans handler pour PID 1 (sauf SIGKILL). SIGTERM envoyé via `docker kill --signal=SIGTERM` était donc silencieusement ignoré et le build continuait. `docker stop -t 2` envoie SIGTERM, attend 2 s, puis SIGKILL (uncatchable) — et bloque jusqu'à ce que le container soit réellement arrêté, libérant le `docker run --rm` du service de build pour qu'il se termine proprement.
+
+#### Cleanup des flag-files
+
+Le `PathExists=` systemd ne se redéclenche que sur transition **absent → présent**. Si un build foire avant que `build.py` n'unlinke le flag (docker build cassé, qemu non chargé, OOM…), le flag reste sur disque, les clics suivants depuis l'UI réécrivent le même fichier sans transition → aucun trigger.
+
+Mécanisme à 2 niveaux :
+1. **`trap` bash** dans `cmd_scinsta_build` (`tools/website-management.sh`) : `trap 'rm -f $req_flag $cancel_flag' EXIT`. Couvre 99% des sorties — succès, `set -e` exit, SIGTERM systemd cancel, fin normale.
+2. **`ExecStopPost`** dans le systemd unit `ipastore-scinsta-build@.service` : `/bin/rm -f /etc/ipastore/scinsta-build-requested-%i /etc/ipastore/scinsta-build-cancel-%i`. Catch le 1% restant (le shell est SIGKILL'd après le `final-sigterm` timeout, pas le temps d'exécuter le trap).
+
+`cmd_scinsta_cancel` supprime explicitement les deux flags après `docker stop`.
+
+**Diagnostic** si l'UI semble ne plus répondre aux clics Build :
+```bash
+sudo ls -la /etc/ipastore/scinsta-build-*           # flag residuel ?
+sudo systemctl status ipastore-scinsta-build@prod.path   # active ?
+sudo systemctl reset-failed ipastore-scinsta-build@prod.{service,path}
+sudo rm -f /etc/ipastore/scinsta-build-requested-prod   # cleanup manuel
+sudo systemctl restart ipastore-scinsta-build@prod.path
+```
+
+Et reset le state DB si bloqué sur "running" :
+```python
+sudo docker exec ipastore-website python3 -c "
+from app.db import SessionLocal
+from app.source_gen import set_setting, get_setting
+db = SessionLocal()
+if get_setting(db, 'scinsta_last_build_status', '') in ('requested', 'running'):
+    set_setting(db, 'scinsta_last_build_status', 'failed')
+    set_setting(db, 'scinsta_last_build_error', 'Build interrompu')
+    db.commit()
+db.close()
+"
+```
 
 Un `<pre>` sous le bouton affiche la **sortie temps réel** du conteneur builder (git clone, Theos, cyan, ipapatch, patch). Implémentation :
 - Côté builder (`tools/scinsta-builder/build.py`) : `_install_log_tee()` ouvre `/etc/ipastore/scinsta-build-log-<env>.txt` en line-buffered et redirige `sys.stdout`/`sys.stderr` vers un `_Tee(sys.__stdout__, fh)`. Chaque ligne arrive dans le fichier dès qu'elle est imprimée, même pendant `bash ./build.sh sideload` (qui tourne plusieurs minutes).
@@ -145,13 +200,17 @@ Validation côté route : schéma `http://` ou `https://` obligatoire, rien d'au
 | GET     | `/scinsta`            | Page principale (rendu Jinja avec state initial)             |
 | GET     | `/scinsta/status`     | État JSON (appel lors du polling pendant un build)           |
 | GET     | `/scinsta/logs?offset=N` | Delta du log builder à partir de l'offset (poll temps réel) |
+| POST    | `/scinsta/logs/clear` | Truncate le fichier log live (bouton Effacer de l'UI)        |
 | POST    | `/scinsta/check`      | Lance le check version (curl_cffi vers URL source)           |
 | POST    | `/scinsta/source`     | Met à jour `scinsta_decrypt_url` (form field `url`)          |
-| POST    | `/scinsta/upload`     | Stream l'IPA vers `scinsta-upload-<env>.ipa`                 |
+| POST    | `/scinsta/upload`     | Stream l'IPA depuis le navigateur vers `scinsta-upload-<env>.ipa` |
+| POST    | `/scinsta/upload-url` | Lance le download de l'IPA depuis une URL externe en background, retourne 202 |
+| GET     | `/scinsta/upload-url-progress` | État du download URL (`status`, `bytes_downloaded`, `bytes_total`, `error`) — poll par l'UI toutes les 1s |
 | POST    | `/scinsta/clear-upload` | Supprime l'upload en attente                               |
 | POST    | `/scinsta/build`      | Écrit le flag-file de build (form field `patch` optionnel)   |
 | POST    | `/scinsta/cancel`     | Écrit le flag-file de cancel (kill le conteneur builder)     |
-| POST    | `/scinsta/metadata/{field}` | Met à jour un champ metadata (`name`, `developer_name`, `subtitle`, `description`, `tint_color`, `category`) — App row si existe, sinon setting pending |
+| POST    | `/scinsta/dismiss-error` | Efface le `scinsta_last_build_error` (fermeture UI de l'alerte) |
+| POST    | `/scinsta/metadata/{field}` | Met à jour un champ metadata (`developer_name`, `subtitle`, `description`, `tint_color`, `category`) — App row si existe, sinon setting pending |
 | POST    | `/scinsta/changelog`  | Override persistant de la Note de version (setting `scinsta_meta_changelog`, chaîne vide = reset) |
 
 Toutes les routes (sauf l'éventuelle visite) exigent auth admin via `Depends(require_user)`.

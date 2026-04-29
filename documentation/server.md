@@ -104,6 +104,39 @@ STORE_PATH=/srv/store-prod
 
 ---
 
+## 3.5. Healthcheck Docker
+
+Le `Dockerfile` + `docker-compose.yml` définissent un HEALTHCHECK qui hit `GET /healthz` toutes les 30s :
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8000/healthz >/dev/null || exit 1
+```
+
+`/healthz` (dans `app/routes/public.py`) est **toujours ouvert** : pas de BDD, pas de jeton, retour `200 ok` plain text. La vérif BDD est volontairement exclue — pendant une coupure BDD, le handler global `OperationalError` renvoie 503 sur les routes applicatives, mais le conteneur reste healthy (pas de redémarrage agressif). Ça évite de masquer une vraie coupure BDD derrière un cycle de restart inutile.
+
+Auparavant le healthcheck tapait `/source.json`. Avec l'activation de la protection par jeton (cf. §13), `/source.json` retournait 404 sans jeton → conteneur unhealthy en boucle.
+
+---
+
+## 3.6. Robustesse côté BDD
+
+`app/db.py` configure l'engine SQLAlchemy avec :
+
+| Paramètre | Valeur | Pourquoi |
+|---|---|---|
+| `pool_pre_ping` | `True` | SELECT 1 avant chaque connexion empruntée → détecte les connexions mortes (MySQL ferme les idle après 8h `wait_timeout`) |
+| `pool_recycle` | `3600` | Renouvelle les connexions après 1h, bien sous `wait_timeout` |
+| `connect_args.connect_timeout` | `3` | Sans ça, PyMySQL attend le timeout TCP par défaut (~75s) si la BDD est injoignable, gelant l'UI |
+| `connect_args.read_timeout` | `10` | Sans ça, une requête posée sur une connexion morte (firewall qui drop sans RST, crash BDD entre 2 paquets) bloque le worker indéfiniment |
+| `connect_args.write_timeout` | `10` | Idem côté écriture |
+
+L'engine est construit **paresseusement** : à la première demande de session, pas au boot du conteneur. Permet de démarrer avant que `db.json` ne soit configuré. `reset_engine()` après `POST /setup/database` invalide l'engine pour le reconstruire avec les nouveaux credentials.
+
+Le handler global `OperationalError` (dans `app/main.py`) catch toutes les erreurs SQLAlchemy et renvoie `503 JSON {"error": "Une erreur est survenue", "detail": ...}`. L'UI affiche une alerte rouge propre au lieu de figer l'utilisateur sur un état "slow" infini.
+
+---
+
 ## 4. Script `website-management`
 
 Unique script de gestion : `/opt/ipaserver/tools/website-management.sh`, symlinké en `/usr/local/bin/website-management`. Détection mono-env via `git rev-parse --abbrev-ref HEAD`.
@@ -244,7 +277,35 @@ Activation : `systemctl enable --now ipastore-update@prod.path` (fait par le boo
 
 Logs : `journalctl -u ipastore-update@prod.service -f`.
 
-Les units SCInsta (`ipastore-scinsta-build@.{path,service}` et `ipastore-scinsta-cancel@.{path,service}`) suivent le même modèle — voir [scinsta_builder.md](scinsta_builder.md).
+### `ipastore-scinsta-build@.path` / `.service`
+
+```ini
+[Service]
+Type=oneshot
+User=<app-user>
+Group=<app-user>
+# Le flag est lu PUIS supprime par build.py (read_flag_payload), pas en
+# ExecStartPre sinon le payload JSON (patch a appliquer) est perdu.
+ExecStart=/usr/local/bin/website-management %i-scinsta-build
+# Safety net si SIGKILL (timeout 2h depasse) -- le trap bash dans
+# cmd_scinsta_build n'aura pas tourne. ExecStopPost garantit le cleanup.
+ExecStopPost=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i /etc/ipastore/scinsta-build-cancel-%i
+StandardOutput=journal
+StandardError=journal
+# Natif amd64 : 5-15 min. Sur ARM64 (qemu-user-static), facteur 3-4x ->
+# 2h couvre largement FLEX arm64 + arm64e + SCInsta + ipapatch.
+TimeoutStartSec=7200
+```
+
+Le **cleanup des flags** est essentiel : `PathExists=` ne se redéclenche que sur transition absent→présent. Si un build foire avant que `build.py` n'unlinke le flag (docker build cassé, qemu pas chargé, OOM…), le flag reste, les clics suivants depuis l'UI réécrivent le même fichier sans transition → aucun trigger. Mécanisme à 2 niveaux :
+1. `cmd_scinsta_build` dans `website-management.sh` installe `trap 'rm -f $req_flag $cancel_flag' EXIT` → couvre 99% des sorties (succès, set -e, SIGTERM)
+2. `ExecStopPost` du service catch le 1% restant (SIGKILL après timeout)
+
+### `ipastore-scinsta-cancel@.path` / `.service`
+
+Même pattern. Le service appelle `website-management %i-scinsta-cancel` qui fait `docker stop -t 2 scinsta-builder-<env>` (SIGTERM → 2s → SIGKILL) puis écrit un `scinsta-build-result-<env>` avec status `failed` et message "Build annule". `cmd_scinsta_cancel` supprime aussi le `scinsta-build-cancel-<env>` et le `scinsta-build-requested-<env>` après le stop.
+
+Voir [scinsta_builder.md](scinsta_builder.md) et [scinsta_build.md](scinsta_build.md) pour le détail.
 
 ---
 
@@ -442,6 +503,197 @@ Commandes `website-management` associées (pilotées par les path units `ipastor
 
 ---
 
+## 12.5. Exposition publique (HTTPS)
+
+Le conteneur écoute sur `HOST_PORT` (défaut `8000`, défini dans `/opt/ipaserver/.env`). Trois architectures possibles selon le contexte de la VM :
+
+### A. Cloudflare Tunnel (recommandé pour la prod)
+
+```
+[Internet] ──TLS──→ [CF edge] ──TLS tunnel──→ [cloudflared sur VM] ──HTTP loopback──→ [HAProxy ou container]
+```
+
+Le daemon `cloudflared` ouvre une connexion **sortante** vers Cloudflare en TCP/443 (QUIC en priorité, fallback HTTP/2). Aucun port entrant à ouvrir, IP serveur masquée, **aucune limite d'upload** (contrairement au proxy DNS classique limité à 100 Mo sur le plan Free).
+
+**Setup** (cf. README pour la procédure pas-à-pas) :
+1. Installer `cloudflared` (`.deb` arm64 ou amd64 selon la VM)
+2. `cloudflared tunnel login` → autorise la zone DNS
+3. `cloudflared tunnel create ipastore`
+4. Config `/etc/cloudflared/config.yml` (ingress → service local)
+5. `cloudflared tunnel route dns ipastore <hostname>` → CNAME auto
+6. `sudo cloudflared service install && sudo systemctl enable --now cloudflared`
+
+**Firewall cloud** : Oracle Cloud Security Lists (ou équivalent AWS/GCP) doivent autoriser l'**egress** TCP+UDP vers `0.0.0.0/0` (ou au moins port 7844). Sans ouverture UDP, le tunnel échoue avec `failed to dial to edge with quic: timeout`. Workaround possible : forcer HTTP/2 dans `config.yml` (`protocol: http2`), mais ouvrir l'UDP est plus propre.
+
+### B. HAProxy + Cloudflare Tunnel (multi-services sur la VM)
+
+Si la VM héberge d'autres services en plus d'IPA Store, HAProxy reste utile pour multiplexer. Conf type :
+
+```haproxy
+frontend http_front
+    bind 127.0.0.1:80
+    mode http
+    http-request deny if !{ req.hdr(Host) -m str -i ipastore.ton-domaine.fr }
+    default_backend ipastore_backend
+
+backend ipastore_backend
+    mode http
+    option httpchk GET /healthz
+    http-check expect status 200
+    server ipastore 127.0.0.1:8000 check inter 5s fall 3 rise 2
+```
+
+cloudflared pointe vers `http://127.0.0.1:80` avec `httpHostHeader: ipastore.ton-domaine.fr` pour que HAProxy retrouve son ACL. Pas de SSL termination côté HAProxy : CF s'en charge en upstream, HAProxy parle HTTP loopback.
+
+### C. Reverse proxy direct (sans tunnel)
+
+Bind public, cert Let's Encrypt local. Expose ton IP publique au scraping et au DDoS. À éviter en prod.
+
+### Chiffrement bout-en-bout
+
+| Lien | Chiffrement |
+|---|---|
+| Browser ↔ CF edge | TLS 1.3 (cert universel CF) |
+| CF edge ↔ cloudflared | TLS dans le tunnel (QUIC ou HTTP/2 + TLS) |
+| cloudflared ↔ HAProxy ↔ container | HTTP loopback (jamais sur le réseau) |
+
+CF dashboard : `SSL/TLS → Overview` doit être en **Full (strict)** (pas Flexible).
+
+---
+
+## 12.6. Multi-architecture (ARM64 / amd64)
+
+Le scinsta-builder dépend de binaires qui n'existent qu'en x86_64 :
+- Toolchain L1ghtmann iOSToolchain : seul `iOSToolchain-x86_64.tar.xz` est publié
+- ipapatch : seul `ipapatch.linux-amd64` est publié
+
+Sur un hôte ARM64 (Oracle Ampere, Raspberry Pi…), ces binaires plantent avec `Exec format error` au moment de leur exécution.
+
+**Solution** : émulation x86_64 via `qemu-user-static` + `binfmt-support`. Le bootstrap détecte `uname -m` :
+
+```bash
+case "$HOST_ARCH" in
+  aarch64|arm64)
+    echo "[bootstrap] Hote ARM64 detecte -> qemu-user-static install"
+    apt-get install -y qemu-user-static binfmt-support
+    ;;
+  x86_64|amd64)
+    echo "[bootstrap] Hote amd64 detecte -> qemu inutile"
+    ;;
+esac
+```
+
+Et `cmd_scinsta_build` dans `website-management.sh` détecte l'arch courante pour passer `--platform=linux/amd64` au `docker build` + `docker run` :
+
+```bash
+case "$(uname -m)" in
+  x86_64|amd64)
+    info "Hote amd64 -> build natif"
+    ;;
+  aarch64|arm64)
+    info "Hote ARM64 -> build amd64 via qemu (--platform=linux/amd64)"
+    platform_args=(--platform=linux/amd64)
+    ;;
+esac
+docker build "${platform_args[@]}" -t scinsta-builder:latest "$dir"
+docker run --rm "${platform_args[@]}" ... scinsta-builder:latest
+```
+
+**Coût** : sur ARM64 émulé, le build SCInsta prend ~3-4× plus de temps qu'en natif. D'où `TimeoutStartSec=7200` (2h) sur le service systemd.
+
+**Vérification que qemu fonctionne** :
+```bash
+ls /proc/sys/fs/binfmt_misc/qemu-x86_64                              # doit exister
+sudo docker run --rm --platform=linux/amd64 debian:bookworm-slim uname -m   # doit retourner x86_64
+```
+
+Si `qemu-x86_64` est absent (par ex. après un reboot où binfmt-support n'a pas redémarré), `sudo systemctl restart binfmt-support`.
+
+---
+
+## 12.7. Mécanisme d'alerte UI (slow + erreur)
+
+Tous les formulaires async (toggle indexation, toggle jeton, password, source URL, métadonnées SCInsta…) utilisent le helper partagé `wireAlertBox` dans `static/app.js`. Comportement à 3 états :
+
+1. **OK rapide** (< 1s) → check vert succès, pas d'alerte
+2. **Slow** (> 1s sans réponse) → bandeau jaune *"Cela prend plus de temps que prévu"* + spinner rotatif
+3. **Échec** (timeout TCP, 5xx, exception) → bandeau rouge *"Une erreur est survenue"* + détail si dispo
+
+Pas de hard abort côté client (le `fetch` n'a pas de `signal` AbortController). L'admin doit voir la vraie réalité du backend ; un timeout client masquerait un état "slow" persistant qui mériterait d'être debug.
+
+Côté serveur, les `OperationalError` SQLAlchemy sont catchées par un handler global et renvoyées en `503 JSON {"error": "Une erreur est survenue", "detail": ...}`. Combiné aux `connect_timeout=3 / read_timeout=10 / write_timeout=10` de PyMySQL (cf. §3.6), ça garantit qu'une BDD HS coupe la requête en max ~13s au lieu de pendre indéfiniment.
+
+---
+
+## 12.8. Upload des IPAs (dashboard + SCInsta)
+
+Deux mécanismes pour pousser un IPA dans le store :
+
+### Drag-and-drop / sélection de fichier
+
+Dropzone HTML5 dans le dashboard et l'onglet SCInsta. Stream XHR vers `/apps/upload` (resp. `/scinsta/upload`) avec barre de progression (event `xhr.upload.onprogress`). Auto-submit dès qu'un fichier est sélectionné — pas de bouton "Téléverser" séparé. Limite : la requête transite par Cloudflare ; sur le plan Free, **plafond 100 Mo**. Pour des IPAs plus gros (Instagram = 250-300 Mo), passer par l'option URL.
+
+### Upload depuis URL (background + polling)
+
+| Endpoint | Description |
+|---|---|
+| `POST /apps/upload-url` | Lance le download de l'URL fournie en background thread, retourne 202 |
+| `GET /apps/upload-url-progress` | Poll : `{status, bytes_downloaded, bytes_total, error, redirect_url}` |
+| `POST /scinsta/upload-url` | Idem côté SCInsta (l'IPA est déposée dans `scinsta-upload-<env>.ipa`) |
+| `GET /scinsta/upload-url-progress` | Poll de la progression SCInsta |
+
+Le serveur fait un `GET` direct vers l'URL via `curl_cffi` (impersonation Chrome — certains CDN fingerprint les requêtes Python natives) avec fallback urllib. Pas de limite Cloudflare puisque le download ne traverse pas le tunnel — c'est la VM qui se connecte au CDN externe.
+
+**Polling JS** (toutes les 1s) : affiche `Téléchargement : 42 Mo / 280 Mo (15.0 %)` en direct. Si l'admin recharge la page pendant un download, le polling reprend automatiquement.
+
+**Hôtes recommandés** pour l'URL :
+- `litterbox.catbox.moe` (drag-drop, 1 Go max, expire 1h-72h, lien direct)
+- `0x0.st` (curl-friendly, 512 Mo, expire selon taille)
+- `bashupload.com` (50 Go, expire 3 jours)
+
+À éviter : services qui retournent une page HTML wrapper (gofile.io, MEGA, MediaFire) — le serveur récupérerait du HTML au lieu de l'IPA.
+
+---
+
+## 12.9. Permissions des fichiers IPA
+
+Trois sources d'IPAs avec des owners/perms initiaux différents. Tous fonctionnent grâce à `os.replace` (POSIX permissive sur le parent dir) et au chmod 0644 explicite :
+
+| Source | Owner | Perms | Mécanisme |
+|---|---|---|---|
+| Upload UI Apps tab | `ipastore:ipastore` | `0600` | `tempfile.NamedTemporaryFile(dir=STORE_DIR)` → `replace` atomique |
+| Upload URL (Apps + SCInsta) | `ipastore:ipastore` | `0600` | Idem, fichier .tmp dans `STORE_DIR` |
+| Build SCInsta | `root:root` | `0644` | Le builder tourne en root → `build.py` force `chmod 0644` après `shutil.move` (sinon l'app web ne peut pas relire l'IPA root-owned 0600) |
+| Patch (`fix_ipa.py` / `fix_ipa_scinsta.py`) | inchangé | `0644` | `tempfile.mkstemp(dir=os.path.dirname(ipa_path))` → `chmod 0644` → `os.replace` ; reste sur le même filesystem (rename atomique) ; POSIX permissive permet d'overwrite un fichier dont on n'est pas owner si le parent dir est writable |
+
+`/srv/store-prod/ipas/` est `ipastore:ipastore` 755, donc tout user `ipastore` peut renommer/supprimer dedans.
+
+---
+
+## 12.10. Conversion CgBI ↔ PNG standard pour les icônes
+
+Xcode optimise les PNGs des bundles iOS au format Apple **CgBI** :
+- Chunk `CgBI` ajouté avant `IHDR`
+- IDAT compressé en raw deflate (sans header zlib) → `wbits=-15`
+- Pixels stockés en BGR(A) au lieu de RGB(A)
+- Alpha pré-multiplié
+
+Format valide pour iOS et SideStore (qui sait décoder), mais **illisible par les navigateurs desktop** : Firefox/Chrome/Safari refusent de rendre l'image (header IHDR au mauvais offset). Côté UI admin web, les icônes apparaissaient cassées / vides malgré des URLs qui répondaient 200 + content-type image/png.
+
+`_extract_icon` dans `app/ipa.py` traite ça en pur stdlib (`struct` + `zlib`) :
+1. Cherche d'abord un PNG **standard** dans le bundle (priorité maximale)
+2. Si seuls des CgBI sont disponibles : tente une **conversion**
+   - Parse les chunks, strip `CgBI`
+   - Décompresse en raw deflate, unfilter les scanlines (filtres None/Sub/Up/Average/Paeth)
+   - Swap B↔R par pixel + un-premultiply alpha (`R = R_premul * 255 / A` quand `A > 0`)
+   - Réécrit toutes les lignes avec filter=None, recompresse avec zlib standard
+   - Réassemble le PNG (CRC recalculé)
+3. Si tout échoue (format paletted/grayscale, ou pas d'icône dans le bundle) → retourne `None` → templates affichent `/static/default-app.png`
+
+Limites de la conversion : RGB et RGBA 8-bit uniquement (couvre 99% des AppIcon iOS). Paletted / grayscale / 16-bit non gérés — fallback `default-app.png` + l'admin uploade manuellement via la fiche app.
+
+---
+
 ## 13. Apparence du store (source.json)
 
 Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin remplit ces champs :
@@ -455,6 +707,33 @@ Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin 
 | `news[]`            | Actualités (nouveau menu)               | table `news` + fichiers dans `STORE_DIR/news/`   |
 
 Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalide le cache HTTP de SideStore à chaque upload — sans ça, le client garde l'ancienne image même après remplacement côté serveur.
+
+### Fallback icône d'app
+
+Si une app n'a pas d'`icon_path` (extraction `parse_ipa` échouée, ou IPA sans icône standard) :
+- Côté `source.json` : `iconURL` pointe vers `/static/default-app.png`
+- Côté UI admin (templates `apps.html`, `app_detail.html`, `dashboard.html`) : même fallback dans les `<img>`
+
+L'admin peut toujours uploader une icône custom via la fiche app (`/apps/{bundle_id}` → "Changer l'icône"). Le filename inclut un token (`<bundle_id>-<6hex>.png`) pour invalider le cache HTTP.
+
+---
+
+## 13bis. Protection optionnelle du dépôt (source token)
+
+Par défaut `/source.json` et `/qr.svg` sont publics — n'importe qui connaissant l'URL voit la liste des IPAs et peut les télécharger. Pour limiter l'accès :
+
+**Réglages → Sécurité → toggle "Protéger l'accès au dépôt d'IPA"**
+
+Quand activé :
+- Génère un jeton aléatoire de 256 caractères alphanumériques (clé settings `source_token_value`)
+- `/source.json` et `/qr.svg` exigent `?t=<jeton>` (sinon `404` — volontairement opaque pour les bots de scraping, pas `401`)
+- Le dashboard et le QR code intègrent automatiquement le jeton dans l'URL partagée
+- L'admin peut **Régénérer** un nouveau jeton (avec confirmation) → invalide tous les liens précédents
+- L'admin peut **Afficher / Masquer** le jeton (par défaut masqué dans l'UI)
+
+C'est volontairement un secret long en query string plutôt qu'une vraie auth : SideStore ne sait pas envoyer de header custom, seul `GET ?token=...` est utilisable côté client iOS.
+
+Persistance : `app/source_token.py` cache le jeton en RAM (lu au boot depuis `settings`, `refresh_from_db()` après modif). Un `threading.Lock` couvre les accès cross-thread (uvicorn + le polling lifespan).
 
 ---
 

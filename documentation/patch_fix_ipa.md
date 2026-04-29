@@ -104,9 +104,28 @@ Résultat : `stroff + strsize == end of __LINKEDIT == end of file` (gap = 0). L'
 Pour chaque binaire Mach-O ou FAT détecté dans le bundle `.app` :
 
 1. **Parse** avec `lief.MachO.parse()`
-2. **Thin FAT → arm64** : si le binaire est un Universal Binary (2+ architectures), on garde uniquement la slice `arm64` (cpu_subtype = 0, pas arm64e). Évite l'autre bug [`ldid` ne gérant pas les FAT binaries](https://github.com/altstoreio/AltStore/issues/1584)
+2. **Thin FAT → arm64** : si le binaire est un Universal Binary (2+ architectures), on garde uniquement la slice `arm64` (cpu_subtype = 0, pas arm64e). Évite l'autre bug [`ldid` ne gérant pas les FAT binaires](https://github.com/altstoreio/AltStore/issues/1584)
 3. **Strip signature** : supprime le load command `LC_CODE_SIGNATURE` existant (ldid en regénère une propre au sideload)
 4. **Write** : LIEF re-sérialise le Mach-O avec le layout canonique, écrase le fichier source
+
+### Repack et écrasement de l'IPA d'origine
+
+Le repack ZIP utilise un `tempfile.mkstemp(dir=os.path.dirname(ipa_path))` — **dans le même dossier que la destination**, pas dans `/tmp` :
+
+```python
+out_dir = os.path.dirname(ipa_path) or '.'
+tmp_fd, tmp_ipa = tempfile.mkstemp(prefix='.fix-ipa-', suffix='.ipa.tmp', dir=out_dir)
+os.close(tmp_fd)
+repack_ipa(extract_dir, tmp_ipa)
+os.chmod(tmp_ipa, 0o644)        # mkstemp cree en 0600 -> world-readable
+os.replace(tmp_ipa, ipa_path)   # rename(2) atomique, meme filesystem
+```
+
+Pourquoi pas `shutil.move(/tmp/...)` :
+1. `/tmp` (du conteneur) ≠ `/srv/store/ipas/` (volume monté) → `os.rename` lève `EXDEV` (cross-device link), `shutil.move` retombe sur copie non-atomique.
+2. Le fallback copie ouvre la destination en `'wb'` → fail si le fichier existant a un owner différent (cas typique : IPA produite par scinsta-builder en root, patch tourne en uid `ipastore`).
+
+`os.replace` (= `rename(2)`) sur le même filesystem est atomique ET POSIX-permissive : peut overwrite un fichier dont on n'est pas owner tant que le parent dir est writable.
 
 ### Dépendances
 
