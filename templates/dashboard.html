@@ -151,6 +151,24 @@
       // button avant qu'on declenche requestSubmit().
       setTimeout(() => uploadForm.requestSubmit(), 0);
     });
+
+    const dropzone = document.getElementById('dropzone');
+    if (dropzone) {
+      ['dragenter', 'dragover'].forEach(ev => {
+        dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+      });
+      ['dragleave', 'drop'].forEach(ev => {
+        dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('drag-over'); });
+      });
+      dropzone.addEventListener('drop', (e) => {
+        const file = e.dataTransfer?.files?.[0];
+        if (!file) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        ipaInput.files = dt.files;
+        ipaInput.dispatchEvent(new Event('change'));
+      });
+    }
   }
 
   const urlInput = document.getElementById('apps-url-input');
