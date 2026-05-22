@@ -583,7 +583,9 @@ cmd_scinsta_build() {
   # donc le trap ne fait rien en path nominal -- il sert de safety net.
   local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
   local cancel_flag="/etc/ipastore/scinsta-build-cancel-${env}"
-  trap 'rm -f "$req_flag" "$cancel_flag"' EXIT
+  # Guillemets doubles : les valeurs sont capturees maintenant (scope de la
+  # fonction), pas au moment ou le trap se declenche (hors scope, local unbound).
+  trap "rm -f '${req_flag}' '${cancel_flag}'" EXIT
 
   # Tee toute la sortie vers le fichier log poll par l'UI.
   local log_file="/etc/ipastore/scinsta-build-log-${env}.txt"
