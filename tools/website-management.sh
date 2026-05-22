@@ -27,6 +27,18 @@ CONTAINER_NAME="ipastore-website"
 VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
+# Docker CLI + BuildKit ecrivent leur etat (~/.docker/config.json,
+# .docker/buildx/...). Resolution via $HOME -> /home/ipastore quand le
+# service systemd tourne en uid ipastore. Si ce home n'existe pas (cas
+# d'une VM bootstrappee depuis un bootstrap.sh ancien qui ne creait pas
+# le dir), docker echoue avec "mkdir /home/ipastore: permission denied"
+# car ipastore ne peut pas ecrire dans /home (root:root). On redirige
+# DOCKER_CONFIG vers /etc/ipastore/.docker, garanti accessible en uid
+# ipastore (parent en 750 ipastore:ipastore). Independant de l'existence
+# de /home/ipastore -> robuste meme apres un rollback + bootstrap main.
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/etc/ipastore/.docker}"
+mkdir -p "$DOCKER_CONFIG" 2>/dev/null || true
+
 # Couleurs. Avec $'...' les escapes sont pre-expanses en ESC reel, pour que
 # docker ps --format (qui n'interprete pas \033) les affiche correctement.
 C_CYAN=$'\033[1;36m'
