@@ -39,7 +39,7 @@ def db_setup_submit(
     user: str = Form(...),
     password: str = Form(...),
     database: str = Form(...),
-    stream: str = "",
+    stream: str = Form(default=""),
 ):
     """Configure la BDD en 3 phases. Si ?stream=1 (appele par l'UI JS),
     renvoie du NDJSON en streaming pour que l'overlay puisse refleter
