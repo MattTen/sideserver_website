@@ -57,6 +57,24 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl gnupg rsync git
 
+# qemu-user-static + binfmt-support : requis UNIQUEMENT sur les hotes ARM64
+# pour pouvoir executer l'image scinsta-builder (qui est amd64-only car la
+# toolchain L1ghtmann et ipapatch ne sont pas distribues en arm64). Sur un
+# hote x86_64 c'est inutile -- on saute l'install pour rester minimal.
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+  aarch64|arm64)
+    echo "[bootstrap] Hote ARM64 detecte -> installation de qemu-user-static pour emulation amd64"
+    apt-get install -y qemu-user-static binfmt-support
+    ;;
+  x86_64|amd64)
+    echo "[bootstrap] Hote amd64 detecte -> qemu non necessaire"
+    ;;
+  *)
+    echo "[bootstrap] WARN: architecture hote inconnue ($HOST_ARCH) -- builds SCInsta peuvent echouer"
+    ;;
+esac
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "[bootstrap] Installing Docker..."
   # Le repo Docker differe selon l'OS (linux/debian vs linux/ubuntu).
@@ -94,11 +112,20 @@ if ! getent group ipastore >/dev/null; then
 fi
 
 if ! id -u ipastore >/dev/null 2>&1; then
-  # -r : user systeme (uid dans la plage system, pas de fichier a la racine home)
-  # -M : pas de creation de /home/ipastore (pas besoin, c'est un user d'infra)
+  # -r : user systeme (uid dans la plage system)
+  # -m -d /home/ipastore : home dir necessaire pour docker CLI qui ecrit
+  #   $HOME/.docker/config.json + cache buildkit. Sans home, `docker build`
+  #   echoue avec "mkdir /home/ipastore: permission denied" quand il est
+  #   execute par le service systemd en tant que ipastore.
   # -s /usr/sbin/nologin : interdit l'ouverture de session interactive
-  useradd -r -M -g ipastore -s /usr/sbin/nologin ipastore
+  useradd -r -m -d /home/ipastore -g ipastore -s /usr/sbin/nologin ipastore
 fi
+
+# Idempotent : garantit le home dir meme si l'user existait deja sans
+# (cas des installs precedentes qui utilisaient -M).
+mkdir -p /home/ipastore
+chown ipastore:ipastore /home/ipastore
+chmod 750 /home/ipastore
 
 IPASTORE_UID="$(id -u ipastore)"
 IPASTORE_GID="$(id -g ipastore)"
@@ -278,10 +305,17 @@ Group=${APP_GROUP}
 # Le flag est lu PUIS supprime par build.py (read_flag_payload) : ne PAS le
 # supprimer ici sinon le payload JSON est perdu avant lecture.
 ExecStart=/usr/local/bin/website-management %i-scinsta-build
+# Safety net : si systemd SIGKILL le processus (timeout depasse, le trap
+# bash dans cmd_scinsta_build n'aura pas tourne), on supprime les flags
+# residuels pour que le path unit puisse re-trigger au prochain build.
+ExecStopPost=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i /etc/ipastore/scinsta-build-cancel-%i
 StandardOutput=journal
 StandardError=journal
-# Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min selon la VM.
-TimeoutStartSec=1800
+# Clone SCInsta + Theos build + cyan + ipapatch : 5-15 min en natif amd64.
+# Sur hote ARM64, qemu-user-static emule x86_64 et ralentit le build d'un
+# facteur 3-4 -- 2h couvre largement le pipeline complet (FLEX arm64 +
+# arm64e + SCInsta tweak + ipapatch) sous emulation.
+TimeoutStartSec=7200
 EOF
 
 cat > /etc/systemd/system/ipastore-scinsta-cancel@.path <<EOF

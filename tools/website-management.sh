@@ -27,6 +27,18 @@ CONTAINER_NAME="ipastore-website"
 VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
+# Docker CLI + BuildKit ecrivent leur etat (~/.docker/config.json,
+# .docker/buildx/...). Resolution via $HOME -> /home/ipastore quand le
+# service systemd tourne en uid ipastore. Si ce home n'existe pas (cas
+# d'une VM bootstrappee depuis un bootstrap.sh ancien qui ne creait pas
+# le dir), docker echoue avec "mkdir /home/ipastore: permission denied"
+# car ipastore ne peut pas ecrire dans /home (root:root). On redirige
+# DOCKER_CONFIG vers /etc/ipastore/.docker, garanti accessible en uid
+# ipastore (parent en 750 ipastore:ipastore). Independant de l'existence
+# de /home/ipastore -> robuste meme apres un rollback + bootstrap main.
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/etc/ipastore/.docker}"
+mkdir -p "$DOCKER_CONFIG" 2>/dev/null || true
+
 # Couleurs. Avec $'...' les escapes sont pre-expanses en ESC reel, pour que
 # docker ps --format (qui n'interprete pas \033) les affiche correctement.
 C_CYAN=$'\033[1;36m'
@@ -574,17 +586,51 @@ cmd_scinsta_build() {
   local dir="$APP_DIR/tools/scinsta-builder"
   [[ -d "$dir" ]] || { err "Builder introuvable : $dir (relance 'update' ?)"; exit 1; }
 
+  # Cleanup automatique des flags peu importe comment le script sort :
+  # success, set -e exit, kill systemd (timeout 2h), SIGTERM/SIGKILL...
+  # Sans ca, un docker build foire laissait scinsta-build-requested-${env}
+  # sur disque et le PathExists= du systemd path unit ne retriggerait plus
+  # (transition absent->present requise).
+  # build.py unlinke deja le request flag des qu'il l'a lu cote conteneur,
+  # donc le trap ne fait rien en path nominal -- il sert de safety net.
+  local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
+  local cancel_flag="/etc/ipastore/scinsta-build-cancel-${env}"
+  # Guillemets doubles : les valeurs sont capturees maintenant (scope de la
+  # fonction), pas au moment ou le trap se declenche (hors scope, local unbound).
+  trap "rm -f '${req_flag}' '${cancel_flag}'" EXIT
+
   # Tee toute la sortie vers le fichier log poll par l'UI.
   local log_file="/etc/ipastore/scinsta-build-log-${env}.txt"
   : > "$log_file"
   exec > >(tee -a "$log_file") 2>&1
 
+  # L'image est amd64-only (toolchain iOS + ipapatch pas distribues en arm64).
+  # Sur un hote ARM64, on force la plateforme amd64 -> Docker passe par
+  # qemu-user-static (installe par bootstrap) pour emuler les binaires x86_64.
+  # Sur amd64, build natif sans surcouche.
+  local host_arch
+  host_arch="$(uname -m)"
+  local platform_args=()
+  case "$host_arch" in
+    x86_64|amd64)
+      info "Hote amd64 detecte -> build natif sans emulation"
+      ;;
+    aarch64|arm64)
+      info "Hote ARM64 detecte -> build amd64 via qemu (--platform=linux/amd64)"
+      platform_args=(--platform=linux/amd64)
+      ;;
+    *)
+      err "Architecture hote non supportee : $host_arch (attendu: x86_64 ou aarch64)"
+      exit 1
+      ;;
+  esac
+
   info "Build image Docker $SCINSTA_BUILDER_IMAGE"
-  docker build --progress=plain -t "$SCINSTA_BUILDER_IMAGE" "$dir"
+  docker build --progress=plain "${platform_args[@]}" -t "$SCINSTA_BUILDER_IMAGE" "$dir"
 
   local cname="scinsta-builder-${env}"
   info "Run scinsta-builder env=$env (container=$cname)"
-  docker run --rm --name "$cname" \
+  docker run --rm --name "$cname" "${platform_args[@]}" \
     -e IPASTORE_ENV="$env" \
     -v /etc/ipastore:/etc/ipastore \
     -v "${STORE_DIR}:/srv/store" \

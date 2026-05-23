@@ -45,18 +45,19 @@
     <form id="upload-form" method="post" action="/apps/upload" enctype="multipart/form-data">
       <label class="dropzone" id="dropzone">
         <input type="file" name="ipa" accept=".ipa" id="ipa-input" required>
-        <strong>Déposer un IPA</strong>
-        <div class="hint">ou cliquer pour sélectionner un fichier</div>
+        <strong id="dz-title">Déposer un IPA</strong>
+        <div class="hint" id="dz-hint">ou cliquer pour sélectionner un fichier</div>
         <div class="progress"><div class="progress-bar"></div></div>
       </label>
-      <div class="mt-4 row-gap space-between">
-        <span class="text-dim" id="upload-status" style="font-size: 12.5px;">Aucun fichier sélectionné.</span>
-        <button class="btn btn-primary" type="submit" id="upload-submit" disabled>
-          {% include "_icons/upload.svg" %}
-          <span>Téléverser</span>
-        </button>
-      </div>
+      <button type="submit" id="upload-submit" hidden></button>
+      <span id="upload-status" hidden></span>
     </form>
+
+    <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+      <input type="url" class="input" id="apps-url-input" style="flex:1; min-width:0;" placeholder="…ou coller l'URL directe d'un IPA">
+      <button type="button" class="btn" id="apps-url-btn">Télécharger</button>
+    </div>
+    <div id="apps-url-msg" style="display:none; margin-top:10px;"></div>
   </div>
 
   <div class="card">
@@ -108,11 +109,8 @@
         <tr>
           <td>
             <div class="app-cell">
-              {% if app.icon_path %}
-              <img src="/icons/{{ app.icon_path }}" class="app-icon" alt="">
-              {% else %}
-              <div class="app-icon"></div>
-              {% endif %}
+              <img src="{% if app.icon_path %}/icons/{{ app.icon_path }}{% else %}/static/default-app.png{% endif %}" class="app-icon" alt="">
+
               <div>
                 <div>{{ app.name }}</div>
                 <div class="mono-sm">{{ app.bundle_id }}</div>
@@ -135,4 +133,145 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+(function() {
+  // Auto-submit du formulaire des qu'un fichier est selectionne / drop
+  // (plus besoin du bouton "Televerser" -- comportement aligne sur SCInsta).
+  const ipaInput = document.getElementById('ipa-input');
+  const uploadForm = document.getElementById('upload-form');
+  const dzTitle = document.getElementById('dz-title');
+  const dzHint = document.getElementById('dz-hint');
+  if (ipaInput && uploadForm) {
+    ipaInput.addEventListener('change', () => {
+      if (!ipaInput.files?.[0]) return;
+      if (dzTitle) dzTitle.textContent = 'Téléversement en cours…';
+      if (dzHint) dzHint.textContent = ipaInput.files[0].name;
+      // setTimeout pour laisser app.js (change listener) activer le submit
+      // button avant qu'on declenche requestSubmit().
+      setTimeout(() => uploadForm.requestSubmit(), 0);
+    });
+
+    const dropzone = document.getElementById('dropzone');
+    if (dropzone) {
+      ['dragenter', 'dragover'].forEach(ev => {
+        dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+      });
+      ['dragleave', 'drop'].forEach(ev => {
+        dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('drag-over'); });
+      });
+      dropzone.addEventListener('drop', (e) => {
+        const file = e.dataTransfer?.files?.[0];
+        if (!file) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        ipaInput.files = dt.files;
+        ipaInput.dispatchEvent(new Event('change'));
+      });
+    }
+  }
+
+  const urlInput = document.getElementById('apps-url-input');
+  const urlBtn = document.getElementById('apps-url-btn');
+  const msgEl = document.getElementById('apps-url-msg');
+  if (!urlInput || !urlBtn || !msgEl) return;
+
+  const STYLES = {
+    success: { bg: 'rgba(126,179,138,0.12)', border: 'var(--success)', color: '#9dcfa7' },
+    warning: { bg: 'rgba(234,179,8,0.10)',   border: '#ca8a04',        color: '#fbbf24' },
+    error:   { bg: 'var(--danger-soft)',      border: 'var(--danger)',  color: '#e89d91' },
+  };
+  function setMsg(text, kind) {
+    if (!text) { msgEl.style.display = 'none'; msgEl.textContent = ''; return; }
+    const s = STYLES[kind || 'success'];
+    msgEl.style.cssText = `display:block; margin-top:10px; padding:10px 14px; border-radius:var(--radius); font-size:13px; border:1px solid ${s.border}; background:${s.bg}; color:${s.color};`;
+    msgEl.textContent = text;
+  }
+
+  function bytesToMb(n) { return (n / 1024 / 1024).toFixed(1) + ' Mo'; }
+
+  function progressLabel(s) {
+    const dl = bytesToMb(s.bytes_downloaded || 0);
+    if (s.bytes_total) {
+      const total = bytesToMb(s.bytes_total);
+      const pct = ((s.bytes_downloaded / s.bytes_total) * 100).toFixed(1);
+      return `Téléchargement : ${dl} / ${total} (${pct} %)`;
+    }
+    return `Téléchargement : ${dl} reçus…`;
+  }
+
+  async function poll(originalText) {
+    try {
+      const r = await fetch('/apps/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading') {
+        setMsg(progressLabel(s), 'warning');
+        setTimeout(() => poll(originalText), 1000);
+      } else if (s.status === 'processing') {
+        setMsg('Traitement de l\'IPA (extraction métadonnées + DB)…', 'warning');
+        setTimeout(() => poll(originalText), 1000);
+      } else if (s.status === 'done') {
+        setMsg('IPA importée. Redirection…', 'success');
+        if (s.redirect_url) {
+          window.location.href = s.redirect_url;
+        } else {
+          window.location.reload();
+        }
+      } else if (s.status === 'error') {
+        setMsg('Échec : ' + (s.error || 'erreur inconnue'), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      } else {
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      }
+    } catch (e) {
+      setTimeout(() => poll(originalText), 2000);
+    }
+  }
+
+  urlBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setMsg('URL http(s) requise.', 'error');
+      return;
+    }
+    urlBtn.disabled = true;
+    const originalText = urlBtn.textContent;
+    urlBtn.textContent = 'Téléchargement…';
+    setMsg('Initialisation du téléchargement…', 'warning');
+    try {
+      const fd = new FormData();
+      fd.append('url', url);
+      const res = await fetch('/apps/upload-url', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMsg('Échec : ' + (data.detail || ('HTTP ' + res.status)), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+        return;
+      }
+    } catch (e) {
+      setMsg('Erreur réseau : ' + e.message, 'error');
+      urlBtn.disabled = false;
+      urlBtn.textContent = originalText;
+      return;
+    }
+    setTimeout(() => poll(originalText), 300);
+  });
+
+  // Reprise auto si on recharge la page pendant un download en cours
+  (async () => {
+    try {
+      const r = await fetch('/apps/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading' || s.status === 'processing') {
+        urlBtn.disabled = true;
+        urlBtn.textContent = 'Téléchargement…';
+        poll('Télécharger');
+      }
+    } catch (_) { /* ignore */ }
+  })();
+})();
+</script>
 {% endblock %}

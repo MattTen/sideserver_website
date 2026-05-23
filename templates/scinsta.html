@@ -64,6 +64,11 @@
     <div class="progress" id="sci-progress"><div class="progress-bar" id="sci-progress-bar"></div></div>
   </label>
 
+  <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+    <input type="url" class="input" id="sci-url-input" style="flex:1; min-width:0;" placeholder="…ou coller l'URL directe de l'IPA">
+    <button type="button" class="btn" id="sci-url-btn">Télécharger</button>
+  </div>
+
   <div id="sci-upload-ready" style="{% if not state.upload_ready %}display:none{% endif %}; margin-top: 12px;">
     <div class="alert alert-success" style="display:flex; justify-content:space-between; align-items:center;">
       <span>
@@ -519,6 +524,97 @@
   fileInput.addEventListener('change', () => {
     if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
   });
+
+  // Upload depuis URL : le backend telecharge en background et l'UI poll
+  // /scinsta/upload-url-progress pour afficher les Mo recus en direct.
+  const urlInput = document.getElementById('sci-url-input');
+  const urlBtn = document.getElementById('sci-url-btn');
+
+  function urlProgressLabel(s) {
+    const dl = bytesToMb(s.bytes_downloaded || 0);
+    if (s.bytes_total) {
+      const total = bytesToMb(s.bytes_total);
+      const pct = ((s.bytes_downloaded / s.bytes_total) * 100).toFixed(1);
+      return `Téléchargement : ${dl} / ${total} (${pct} %)`;
+    }
+    return `Téléchargement : ${dl} reçus…`;
+  }
+
+  async function pollUrlProgress(originalText) {
+    try {
+      const r = await fetch('/scinsta/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading') {
+        setUploadMsg(urlProgressLabel(s), 'warning');
+        setTimeout(() => pollUrlProgress(originalText), 1000);
+      } else if (s.status === 'done') {
+        setUploadMsg('IPA téléchargée (' + bytesToMb(s.bytes_downloaded || 0) + ').');
+        urlInput.value = '';
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+        const sr = await fetch('/scinsta/status');
+        const ss = await sr.json();
+        render(ss);
+        renderChangelog(ss);
+      } else if (s.status === 'error') {
+        setUploadMsg('Téléchargement échoué : ' + (s.error || 'erreur inconnue'), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      } else {
+        // idle (rarement, ex: serveur redemarre pendant un poll)
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+      }
+    } catch (e) {
+      // Erreur transitoire de poll (reload, reseau) : on retente plus lentement
+      setTimeout(() => pollUrlProgress(originalText), 2000);
+    }
+  }
+
+  urlBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setUploadMsg('URL http(s) requise.', 'error');
+      return;
+    }
+    urlBtn.disabled = true;
+    const originalText = urlBtn.textContent;
+    urlBtn.textContent = 'Téléchargement…';
+    setUploadMsg('Initialisation du téléchargement…', 'warning');
+    try {
+      const fd = new FormData();
+      fd.append('url', url);
+      const res = await fetch('/scinsta/upload-url', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setUploadMsg('Téléchargement échoué : ' + (data.detail || ('HTTP ' + res.status)), 'error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = originalText;
+        return;
+      }
+    } catch (e) {
+      setUploadMsg('Erreur réseau : ' + e.message, 'error');
+      urlBtn.disabled = false;
+      urlBtn.textContent = originalText;
+      return;
+    }
+    // POST a renvoye 202 : on enchaine sur le polling
+    setTimeout(() => pollUrlProgress(originalText), 300);
+  });
+
+  // Si on recharge la page pendant qu'un download est en cours, on reprend
+  // le polling automatiquement pour afficher l'avancement courant.
+  (async () => {
+    try {
+      const r = await fetch('/scinsta/upload-url-progress');
+      const s = await r.json();
+      if (s.status === 'downloading') {
+        urlBtn.disabled = true;
+        urlBtn.textContent = 'Téléchargement…';
+        pollUrlProgress('Télécharger');
+      }
+    } catch (_) { /* ignore */ }
+  })();
   ['dragenter', 'dragover'].forEach(ev => {
     dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('drag-over'); });
   });

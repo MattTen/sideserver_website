@@ -249,6 +249,11 @@ def deploy_ipa(patched: Path, ig_version: str, scinsta_sha: str) -> Path:
     filename = f"SCInsta-ig{ig_version or 'x'}-sc{scinsta_sha}-{short}.ipa"
     final = IPAS / filename
     shutil.move(str(patched), str(final))
+    # Le conteneur builder tourne en root et produit par defaut un fichier
+    # 0600 root:root illisible pour l'app web (uid ipastore). On force 0644
+    # pour que parse_ipa, le static file serving SideStore et les patches
+    # ulterieurs puissent lire le fichier.
+    final.chmod(0o644)
     size = final.stat().st_size
     log("ipa_deployed", path=str(final), size=size, sha256=sha)
     return final

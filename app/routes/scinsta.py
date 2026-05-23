@@ -16,8 +16,9 @@ from ..patches import discover_patches, get_patch
 from .apps import TINT_COLORS, _TINT_PRESET_VALUES
 from ..scinsta import (
     _META_FIELDS, clear_build_log, clear_upload, dismiss_last_build_error,
-    get_state, read_build_log, request_build, request_cancel, run_check,
-    save_changelog, save_metadata_field, set_decrypt_url, upload_instagram_ipa,
+    get_state, get_url_download_state, read_build_log, request_build,
+    request_cancel, run_check, run_url_download_async, save_changelog,
+    save_metadata_field, set_decrypt_url, upload_instagram_ipa,
 )
 from ..templates import templates
 
@@ -157,6 +158,31 @@ async def scinsta_upload(
     size = path.stat().st_size
     logger.info("scinsta IG upload received: %s (%d bytes)", path, size)
     return JSONResponse({"ok": True, "size": size})
+
+
+@router.post("/upload-url")
+def scinsta_upload_url(
+    url: str = Form(...),
+    user: User = Depends(require_user),
+):
+    """Lance le telechargement de l'IPA depuis une URL en background.
+
+    Retourne 202 immediatement -- l'UI poll /scinsta/upload-url-progress pour
+    afficher l'avancement. Refus 409 si un download est deja en cours."""
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL http(s) requise")
+    state = get_url_download_state()
+    if state["status"] == "downloading":
+        raise HTTPException(status_code=409, detail="Un téléchargement est déjà en cours")
+    run_url_download_async(url)
+    return JSONResponse({"ok": True}, status_code=202)
+
+
+@router.get("/upload-url-progress")
+def scinsta_upload_url_progress(user: User = Depends(require_user)):
+    """Etat courant du telechargement URL (poll par l'UI toutes les ~1s)."""
+    return JSONResponse(get_url_download_state())
 
 
 @router.post("/clear-upload")

@@ -69,6 +69,9 @@ Paramètres clé/valeur du magasin, modifiables depuis l'UI `/settings` sans reb
 | `scinsta_meta_tint_color` | Teinte hex (sans `#`) pending | `""` |
 | `scinsta_meta_category` | Catégorie pending (`aucune` par défaut à la création) | `""` |
 | `scinsta_meta_changelog` | Override persistant de la Note de version des builds SCInsta. Si vide, auto-génération `Instagram <v> + SCInsta` | `""` |
+| `source_token_enabled` | `'1'` quand la protection par jeton de `/source.json` et `/qr.svg` est active. Toute autre valeur = désactivée. Cf. `app/source_token.py` | `""` (désactivé) |
+| `source_token_value` | Jeton 256 chars URL-safe exigé en query string `?t=<value>`. Régénéré via le bouton **Régénérer** côté UI (invalide tous les liens partagés précédents) | `""` |
+| `seo_disable_indexing` | `'1'` désactive l'indexation : `/robots.txt` sert `Disallow: /`, header `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` ajouté à toutes les réponses HTML. Cf. `app/seo.py` | `""` (indexation autorisée) |
 
 ---
 

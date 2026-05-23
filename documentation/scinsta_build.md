@@ -32,7 +32,7 @@ flag systemd   →  website-management <env>-scinsta-build
                            8. finish_success()         → scinsta-build-result-<env>
 ```
 
-Durée typique : **5-10 min** avec l'image cachée (premier build ~25 min à cause du download du SDK via git-lfs).
+Durée typique : **5-10 min** avec l'image cachée (premier build ~25 min à cause du download du SDK via git-lfs) sur hôte amd64 natif. Sur **ARM64 émulé** (qemu-user-static) : **30-60 min** (facteur 3-4×). D'où le `TimeoutStartSec=7200` (2h) sur le service systemd.
 
 Container nommé `scinsta-builder-<env>` (obligatoire pour que `ipastore-scinsta-cancel@<env>` puisse faire `docker stop -t 2`).
 
@@ -76,6 +76,28 @@ RUN mkdir -p $THEOS/toolchain \
 ```
 
 Le tarball extrait directement la structure `linux/iphone/bin/` attendue par les Makefiles Theos.
+
+### Multi-architecture (host ARM64)
+
+Le toolchain L1ghtmann et `ipapatch` ne sont distribués qu'en **amd64**. Sur un hôte ARM64 (Oracle Ampere, Pi…), `clang` plante avec `Exec format error` au moment de son exécution — le kernel ARM64 refuse les binaires x86_64 sans émulation.
+
+**Solution** : émulation x86_64 via `qemu-user-static`. Le bootstrap installe `qemu-user-static + binfmt-support` conditionnellement (cf. server.md §12.6) ; `cmd_scinsta_build` dans `tools/website-management.sh` détecte `uname -m` et passe `--platform=linux/amd64` au `docker build` + `docker run` :
+
+```bash
+case "$(uname -m)" in
+  x86_64|amd64)
+    info "Hote amd64 -> build natif"
+    ;;
+  aarch64|arm64)
+    info "Hote ARM64 -> build amd64 via qemu (--platform=linux/amd64)"
+    platform_args=(--platform=linux/amd64)
+    ;;
+esac
+docker build "${platform_args[@]}" -t scinsta-builder:latest "$dir"
+docker run --rm "${platform_args[@]}" ... scinsta-builder:latest
+```
+
+Le `Dockerfile` lui-même ne contient **pas** de `--platform=linux/amd64` hardcodé — sur amd64, build natif (no-op qemu) ; sur ARM64, le flag est ajouté dynamiquement par website-management.
 
 ### SDK iOS (theos/sdks)
 
@@ -268,9 +290,28 @@ Tous les échanges hôte ↔ conteneur passent par `/etc/ipastore/` (volume mont
 
 **Piège contourné** (commit initial avait ce bug) : ne **pas** mettre d'`ExecStartPre=/bin/rm -f` pour supprimer le flag avant le run. Ça vide le fichier avant que `build.py` puisse lire son contenu JSON (`patch`, `requested_at`), donc le nom du patch est perdu et aucun patch n'est appliqué.
 
-`read_flag_payload()` dans `build.py` fait déjà l'unlink **après** lecture. Le `PathExists=` unit ne retrigger que sur transition absent→présent, donc pas de boucle même si `build.py` crash : le flag reste en place et ne sera retraité qu'à la prochaine création par l'UI.
+`read_flag_payload()` dans `build.py` fait déjà l'unlink **après** lecture. Le `PathExists=` unit ne retrigger que sur transition absent→présent.
 
-Voir [deploy/systemd/ipastore-scinsta-build@.service](../deploy/systemd/ipastore-scinsta-build@.service) pour les commentaires in-situ.
+### Cleanup des flags (2 niveaux : `trap` + `ExecStopPost`)
+
+Si `build.py` ne tourne pas (docker build cassé, qemu non chargé, OOM avant le `docker run`…), le flag reste sur disque et le `PathExists=` ne se redéclenche plus aux clics suivants depuis l'UI. Mécanisme à 2 niveaux :
+
+1. **`trap` bash** dans `cmd_scinsta_build` (`tools/website-management.sh`) :
+   ```bash
+   local req_flag="/etc/ipastore/scinsta-build-requested-${env}"
+   local cancel_flag="/etc/ipastore/scinsta-build-cancel-${env}"
+   trap 'rm -f "$req_flag" "$cancel_flag"' EXIT
+   ```
+   Couvre 99% des sorties (succès, `set -e` exit, SIGTERM systemd cancel, fin normale).
+   En path nominal le trap ne fait rien — `build.py` a déjà unlinké le flag à la lecture. Le trap sert de filet pour les foirages prématurés.
+
+2. **`ExecStopPost`** dans le systemd unit `ipastore-scinsta-build@.service` :
+   ```ini
+   ExecStopPost=/bin/rm -f /etc/ipastore/scinsta-build-requested-%i /etc/ipastore/scinsta-build-cancel-%i
+   ```
+   Catch le 1% restant : si `TimeoutStartSec=7200` est dépassé et systemd doit `SIGKILL` le shell, le trap bash n'a pas le temps de tourner. `ExecStopPost` s'exécute quand même.
+
+Les deux units (build et cancel) sont embedded en heredoc dans `deploy/bootstrap.sh`.
 
 ---
 
@@ -289,6 +330,24 @@ Exemple : `SCInsta-ig424.1.0-scdd125eb-e3e9c37756.ipa` (243 Mo avec `fix_ipa_sci
 - `ipa_short_sha` : 10 premiers caractères du SHA256 de l'IPA final (dédup + idempotence).
 
 Le triple `(igver, scsha, patch)` détermine `build_version` côté BDD — permet de garder plusieurs builds d'une même version IG distincts si le commit SCInsta change entre deux runs.
+
+### Permissions de l'IPA déposé
+
+Le builder tourne en **root** dans le conteneur (pas de directive `USER` dans le Dockerfile, parce que Theos / cyan / `/opt/theos` ont été créés en root au build time). Sans intervention, `shutil.move(patched, final)` produirait un fichier `root:root 0600` illisible par l'app web (qui tourne en uid `ipastore`).
+
+`deploy_ipa()` dans `build.py` force donc `final.chmod(0o644)` après le move :
+
+```python
+def deploy_ipa(patched, ig_version, scinsta_sha):
+    ...
+    shutil.move(str(patched), str(final))
+    final.chmod(0o644)   # rw-r--r-- : lisible par tous, ecrit par owner
+    return final
+```
+
+Conséquences :
+- Le fichier reste `root:root` (l'app web n'a pas besoin d'être owner)
+- Lecture OK pour `parse_ipa` (extraction icône, build_version), pour le static file serving SideStore, pour les patches ultérieurs (`os.replace` n'a besoin que de write+execute sur le parent dir, pas de l'ownership du fichier remplacé)
 
 ---
 
@@ -360,6 +419,5 @@ SCInsta lui-même n'est **pas** pinné : clone `main --depth 1` à chaque build 
 | [tools/scinsta-builder/Dockerfile](../tools/scinsta-builder/Dockerfile) | Image Theos + toolchain + SDK + stubs + cyan + ipapatch |
 | [tools/scinsta-builder/build.py](../tools/scinsta-builder/build.py) | Pipeline du conteneur one-shot |
 | [tools/scinsta-builder/README.md](../tools/scinsta-builder/README.md) | Pipeline + I/O (résumé court) |
-| [deploy/systemd/ipastore-scinsta-build@.service](../deploy/systemd/ipastore-scinsta-build@.service) | Runner systemd (timeout 30 min) |
-| [deploy/systemd/ipastore-scinsta-build@.path](../deploy/systemd/ipastore-scinsta-build@.path) | Watcher du flag |
-| [deploy/systemd/ipastore-scinsta-cancel@.service](../deploy/systemd/ipastore-scinsta-cancel@.service) | Cancel via `docker stop -t 2` (SIGTERM → 2s → SIGKILL) |
+| [tools/website-management.sh](../tools/website-management.sh) | `cmd_scinsta_build` (détection arch + trap cleanup) + `cmd_scinsta_cancel` |
+| [deploy/bootstrap.sh](../deploy/bootstrap.sh) | Units systemd embedded en heredoc : `ipastore-scinsta-build@.{path,service}` (timeout 7200s, ExecStopPost cleanup) + `ipastore-scinsta-cancel@.{path,service}` |

@@ -96,3 +96,7 @@ Mêmes limitations que `fix_ipa.py` (voir [`patch_fix_ipa.md`](patch_fix_ipa.md#
 
 - **Conçu pour SCInsta** — la suppression aveugle de `Extensions/` n'est pas appropriée pour tous les tweaks. Pour un autre tweak où l'extension est essentielle, utiliser `fix_ipa.py`
 - **Pas de backup automatique** — l'IPA d'origine est écrasé. À l'utilisateur de copier avant si besoin
+
+## Permissions et atomicité
+
+Même mécanisme que `fix_ipa.py` (cf. [patch_fix_ipa.md § Repack et écrasement de l'IPA d'origine](patch_fix_ipa.md#repack-et-écrasement-de-lipa-dorigine)) : `tempfile.mkstemp` dans le dossier de destination + `os.chmod(0o644)` + `os.replace` atomique. Permet de patcher en place une IPA produite par le scinsta-builder (owned `root:root`) depuis le web container (uid `ipastore`).
