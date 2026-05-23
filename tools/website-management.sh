@@ -28,15 +28,24 @@ VERSION_FILE="/etc/ipastore/prod.version"
 GIT_CREDENTIALS_FILE="/etc/ipastore/.git-credentials"
 
 # Docker CLI + BuildKit ecrivent leur etat (~/.docker/config.json,
-# .docker/buildx/...). Resolution via $HOME -> /home/ipastore quand le
-# service systemd tourne en uid ipastore. Si ce home n'existe pas (cas
-# d'une VM bootstrappee depuis un bootstrap.sh ancien qui ne creait pas
-# le dir), docker echoue avec "mkdir /home/ipastore: permission denied"
-# car ipastore ne peut pas ecrire dans /home (root:root). On redirige
-# DOCKER_CONFIG vers /etc/ipastore/.docker, garanti accessible en uid
-# ipastore (parent en 750 ipastore:ipastore). Independant de l'existence
-# de /home/ipastore -> robuste meme apres un rollback + bootstrap main.
-export DOCKER_CONFIG="${DOCKER_CONFIG:-/etc/ipastore/.docker}"
+# .docker/buildx/instances/...). Resolution via $HOME -> /home/ipastore
+# quand le service systemd tourne en uid ipastore. Si ce home n'existe
+# pas (cas d'une VM bootstrappee depuis un bootstrap.sh ancien qui ne
+# creait pas le dir), docker echoue avec "mkdir /home/ipastore:
+# permission denied" car ipastore ne peut pas ecrire dans /home (root:root).
+#
+# On redirige DOCKER_CONFIG vers /etc/ipastore/.docker-${UID} :
+#  - PARENT /etc/ipastore est 750 ipastore:ipastore, root et ipastore
+#    seuls ont acces.
+#  - Le suffixe -${UID} evite les conflits entre invocations sous
+#    differents users : si on run le script en root via le menu une
+#    fois (mkdir cree le dossier en root:root) puis ensuite en
+#    ipastore via systemd, ipastore ne pourrait pas stat les sous-
+#    dossiers laisses par root (buildx/instances/* en mode 700 root)
+#    -> "ERROR: stat .../buildx/instances: permission denied".
+#    Avec un path par-uid, chaque user a son propre cache buildx
+#    sans collision possible.
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/etc/ipastore/.docker-$(id -u)}"
 mkdir -p "$DOCKER_CONFIG" 2>/dev/null || true
 
 # Couleurs. Avec $'...' les escapes sont pre-expanses en ESC reel, pour que
