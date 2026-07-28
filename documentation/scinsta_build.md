@@ -52,7 +52,8 @@ Ordre optimisé pour maximiser le cache (dépendances stables en haut, code chan
 | 6 | **Stub `libclang_rt.ios.a`** compilé pour arm64+arm64e (cf. §5) | <10 s | Stable |
 | 7 | `pip install cyan lief requests` (`--break-system-packages`) | ~30 s | Stable |
 | 8 | Download binaire `ipapatch.linux-amd64 v2.1.3` | <5 s | Stable |
-| 9 | `COPY build.py` | instant | Changeant |
+| 9 | **Pin Logos** (`$THEOS/vendor/logos`) sur `a623700` (contournement régression `%orig`, cf. §5bis) | <5 s | Stable |
+| 10 | `COPY build.py` | instant | Changeant |
 
 Le changement de `build.py` n'invalide que le dernier layer. Rebuild post-modif ≈ 2 s.
 
@@ -209,6 +210,45 @@ Fix : compiler le stub **deux fois** (une par arch) avec des noms de .o distinct
 ```
 
 Le linker pioche le bon objet selon la cible en cours.
+
+---
+
+## 5bis. Pin Logos — régression `%orig` (theos/logos #114)
+
+### Symptôme
+
+À partir de fin juillet 2026, le build échoue au stade **preprocessing** (avant compilation) :
+
+```
+src/Features/Reels/ReelsPlayback.xm:43: error: Invalid argument structure in %orig
+make: *** [...] Error 2
+[failed] build.sh a echoue (rc=2)
+```
+
+### Cause
+
+Rien du côté SCInsta ni du builder. C'est une **régression du préprocesseur Logos** (submodule de Theos). Le commit `777925d` ("[logos] Support multi-line block arguments in `%orig` calls", theos/logos #114) a modifié le parsing de `%orig` et casse les appels écrits **en milieu de ligne**, typiquement un `%orig` à l'intérieur d'un block Objective-C — motif que SCInsta utilise dans `ReelsPlayback.xm` :
+
+```objc
+[SCIUtils showConfirmation:^(void) { %orig(arg1, arg2); }
+```
+
+Comme le pipeline clone **toujours `main` de SCInsta en frais** et que l'image embarque son **propre** Theos (donc son propre Logos, résolu au moment du `git clone --recursive`), tout rebuild d'image après l'atterrissage de `777925d` récupère le Logos buggé. SCInsta a corrigé côté CI (`.github/workflows/*.yml`) en pinnant Logos, mais ce pin **ne s'applique pas** à notre builder (il utilise son propre Theos, pas le CI upstream).
+
+### Fix
+
+On fige Logos sur le commit **juste avant** la régression, `a623700`, exactement comme le CI de SCInsta :
+
+```dockerfile
+RUN git -C $THEOS/vendor/logos fetch --depth=1 origin a62370066a97e36d59b200a9fa10c5091f5e8972 \
+    && git -C $THEOS/vendor/logos checkout a62370066a97e36d59b200a9fa10c5091f5e8972
+```
+
+Placé **tard** dans le Dockerfile (juste avant `WORKDIR`), pas près du clone Theos : Logos ne sert qu'au runtime via `build.sh`, donc pinner tard évite d'invalider le cache des couches lourdes au-dessus (toolchain, pull LFS du SDK).
+
+### À faire quand upstream corrige
+
+Quand theos/logos aura corrigé la régression (issue de parsing des `%orig` multi-lignes), **retirer ce layer** du Dockerfile pour repasser sur le Logos par défaut de Theos.
 
 ---
 
@@ -402,6 +442,7 @@ docker logs scinsta-builder-dev
 | Base image | `debian:bookworm-slim` | Docker Hub |
 | clang (toolchain iOS) | 11.1.0 | L1ghtmann/llvm-project (latest release) |
 | Theos | HEAD `main` | github.com/theos/theos |
+| Logos | **pinné `a623700`** (régression `%orig`, cf. §5bis) | theos/logos (submodule Theos) |
 | SDK iOS | 16.5 (+symlink 16.2) | theos/sdks (LFS) |
 | ldid | HEAD `main` | ProcursusTeam/ldid |
 | cyan | HEAD `main` | asdfzxcvbn/pyzule-rw |

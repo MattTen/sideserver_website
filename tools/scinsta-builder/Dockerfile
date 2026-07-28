@@ -159,6 +159,21 @@ RUN curl -fsSL \
     && chmod +x /usr/local/bin/ipapatch \
     && ipapatch --version
 
+# ─── Pin Logos (contournement regression %orig) ────────────────────────
+# Logos est un submodule de Theos (clone --recursive plus haut). Depuis le
+# commit 777925d ("Support multi-line block arguments in %orig", theos/logos
+# #114), le preprocesseur casse les %orig ecrits en milieu de ligne (typique
+# d'un %orig dans un block Objective-C), ce que SCInsta utilise -> erreur
+# "Invalid argument structure in %orig" sur src/Features/Reels/ReelsPlayback.xm.
+# On fige Logos sur le commit juste avant (a623700), exactement comme le CI
+# upstream de SCInsta. A retirer quand theos/logos aura corrige la regression.
+#
+# Place ici volontairement (et non pres du clone Theos) : Logos ne sert qu'au
+# runtime via build.sh, donc pinner tard evite d'invalider le cache des
+# couches lourdes au-dessus (toolchain, pull LFS du SDK).
+RUN git -C $THEOS/vendor/logos fetch --depth=1 origin a62370066a97e36d59b200a9fa10c5091f5e8972 \
+    && git -C $THEOS/vendor/logos checkout a62370066a97e36d59b200a9fa10c5091f5e8972
+
 WORKDIR /opt/builder
 
 # PATH inclut $THEOS/bin pour accès a nic.pl, logos.pl et consorts invoques
