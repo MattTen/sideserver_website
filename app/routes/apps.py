@@ -25,6 +25,7 @@ from ..db import _get_session_factory, get_db
 from ..ipa import parse_ipa, sha256_of_file
 from ..models import App, User, Version
 from ..templates import templates
+from ..versioning import public_version, versions_desc
 
 logger = logging.getLogger(__name__)
 
@@ -412,12 +413,18 @@ def app_detail(
         screenshots = json.loads(app.screenshot_urls or "[]")
     except json.JSONDecodeError:
         screenshots = []
+    pub = public_version(app)
     return templates.TemplateResponse(
         request, "app_detail.html",
         {
             "user": user,
             "app": app,
-            "versions": list(app.versions),
+            # Triées par numéro décroissant (même ordre que le feed).
+            "versions": versions_desc(app),
+            # id de la version publique effective (pour la surbrillance).
+            "public_version_id": pub.id if pub else None,
+            # None si mode "Dernière version", sinon l'id figé (état du select).
+            "pinned_version_id": app.public_version_id,
             "screenshots": screenshots,
             "tint_colors": TINT_COLORS,
             "tint_preset_values": _TINT_PRESET_VALUES,
@@ -425,6 +432,39 @@ def app_detail(
             "active": "apps",
         },
     )
+
+
+@router.post("/apps/{bundle_id}/public-version")
+def app_set_public_version(
+    bundle_id: str,
+    version_id: str = Form(""),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Choisit la version publique de l'app.
+
+    `version_id` vide = mode "Dernière version" (public_version_id NULL, la
+    version au numéro le plus haut suit automatiquement les uploads). Sinon on
+    fige la version choisie (aucun changement auto jusqu'à nouvelle sélection).
+    """
+    app = db.query(App).filter_by(bundle_id=bundle_id).one_or_none()
+    if app is None:
+        raise HTTPException(status_code=404)
+    vid = version_id.strip()
+    if not vid:
+        app.public_version_id = None
+    else:
+        try:
+            target = int(vid)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="version_id invalide")
+        # La version doit exister et appartenir à cette app.
+        version = db.get(Version, target)
+        if version is None or version.app_id != app.id:
+            raise HTTPException(status_code=404, detail="Version inconnue pour cette app")
+        app.public_version_id = target
+    db.commit()
+    return RedirectResponse(f"/apps/{bundle_id}", status_code=303)
 
 
 @router.post("/apps/{bundle_id}/edit")
@@ -491,6 +531,11 @@ def version_delete(
     app = db.get(App, version.app_id)
     if not app or app.bundle_id != bundle_id:
         raise HTTPException(status_code=404)
+    # Si on supprime la version publique figée, rebascule l'app en mode
+    # "Dernière version" (la FK ondelete SET NULL n'existe pas sur les bases
+    # migrées, donc on le fait explicitement ici).
+    if app.public_version_id == version.id:
+        app.public_version_id = None
     (Config.IPAS_DIR / version.ipa_filename).unlink(missing_ok=True)
     db.delete(version)
     db.commit()

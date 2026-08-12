@@ -11,6 +11,7 @@ from sqlalchemy import select
 from .config import Config
 from .models import App, News, Setting
 from .news_bg import PRESETS as _NEWS_BG_PRESETS
+from .versioning import public_version, versions_desc
 
 
 _DEFAULT_ICON_PATH = "/static/default-app.png"
@@ -46,8 +47,14 @@ def build_source(db: Session, base_url: str) -> dict[str, Any]:
     featured: list[str] = []
 
     for app in db.execute(select(App).order_by(App.name)).scalars():
+        # SideStore installe la 1re entrée du tableau `versions` : on place donc
+        # la version publique en tête, puis le reste par numéro décroissant.
+        pub = public_version(app)
+        ordered = versions_desc(app)
+        if pub is not None:
+            ordered = [pub] + [v for v in ordered if v.id != pub.id]
         versions_payload: list[dict[str, Any]] = []
-        for v in app.versions:  # already ordered desc by uploaded_at
+        for v in ordered:
             versions_payload.append({
                 "version": v.version,
                 "buildVersion": v.build_version,

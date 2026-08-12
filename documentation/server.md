@@ -704,6 +704,7 @@ Le rendu SideStore dépend de ce qui est publié dans `source.json`. L'UI admin 
 | `headerURL`         | Réglages → Apparence → Bannière         | `STORE_DIR/icons/_header-<token>.ext` (optionnel)|
 | `tintColor`         | Réglages → Métadonnées → Teinte         | table `settings`, clé `store_tint`               |
 | `featuredApps`      | Fiche app → toggle "Mettre en avant"    | colonne `apps.featured`                          |
+| `versions[]` (ordre)| Fiche app → carte "Version publique"    | colonne `apps.public_version_id`                 |
 | `news[]`            | Actualités (nouveau menu)               | table `news` + fichiers dans `STORE_DIR/news/`   |
 
 Le suffixe aléatoire (`-<token>`) dans les noms de fichiers d'apparence invalide le cache HTTP de SideStore à chaque upload — sans ça, le client garde l'ancienne image même après remplacement côté serveur.
@@ -715,6 +716,15 @@ Si une app n'a pas d'`icon_path` (extraction `parse_ipa` échouée, ou IPA sans 
 - Côté UI admin (templates `apps.html`, `app_detail.html`, `dashboard.html`) : même fallback dans les `<img>`
 
 L'admin peut toujours uploader une icône custom via la fiche app (`/apps/{bundle_id}` → "Changer l'icône"). Le filename inclut un token (`<bundle_id>-<6hex>.png`) pour invalider le cache HTTP.
+
+### Version publique
+
+SideStore installe la **première** entrée du tableau `versions` d'une app. La carte "Version publique" de la fiche app (`/apps/{bundle_id}`, à gauche des Métadonnées) pilote laquelle via une liste déroulante, stockée dans `apps.public_version_id` :
+
+- **Dernière version** (défaut, `public_version_id = NULL`) : la version au **numéro le plus haut** passe en tête et suit automatiquement chaque nouvel upload de version supérieure. Vaut pour les 3 canaux d'upload (fiche app, upload URL, build SCInsta).
+- **Version figée** (`public_version_id` défini) : la version choisie reste publique quoi qu'il arrive, jusqu'à un nouveau choix manuel. Aucun upload ne la déloge.
+
+`app/versioning.py` centralise la comparaison (par numéro, pas par date) et la résolution ; `source_gen.build_source` place la version publique en tête puis le reste par numéro décroissant. Supprimer la version figée rebascule l'app en mode "Dernière version". La liste des versions dans l'UI reste triée par numéro décroissant, la publique étant mise en surbrillance.
 
 ---
 

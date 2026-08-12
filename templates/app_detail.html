@@ -42,9 +42,9 @@
     <h2>Versions</h2>
     {% if versions %}
       {% for v in versions %}
-      <div class="version-row">
+      <div class="version-row{% if v.id == public_version_id %} is-public{% endif %}">
         <div>
-          <div class="v-label">{{ v.version }} <span class="text-dim">({{ v.build_version }})</span></div>
+          <div class="v-label">{{ v.version }} <span class="text-dim">({{ v.build_version }})</span>{% if v.id == public_version_id %} <span class="badge badge-accent"><span class="badge-dot"></span>Publique</span>{% endif %}</div>
           <div class="v-meta">{{ v.uploaded_at|date }} — {{ v.size|size }}</div>
         </div>
         <details style="cursor:pointer;">
@@ -84,6 +84,32 @@
     </div>
   </div>
 
+  <div class="col-stack">
+  <div class="card">
+    <h2>Version publique</h2>
+    <p class="text-muted mb-4" style="font-size:12.5px;">
+      Version proposée à l'installation dans SideStore.
+      <strong>Dernière version</strong> suit automatiquement le numéro le plus haut à chaque upload ;
+      une version figée ne bouge plus tant que tu ne la changes pas ici.
+    </p>
+    <form method="post" action="/apps/{{ app.bundle_id }}/public-version">
+      <div class="field">
+        <select class="input" name="version_id" onchange="this.form.submit()" {% if not versions %}disabled{% endif %}>
+          <option value="" {% if pinned_version_id is none %}selected{% endif %}>Dernière version</option>
+          {% for v in versions %}
+          <option value="{{ v.id }}" {% if pinned_version_id == v.id %}selected{% endif %}>{{ v.version }} ({{ v.build_version }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if pinned_version_id is none %}
+      <div class="v-meta">
+        Mode automatique
+        {% for v in versions %}{% if v.id == public_version_id %}— actuellement <code>{{ v.version }}</code>{% endif %}{% endfor %}
+      </div>
+      {% endif %}
+      <noscript><button type="submit" class="btn btn-sm mt-4">Appliquer</button></noscript>
+    </form>
+  </div>
   <div class="card">
     <h2>Métadonnées</h2>
     <form method="post" action="/apps/{{ app.bundle_id }}/edit">
@@ -154,6 +180,7 @@
         <span>Enregistrer</span>
       </button>
     </form>
+  </div>
   </div>
 </div>
 

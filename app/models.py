@@ -64,10 +64,26 @@ class App(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
     )
+    # Version affichée comme "publique" (1re du tableau versions dans source.json,
+    # celle que SideStore propose à l'install). NULL = mode "Dernière version" :
+    # la version au numéro le plus haut est publique et suit automatiquement les
+    # nouveaux uploads. Sinon = version figée jusqu'à changement manuel via l'UI.
+    # ondelete SET NULL : supprimer la version publique rebascule en "Dernière
+    # version" (renforcé aussi côté app car les bases migrées n'ont pas la FK).
+    # use_alter : les FK apps<->versions sont circulaires, l'ALTER différé évite
+    # l'échec d'ordonnancement de create_all sur une base neuve.
+    public_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("versions.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_apps_public_version"),
+        nullable=True,
+    )
 
     # cascade delete-orphan : supprimer une App supprime toutes ses Version en cascade.
+    # foreign_keys explicite : lever l'ambiguïté introduite par public_version_id
+    # (2e FK entre apps et versions) — cette relation suit uniquement Version.app_id.
     versions: Mapped[list["Version"]] = relationship(
-        back_populates="app", cascade="all, delete-orphan", order_by="Version.uploaded_at.desc()"
+        back_populates="app", cascade="all, delete-orphan",
+        order_by="Version.uploaded_at.desc()", foreign_keys="Version.app_id",
     )
 
 
@@ -87,7 +103,7 @@ class Version(Base):
     changelog: Mapped[str] = mapped_column(Text, default="", nullable=False)
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
-    app: Mapped[App] = relationship(back_populates="versions")
+    app: Mapped[App] = relationship(back_populates="versions", foreign_keys="Version.app_id")
 
     __table_args__ = (
         # Empêche le double-upload d'un même build (version + build_version identiques).

@@ -92,8 +92,16 @@ Métadonnées d'une application iOS. Identifiée de manière unique par `bundle_
 | `icon_path` | VARCHAR(512) | NULL | Nom de fichier relatif dans `ICONS_DIR` (NULL = pas d'icône) |
 | `screenshot_urls` | TEXT | NOT NULL | JSON list d'URLs absolues |
 | `featured` | INT | NOT NULL | 1 = mise en avant dans SideStore |
+| `public_version_id` | INT | NULL, FK → `versions.id` SET NULL | Version publique figée. NULL = mode "Dernière version" (voir ci-dessous) |
 | `created_at` | DATETIME | NOT NULL | Date de création (UTC) |
 | `updated_at` | DATETIME | NOT NULL | Mise à jour automatique à chaque modification (`onupdate`) |
+
+**Version publique (`public_version_id`) :** détermine quelle version est placée en tête du tableau `versions` de `source.json`, donc celle que SideStore propose à l'installation.
+- `NULL` (défaut) = mode **"Dernière version"** : la version au numéro le plus élevé est publique et suit automatiquement les nouveaux uploads.
+- valeur définie = version **figée** : ne bouge plus tant qu'elle n'est pas rechangée via l'UI, même si un IPA de version supérieure est uploadé.
+- Comparaison par numéro de version (`app/versioning.py`), pas par date d'upload.
+- FK `ON DELETE SET NULL` (rebascule en "Dernière version" si la version figée est supprimée). Renforcé côté app pour les bases migrées sans la contrainte FK.
+- FK circulaire avec `versions.app_id` → déclarée `use_alter` pour l'ordonnancement de `create_all`.
 
 ---
 
@@ -147,6 +155,7 @@ users          (aucune relation avec les autres tables)
 settings       (aucune relation)
 news           (aucune relation — app_bundle_id est une référence logique non contrainte)
 apps    1 ──< versions   (cascade delete : supprimer une App supprime toutes ses Version)
+apps    ?──> versions   (public_version_id : version publique figée, SET NULL à la suppression)
 ```
 
 ---
