@@ -136,6 +136,8 @@ requirements.txt
 
 > **RÈGLE ABSOLUE : tout développement sur la branche `dev` uniquement.**
 > Ne jamais committer ou pusher directement sur `main`.
+> Les commit/push vont **exclusivement** sur le repo `sideserver_website`
+> (`https://github.com/MattTen/sideserver_website/`), branche `dev`. Voir §9.
 
 **Publier une release prod** :
 1. Merger `dev` → `main` (PR ou fast-forward)
@@ -279,12 +281,17 @@ Les assets publics (IPAs, icônes, screenshots) sont servis via `StaticFiles` mo
 - `downloadURL` pointe vers `/ipas/{filename}` — les fichiers doivent exister dans `STORE_DIR/ipas/`
 - L'URL publique est dérivée dynamiquement depuis `request.base_url` (via `--proxy-headers --forwarded-allow-ips=*`) sauf si `IPASTORE_BASE_URL` est forcé
 
-### 9. Commits
-Format : `type(scope): description courte` (conventionnel).
-Toujours avec co-auteur :
-```
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
-```
+### 9. Commits & push
+
+**Cible autorisée — unique.** Tous les commit/push vont **exclusivement** sur :
+- **Repo** : `sideserver_website` (`https://github.com/MattTen/sideserver_website/`)
+- **Branche** : `dev` **uniquement**
+
+Ne jamais pusher sur `main`, sur un autre remote, ou vers un autre repo. L'authentification GitHub se fait via le PAT déjà présent dans l'URL du remote `origin` en local (jamais recopié dans un fichier tracké : le repo est public).
+
+**Format** : `type(scope): description courte` (conventionnel).
+
+**Co-auteur — interdit.** Ne **jamais** ajouter de trailer `Co-Authored-By` (ni Claude, ni quiconque) dans les messages de commit.
 
 ---
 
